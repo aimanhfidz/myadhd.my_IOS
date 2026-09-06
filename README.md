@@ -19,6 +19,22 @@ needs to know is injected from `BridgeScript.swift` at load, so the shell
 works against whatever is deployed at myadhd.my — including a version that
 has never heard of it.
 
+## The web app is not this project's to change
+
+**Everything in this directory is a wrapper or an injection.** The shell reads
+the page, hides things from it, and adds what only iOS can do — but no file
+outside `ios/` is edited to make an iOS feature work. That is not tidiness. It
+is what keeps myadhd.my deployable without a build, and keeps this shell
+working against a version of the site that has never heard of it.
+
+So when an iOS change looks like it needs the website edited — a selector
+added, a button removed, an endpoint changed — **stop and ask first.** There
+is almost always an injection that does it from this side; and when there is
+not, changing the web app is a decision about the website, not a step in an
+iOS task. The two App Store items that genuinely do live on the web side —
+in-app account deletion and Sign in with Apple — are listed at the bottom of
+this file as exactly that, and neither has been touched.
+
 ## Running it on your iPhone
 
 Xcode 26.6 and the iOS 26.5 SDK are already on this machine. There is no
@@ -126,6 +142,15 @@ which is the only reason a dark-theme launch does not flash white.
 .default()` is written out rather than left implicit for that reason. Every
 task lives there; an ephemeral store would empty the app on each launch.
 
+**The donation link is closed on iOS, from this side.** `app.html` carries two
+asks — the tin in the thanks card and the quiet line above it — and
+`paintFeedback()` renders neither when `MYADHD_DONATE_URL` is empty. So
+`BridgeScript.swift` defines that global as a permanently empty property
+before `config.js` runs, and the web app hides both by its own "no link, no
+ask" path. The website keeps its tin; the shell simply never shows it. Why: an
+external payment link is the least settled corner of App Review, and it is not
+worth spending a first submission on. No file outside `ios/` was touched.
+
 **Four values here are promises about the web app** and will break quietly if
 either side moves: the two grounds in `AppConfig` (`theme.css`), the
 `#dump-input` id (`app.html`), the `myadhd.v1` store key (`app.js`), and the
@@ -162,11 +187,56 @@ Rough edges, this being a proof of concept:
 - Images are not accepted, deliberately: nothing in the app can read one, so
   offering it would be a button that captures nothing.
 
+## Getting it onto the App Store
+
+Guideline 4.2 exists to reject webview wrappers, and this is one. The features
+in the table at the top are the answer to it, and the review-notes field is
+where that answer gets made — for this app it is the most important text in
+the submission, not a formality.
+
+The full 26-step plan, in dependency order, is a checklist here:
+<https://claude.ai/code/artifact/49e4c687-f514-4d37-ae1a-15ef3ade0e3c>
+
+**Done, in this directory only:**
+
+- `PrivacyInfo.xcprivacy` — required since May 2024. Without it the upload
+  bounces as `ITMS-91053` before a human sees anything. It declares
+  `UserDefaults` (`ShellState.swift`, `Inbox.swift`) with reason `CA92.1`.
+  The synchronised file group picks it up with no project edit; a Release
+  build puts it at the root of `MyADHD.app`. `DumpShare` touches no
+  required-reason API, so it needs none of its own — check that again if the
+  extension ever grows.
+- `TARGETED_DEVICE_FAMILY = 1` — iPhone only. Shipping to iPad obliges a set
+  of 13" screenshots and invites a reviewer to open a one-column web app in
+  landscape split view. The dead `UISupportedInterfaceOrientations~ipad` key
+  went with it.
+- `MARKETING_VERSION = 1.0`, in both targets — an extension must carry the
+  same version and build as its host or the upload is rejected.
+  `CURRENT_PROJECT_VERSION` is the build number and has to increase on every
+  upload, forever, including ones that get rejected.
+- The donation link, closed from `BridgeScript.swift` — see above.
+
+**Left, and both of them live in the web app, so neither is this project's
+to start without asking:**
+
+- **In-app account deletion.** Guideline 5.1.1(v): an app offering accounts
+  must let people delete them inside it. `privacy.html` currently says to
+  email, which is named in the guideline as insufficient. Needs a control
+  beside the Sign out button in `app.html` and something behind it that
+  deletes the Supabase user and their rows.
+- **Sign in with Apple.** Guideline 4.8: Google is the only provider, and a
+  third-party login setting up the primary account needs a companion that
+  collects only name and email. There is a real argument the rule does not
+  apply here, since the app works fully signed out — but Sign in with Apple
+  ends the argument rather than having it.
+
+Also outstanding, and nothing to do with code: a paid membership, the
+`myadhd://auth` line in Supabase's redirect allow-list without which sign-in
+dead-ends inside the shell, screenshots, the privacy nutrition label, and the
+review notes.
+
 ## Not done yet
+
 - **Widgets and Live Activities.** "One task" is a home-screen widget waiting
   to happen. Needs a WidgetKit extension and a real read of the task list
   from Swift rather than through the page.
-- **App Store review.** Guideline 4.2 rejects webview wrappers that add
-  nothing. The four features above are the answer to it, but a submission
-  also needs a paid account, screenshots, a privacy nutrition label, and
-  review notes that say what the native layer does. None of that is started.

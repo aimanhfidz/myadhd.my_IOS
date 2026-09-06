@@ -75,18 +75,18 @@
 	</dict>
 
 	<!-- site.webmanifest says portrait, and every screen is built for one
-	     column. The iPad gets the rest because it can put the app in a
-	     landscape split view whether we like it or not. -->
+	     column.
+
+	     There was a ~ipad variant here handing the iPad the other three,
+	     on the grounds that it can put an app in a landscape split view
+	     whether we like it or not. TARGETED_DEVICE_FAMILY is now 1, so
+	     there is no iPad build for it to apply to and the key was only
+	     saying something untrue. An iPad can still run this in iPhone
+	     compatibility mode, where it is a phone-shaped window and this
+	     list is the one that governs it. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 </dict>
 </plist>

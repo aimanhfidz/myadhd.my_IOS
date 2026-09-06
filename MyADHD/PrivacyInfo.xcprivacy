@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- ============================================================
+	     Required since 1 May 2024. Without it the upload comes back as
+	     ITMS-91053 before a human has looked at anything.
+
+	     It describes THIS BUNDLE ONLY — the Swift in MyADHD/. Everything
+	     the web app collects (email and name at Supabase, the dump text
+	     on its way to Anthropic, the recording on its way to Gemini) is
+	     declared in App Store Connect's privacy questionnaire instead,
+	     because none of it is collected by code that ships in this app.
+	     The two must agree; privacy.html is the third copy of the same
+	     story and has to agree as well.
+	     ============================================================ -->
+
+	<key>NSPrivacyTracking</key>
+	<false/>
+
+	<!-- No analytics, no advertising, no third-party scripts. The web app
+	     makes the same claim and it is true on both sides. -->
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!-- Nothing is collected by the shell itself. The reminders are built
+	     from a store the page already wrote, and never leave the device. -->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<!-- ShellState.swift remembers the theme so a dark launch does
+			     not flash white; Inbox.swift parks text from a Shortcut so a
+			     cold launch cannot drop it. Both are this app's own
+			     preferences, read back only by this app. -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

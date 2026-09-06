@@ -46,6 +46,34 @@ enum BridgeScript {
         share:  function (text) { post('share',  { text: String(text || '') }); },
         _post: post
       };
+
+      /* ---- the tin, closed on iOS ----
+         app.html carries two asks — the tin in the thanks card and the
+         quiet line above it — and paintFeedback() renders neither when
+         MYADHD_DONATE_URL is empty. That is the web app's own "no link,
+         no ask" path, already written and already exercised by any
+         deployment without a Stripe link, so this takes it rather than
+         hiding boxes by class name that could be renamed tomorrow.
+
+         Why at all: a link out to a payment page is the murkiest corner
+         of App Review. The US storefront stopped forbidding it in 2025,
+         the rest of the world is a separate question, and the answer to
+         both is still moving through a court. None of that is worth
+         arguing about on a first submission, and the money was never the
+         point — so the ask stays on the web, where nobody has to rule on
+         it, and the shell simply does not show it.
+
+         A property rather than an assignment because config.js sets the
+         value long after this script has run: a setter that swallows the
+         write is the only shape that survives it. The web app is not
+         touched, and a browser never sees any of this.  */
+      try {
+        Object.defineProperty(window, 'MYADHD_DONATE_URL', {
+          get: function () { return ''; },
+          set: function () { /* config.js will try. It does not win. */ },
+          configurable: false
+        });
+      } catch (e) { /* leave the page alone rather than break config.js */ }
     })();
     """#
 
