@@ -80,7 +80,22 @@ enum BridgeScript {
         if (!t || !t.closest) return;
         if (t.closest('.task-check')) { post('haptic', { kind: 'success' }); return; }
         if (t.closest('#btn-triage')) { post('haptic', { kind: 'medium' });  return; }
+        /* Push-to-talk is the one control on this screen where the press and
+           the release are both instructions, so both are answered. A
+           selection tick is not enough to say "recording": it is the same
+           tick every other button gives, and the thing it would be
+           confirming takes a second to visibly start. */
+        if (t.closest('#composer-mic')) { post('haptic', { kind: 'medium' }); return; }
         if (t.closest('button, [role="button"], a')) { post('haptic', { kind: 'selection' }); }
+      }, true);
+
+      /* The only release worth answering. micDown captures the pointer to
+         the button, so this lands here however far the thumb has rolled. */
+      document.addEventListener('pointerup', function (e) {
+        var t = e.target;
+        if (t && t.closest && t.closest('#composer-mic')) {
+          post('haptic', { kind: 'light' });
+        }
       }, true);
 
       /* ---- say when the store changes ----

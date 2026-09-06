@@ -46,11 +46,19 @@
 	<false/>
 
 	<!-- hold-to-talk, in voice.js. The shell grants the web view's request;
-	     iOS still asks the user, using this sentence. -->
+	     iOS still asks the user, using this sentence.
+
+	     There is deliberately no NSSpeechRecognitionUsageDescription beside
+	     it. Adding one switches on the web view's SpeechRecognition, which
+	     voice.js uses for the rough live preview — and that engine takes
+	     exactly one language, which app.html fixes at English by way of
+	     <html lang="en">. A Malay sentence therefore arrived as confident
+	     English nonsense and sat in the box until Gemini replaced it.
+	     Without the key the engine is simply absent, which is the case
+	     voice.js was written for on an iPhone: the level ring while you
+	     hold, and the real transcript when you let go. -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Hold the mic button to say what is in your head instead of typing it. The recording is transcribed and then thrown away.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Used to show rough words while you are still speaking. The real transcript is made from the recording.</string>
 
 	<!-- A static screen cannot know which theme was chosen, so it follows
 	     the system and the shell paints the remembered ground a frame later. -->

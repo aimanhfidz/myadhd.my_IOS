@@ -1,0 +1,21 @@
+// ============================================================
+// my.adhd for iOS — who signs this build
+//
+// Signing is a fact about a machine and an Apple ID, not about the app, so
+// it does not belong in the project file: a team id committed here is one
+// more identifier in a public repo, and it is a build error for anybody
+// who clones this and is not that team.
+//
+// It ended up in the project file once already, without being typed there
+// — xcodebuild resolved automatic signing on the first build and wrote it
+// back. This is what stops that happening again: the setting lives in
+// Local.xcconfig, which is git-ignored.
+//
+//     echo 'DEVELOPMENT_TEAM = YOURTEAMID' > ios/Local.xcconfig
+//
+// Or leave it out entirely and pick a team in Xcode under Signing &
+// Capabilities, which writes the same file. Without one the project still
+// opens, still builds for the simulator, and only device builds complain.
+// ============================================================
+
+#include? "Local.xcconfig"

@@ -6,6 +6,14 @@
    felt. The generators are kept alive rather than made per tap because a
    cold generator costs a few hundred milliseconds to warm up, which is
    long enough to arrive after the animation it was meant to accompany.
+
+   Kept alive is not the same as kept ready, which is what the prepare()
+   after every buzz is for. The Taptic Engine is powered down again a
+   couple of seconds after it is used, so a generator prepared once at
+   load is warm for the first tap of a session and cold for every tap
+   after a pause — and a late haptic does not read as late, it reads as a
+   button that did not respond. Re-arming on the way out means the next
+   one is always the fast case.
    ============================================================ */
 
 import UIKit
@@ -21,13 +29,13 @@ enum Haptics {
     /// Names match the strings the injected bridge sends.
     static func play(_ kind: String) {
         switch kind {
-        case "light":     light.impactOccurred()
-        case "medium":    medium.impactOccurred()
-        case "heavy":     heavy.impactOccurred()
-        case "success":   notice.notificationOccurred(.success)
-        case "warning":   notice.notificationOccurred(.warning)
-        case "error":     notice.notificationOccurred(.error)
-        default:          selection.selectionChanged()
+        case "light":     light.impactOccurred();  light.prepare()
+        case "medium":    medium.impactOccurred(); medium.prepare()
+        case "heavy":     heavy.impactOccurred();  heavy.prepare()
+        case "success":   notice.notificationOccurred(.success); notice.prepare()
+        case "warning":   notice.notificationOccurred(.warning); notice.prepare()
+        case "error":     notice.notificationOccurred(.error);   notice.prepare()
+        default:          selection.selectionChanged(); selection.prepare()
         }
     }
 
@@ -35,6 +43,7 @@ enum Haptics {
     static func warm() {
         light.prepare()
         medium.prepare()
+        heavy.prepare()
         notice.prepare()
         selection.prepare()
     }
