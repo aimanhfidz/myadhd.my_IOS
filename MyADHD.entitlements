@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- One group, and the same one in both targets, so neither has to
+	     name it in code: an unspecified access group means the first in
+	     this list. $(AppIdentifierPrefix) expands to the team id at build
+	     time, which keeps that id out of tracked source. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)my.adhd.shared</string>
+	</array>
+</dict>
+</plist>

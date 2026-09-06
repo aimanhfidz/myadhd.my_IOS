@@ -10,6 +10,7 @@ a page in a browser cannot do on an iPhone:
 |---|---|
 | **Haptics** | Ticking a task off is the emotional centre of this app and on the web it is silent. Taps get three cases only — a success buzz on `.task-check`, a firmer knock on **Clear my head**, a selection tick on everything else; buzzing on all of them is what a cheap wrapper does. Swipes get the two the app had already written and never got: `navigator.vibrate` is polyfilled, so the mark at the arming threshold and the long-press pick-up finally land, and the commit is felt too — success for done, a thud for remove. |
 | **Reminders** | A task carries a day and often a clock time. iOS web push needs a server pushing it and a permission a home-screen icon rarely gets; the times are already on the device, so `Reminders.swift` reads the store the web app wrote and schedules local notifications from it. The body is the task's **first step**, not its title — the title is what you already knew. |
+| **Share sheet** | The thought that arrives already written, inside somebody else's app. Share from Safari or Mail and the text is queued without my.adhd ever coming to the front — so the home screen, and every badge on it, is never shown. A proof of concept; see below. |
 | **Siri / Shortcuts** | *"Hey Siri, dump a thought into my.adhd."* The argument `voice.js` makes about the bus, carried one step further back: holding the mic still costs unlocking the phone and finding the icon. |
 | **Google sign-in** | Google refuses OAuth inside an embedded browser. Without the workaround in `GoogleSignIn.swift` there is no signing in at all, so no sync and no calendar. |
 
@@ -82,6 +83,9 @@ ios/
 ├── MyADHD.xcodeproj/     no build settings worth hiding; INFOPLIST_FILE and
 │                         a synchronised file group, so a new .swift file in
 │                         MyADHD/ is picked up with no project edit
+├── DumpShare/            the share extension — one file
+├── Shared/               compiled into both targets
+│   └── DumpQueue.swift   the handover, and why it is in the keychain
 └── MyADHD/
     ├── MyADHDApp.swift    the entry point, and nothing else
     ├── RootView.swift     ground, page, and the cover that hides the white
@@ -127,10 +131,38 @@ either side moves: the two grounds in `AppConfig` (`theme.css`), the
 `#dump-input` id (`app.html`), the `myadhd.v1` store key (`app.js`), and the
 `.task-check` / `#btn-triage` selectors the haptics hang off.
 
-## Not done yet
+## The share extension, and the keychain
 
-- **A Share extension.** Selecting text in any app and sending it to the dump
-  box is the natural next native feature, and it needs a second target.
+A second target, `DumpShare`, appearing in the system share sheet. It cannot
+write a task: it runs in its own sandbox and the tasks live in `localStorage`
+inside the app's web view. So it queues the text and the app drains it on the
+way back to the front.
+
+The usual place to queue it is an App Group container, which needs an
+entitlement a free account is not given. **This uses the keychain instead** —
+the development profile already grants `YOURTEAMID.*`, the whole team prefix,
+so both targets can declare one shared access group and share a drawer with
+nothing bought and nothing hacked. Neither names the group in code: an
+unspecified access group means "the first one in my entitlement", and both
+entitlements list exactly one and the same, which also keeps the team id out
+of tracked source.
+
+It is an odd drawer for a queue and the right one for the contents: a brain
+dump is private speech, and these are short strings that exist for the seconds
+between sharing something and opening the app.
+
+Rough edges, this being a proof of concept:
+
+- The button says **Post**. `SLComposeServiceViewController` gives the box,
+  the Cancel and the button already looking like the system for none of the
+  code, and does not offer to rename it. First thing to replace.
+- A shared page becomes `Title — url`. The title comes from what Safari puts
+  in the item's content text rather than from reading the page, so a site that
+  does not supply one leaves just the address.
+- Images are not accepted, deliberately: nothing in the app can read one, so
+  offering it would be a button that captures nothing.
+
+## Not done yet
 - **Widgets and Live Activities.** "One task" is a home-screen widget waiting
   to happen. Needs a WidgetKit extension and a real read of the task list
   from Swift rather than through the page.

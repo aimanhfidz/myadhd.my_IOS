@@ -105,9 +105,10 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         web.isInspectable = true   // Safari > Develop > iPhone, on device
         #endif
 
-        /* A Shortcut can fire while the app is not running, in which case the
-           thought was written down before this object existed. */
-        pendingDump = Inbox.take()
+        /* A Shortcut can fire, and the share sheet can be used, while the app
+           is not running — in which case the thought was written down before
+           this object existed. */
+        pendingDump = Self.waiting()
 
         listen()
         web.load(URLRequest(url: AppConfig.home))
@@ -376,7 +377,21 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     }
 
     @objc private func returning() {
+        /* Only when there is something: dump() reloads the page to land on
+           the box, and doing that on every return to the foreground would
+           throw away the screen the user was looking at. */
+        if let text = Self.waiting() { dump(text) }
         Reminders.sync(from: web)
+    }
+
+    /// Everything queued up elsewhere while this was not the front app: a
+    /// thought from a Shortcut, and whatever the share extension left in the
+    /// keychain. Separate lines, because splitDump() in app.js reads a line
+    /// as a thought — so three things shared before you next opened the app
+    /// stay three things.
+    private static func waiting() -> String? {
+        let parts = [Inbox.take(), DumpQueue.drainedText()].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n")
     }
 
     @objc private func opened(_ note: Notification) {
