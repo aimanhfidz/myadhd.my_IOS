@@ -42,6 +42,23 @@ enum Reminders {
     /// awake to act on it.
     private static let defaultHour = 9
 
+    /// A task dated today and written at two in the afternoon used to fall
+    /// straight through this: nine o'clock had been and gone, so the only
+    /// time it had was in the past and it was dropped without a sound. You
+    /// dated it today, so it rings today — an hour out, far enough not to
+    /// be startling and near enough to still be today.
+    ///
+    /// Only for a task that never named a time. An explicit half past four
+    /// that has already gone is genuinely past, and moving it would be
+    /// inventing an appointment the user did not make.
+    private static let rescueDelay: TimeInterval = 60 * 60
+
+    /// And nothing rescued rings after this, because the whole point of the
+    /// rescue is a task you can still act on. Nine at night is late enough
+    /// to catch an afternoon's work and early enough not to be a phone
+    /// going off in a dark room.
+    private static let quietHour = 21
+
     private struct Item {
         let id: String
         let title: String
@@ -89,13 +106,12 @@ enum Reminders {
 
     // MARK: - reading what the web app wrote
 
-    private static func parse(_ json: String?) -> [Item] {
+    private static func parse(_ json: String?, now: Date = Date()) -> [Item] {
         guard let json,
               let data = json.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tasks = root["tasks"] as? [[String: Any]] else { return [] }
 
-        let now = Date()
         var out: [Item] = []
 
         for task in tasks {
@@ -105,9 +121,24 @@ enum Reminders {
             guard let id = task["id"] as? String,
                   let title = task["title"] as? String,
                   let day = task["when"] as? String,
-                  let parts = components(day: day, at: task["at"] as? String),
-                  let fire = Calendar.current.date(from: parts),
-                  fire > now else { continue }
+                  let stamp = components(day: day, at: task["at"] as? String),
+                  let asked = Calendar.current.date(from: stamp.parts) else { continue }
+
+            var fire = asked
+            var parts = stamp.parts
+
+            if fire <= now {
+                /* Yesterday stays gone, and so does a time the user actually
+                   named. Only an untimed task dated today gets a second
+                   chance — and only if there is still a civil hour to take
+                   it in. */
+                guard !stamp.timed,
+                      Calendar.current.isDateInToday(asked),
+                      let rescued = rescue(from: now) else { continue }
+                fire = rescued
+                parts = Calendar.current.dateComponents(
+                    [.year, .month, .day, .hour, .minute], from: rescued)
+            }
 
             let step = (task["firstStep"] as? String) ?? ""
             out.append(Item(id: id, title: title, step: step, fire: fire, parts: parts))
@@ -118,7 +149,8 @@ enum Reminders {
 
     /// "2026-03-09" and "16:30", the two shapes normalizeDay/normalizeTime
     /// in app.js guarantee. Anything else is skipped rather than guessed at.
-    private static func components(day: String, at clock: String?) -> DateComponents? {
+    private static func components(day: String, at clock: String?)
+        -> (parts: DateComponents, timed: Bool)? {
         let ymd = day.split(separator: "-").map(String.init).compactMap(Int.init)
         guard ymd.count == 3, day.count == 10 else { return nil }
 
@@ -129,15 +161,26 @@ enum Reminders {
         parts.hour = defaultHour
         parts.minute = 0
 
+        var timed = false
         if let clock {
             let hm = clock.split(separator: ":").map(String.init).compactMap(Int.init)
             if hm.count == 2, (0...23).contains(hm[0]), (0...59).contains(hm[1]) {
                 parts.hour = hm[0]
                 parts.minute = hm[1]
+                timed = true
             }
         }
 
-        return parts
+        return (parts, timed)
+    }
+
+    /// An hour from now, unless that lands in the quiet part of the evening.
+    private static func rescue(from now: Date) -> Date? {
+        let calendar = Calendar.current
+        let when = now.addingTimeInterval(rescueDelay)
+        guard let cutoff = calendar.date(bySettingHour: quietHour, minute: 0, second: 0, of: now),
+              when <= cutoff else { return nil }
+        return when
     }
 
     // MARK: - permission
