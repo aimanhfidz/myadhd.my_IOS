@@ -83,6 +83,24 @@ enum BridgeScript {
         if (t.closest('button, [role="button"], a')) { post('haptic', { kind: 'selection' }); }
       }, true);
 
+      /* ---- say when the store changes ----
+         The reminders are built out of localStorage, and until this existed
+         the only moments the shell knew to rebuild them were a page load and
+         the app going away. A task written and dated in one sitting was
+         therefore never scheduled at all, which also meant iOS was never
+         asked for permission to ring about it.
+
+         Patching the prototype rather than listening for 'storage', because
+         that event fires in every tab except the one that wrote it — which
+         is the only tab there is here. */
+      try {
+        var write = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key, value) {
+          write.apply(this, arguments);
+          if (key === 'myadhd.v1') post('store', {});
+        };
+      } catch (e) { /* leave the store alone rather than break saving */ }
+
       post('ready', {});
     })();
     """#

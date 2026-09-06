@@ -21,6 +21,7 @@
    is a start.
    ============================================================ */
 
+import UIKit
 import UserNotifications
 import WebKit
 
@@ -52,12 +53,36 @@ enum Reminders {
     // MARK: - the pass
 
     /// Reads the store out of the page and rebuilds the schedule from it.
+    ///
+    /// The read and the three notification-centre round trips after it are
+    /// every one of them asynchronous, and the most valuable moment to run
+    /// this is the moment the app is being put away — which is also the
+    /// moment iOS stops giving it time. Hence the background task: without
+    /// it the chain gets frozen somewhere in the middle and the schedule is
+    /// left half rebuilt.
     static func sync(from web: WKWebView) {
-        web.evaluateJavaScript("localStorage.getItem('\(storeKey)')") { value, _ in
+        var ticket = UIBackgroundTaskIdentifier.invalid
+        ticket = UIApplication.shared.beginBackgroundTask(withName: "myadhd.reminders") {
+            UIApplication.shared.endBackgroundTask(ticket)
+            ticket = .invalid
+        }
+        let finish = {
+            guard ticket != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(ticket)
+            ticket = .invalid
+        }
+
+        web.evaluateJavaScript("localStorage.getItem('\(storeKey)')") { value, error in
+            /* No page to ask means no answer, not an empty store. Rebuilding
+               from that would cancel every reminder the app has — which is
+               exactly what a sync fired on launch, before the first load,
+               would otherwise do. */
+            guard error == nil else { finish(); return }
+
             let items = parse(value as? String)
             authorize(forItems: items) { allowed in
-                guard allowed else { return }
-                replaceSchedule(with: items)
+                guard allowed else { finish(); return }
+                replaceSchedule(with: items, then: finish)
             }
         }
     }
@@ -137,12 +162,13 @@ enum Reminders {
 
     // MARK: - writing the schedule
 
-    private static func replaceSchedule(with items: [Item]) {
+    private static func replaceSchedule(with items: [Item], then done: @escaping () -> Void) {
         let center = UNUserNotificationCenter.current()
         center.getPendingNotificationRequests { pending in
             let ours = pending.map(\.identifier).filter { $0.hasPrefix(idPrefix) }
             center.removePendingNotificationRequests(withIdentifiers: ours)
 
+            let pen = DispatchGroup()
             for item in items {
                 let content = UNMutableNotificationContent()
                 content.title = item.title
@@ -155,8 +181,10 @@ enum Reminders {
                     content: content,
                     trigger: trigger
                 )
-                center.add(request, withCompletionHandler: nil)
+                pen.enter()
+                center.add(request) { _ in pen.leave() }
             }
+            pen.notify(queue: .main) { done() }
         }
     }
 }

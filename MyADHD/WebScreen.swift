@@ -54,6 +54,10 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     /// /app is what guarantees the dump box is the box on screen.
     private var pendingDump: String?
 
+    /// The store is written on nearly every interaction, so the rebuild it
+    /// triggers waits for the typing to stop.
+    private var storeSettle: DispatchWorkItem?
+
     init(state: ShellState) {
         self.state = state
 
@@ -129,6 +133,8 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
             state.remember(theme: body["theme"] as? String ?? "light")
         case "share":
             share(body["text"] as? String ?? "")
+        case "store":
+            reminderSyncSoon()
         case "ready":
             pageReady()
         default:
@@ -147,6 +153,19 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         }
 
         Reminders.sync(from: web)
+    }
+
+    /// Called every time the page writes its store. Ticking a task off writes
+    /// it, and so does every keystroke that lands in a draft, so this coalesces
+    /// a burst into one rebuild rather than one per save.
+    private func reminderSyncSoon() {
+        storeSettle?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            Reminders.sync(from: self.web)
+        }
+        storeSettle = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
     }
 
     // MARK: - where a tap is allowed to go
@@ -338,6 +357,16 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
            and the read of localStorage never comes back. */
         centre.addObserver(self, selector: #selector(leaving),
                            name: UIApplication.willResignActiveNotification, object: nil)
+        /* Coming back matters too: the lists may have been changed on another
+           device and pulled down by cloud.js while this copy was away. Before
+           the first load this reads nothing and changes nothing — see the
+           guard at the top of Reminders.sync. */
+        centre.addObserver(self, selector: #selector(returning),
+                           name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    @objc private func returning() {
+        Reminders.sync(from: web)
     }
 
     @objc private func opened(_ note: Notification) {
@@ -362,6 +391,7 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     }
 
     @objc private func leaving() {
+        storeSettle?.cancel()      // no point waiting out a debounce we are leaving
         Reminders.sync(from: web)
     }
 }
