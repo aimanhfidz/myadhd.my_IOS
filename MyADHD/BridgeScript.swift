@@ -125,6 +125,37 @@ enum BridgeScript {
         """
     }
 
+    /// Hands the tokens to auth.js and then rebuilds the page around them.
+    ///
+    /// Not a plain load of `/app#access_token=…`, which is the obvious thing
+    /// and does not work: WebKit treats a URL differing from the current one
+    /// only by its fragment as a same-document navigation, so the document is
+    /// never re-executed and absorbRedirect() — which runs once, at boot —
+    /// never sees the tokens at all.
+    ///
+    /// So they go to auth.js directly, which writes the session to
+    /// localStorage. The reload afterwards is what rebuilds the UI from it,
+    /// and it is also the only thing that can reset the sign-in button:
+    /// app.js disables it and relabels it "Taking you to Google…" on its way
+    /// out, which is safe on the web because the page is about to be
+    /// destroyed, and leaves it stuck there for ever in a shell that
+    /// cancelled the navigation instead.
+    static func absorb(fragment: String) -> String {
+        """
+        (function () {
+          location.hash = \(jsString(fragment));
+          function reboot() { location.reload(); }
+          if (window.auth && window.auth.absorbRedirect) {
+            try {
+              Promise.resolve(window.auth.absorbRedirect()).then(reboot, reboot);
+              return;
+            } catch (e) { /* fall through to the plain reload */ }
+          }
+          reboot();
+        })();
+        """
+    }
+
     /// A JS string literal, escaped by the JSON encoder rather than by hand.
     private static func jsString(_ value: String) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: [value]),

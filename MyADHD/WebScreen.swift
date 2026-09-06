@@ -287,20 +287,30 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
 
     private func startSignIn(_ url: URL) {
         signIn.start(authorize: url) { [weak self] callback in
-            guard let self,
-                  let callback,
-                  let fragment = URLComponents(url: callback, resolvingAgainstBaseURL: false)?
-                      .percentEncodedFragment,
-                  !fragment.isEmpty else { return }
+            guard let self else { return }
 
-            /* absorbRedirect() in auth.js runs once, at boot, so the tokens
-               have to arrive as a fresh load rather than as a hash set on the
-               page that is already up. Kept percent-encoded so nothing is
-               re-escaped on the way through. */
-            var parts = URLComponents(url: AppConfig.home, resolvingAgainstBaseURL: false)
-            parts?.percentEncodedFragment = fragment
-            if let landing = parts?.url {
-                self.web.load(URLRequest(url: landing))
+            /* Kept percent-encoded so nothing is re-escaped on the way back
+               into the page. */
+            let fragment = callback.flatMap {
+                URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedFragment
+            }
+
+            guard let fragment, !fragment.isEmpty else {
+                /* Cancelled, or came back with nothing. The page still has a
+                   disabled button on it reading "Taking you to Google…", and
+                   app.js has no code to put that right — it never expected to
+                   still be here. Only a reload will. */
+                self.web.reload()
+                return
+            }
+
+            self.web.evaluateJavaScript(BridgeScript.absorb(fragment: fragment)) { _, error in
+                guard error != nil else { return }
+                /* No page to hand them to. Land on one carrying the fragment
+                   instead, which boots and absorbs them the ordinary way. */
+                var parts = URLComponents(url: AppConfig.home, resolvingAgainstBaseURL: false)
+                parts?.percentEncodedFragment = fragment
+                if let landing = parts?.url { self.web.load(URLRequest(url: landing)) }
             }
         }
     }
