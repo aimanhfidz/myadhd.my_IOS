@@ -8,7 +8,7 @@ a page in a browser cannot do on an iPhone:
 
 | | why it needed the native side |
 |---|---|
-| **Haptics** | Ticking a task off is the emotional centre of this app and on the web it is silent. Three cases only — a success buzz on `.task-check`, a firmer knock on **Clear my head**, a selection tick on everything else. Buzzing on every tap is what a cheap wrapper does. |
+| **Haptics** | Ticking a task off is the emotional centre of this app and on the web it is silent. Taps get three cases only — a success buzz on `.task-check`, a firmer knock on **Clear my head**, a selection tick on everything else; buzzing on all of them is what a cheap wrapper does. Swipes get the two the app had already written and never got: `navigator.vibrate` is polyfilled, so the mark at the arming threshold and the long-press pick-up finally land, and the commit is felt too — success for done, a thud for remove. |
 | **Reminders** | A task carries a day and often a clock time. iOS web push needs a server pushing it and a permission a home-screen icon rarely gets; the times are already on the device, so `Reminders.swift` reads the store the web app wrote and schedules local notifications from it. The body is the task's **first step**, not its title — the title is what you already knew. |
 | **Siri / Shortcuts** | *"Hey Siri, dump a thought into my.adhd."* The argument `voice.js` makes about the bus, carried one step further back: holding the mic still costs unlocking the phone and finding the icon. |
 | **Google sign-in** | Google refuses OAuth inside an embedded browser. Without the workaround in `GoogleSignIn.swift` there is no signing in at all, so no sync and no calendar. |

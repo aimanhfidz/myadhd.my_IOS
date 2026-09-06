@@ -101,6 +101,54 @@ enum BridgeScript {
         };
       } catch (e) { /* leave the store alone rather than break saving */ }
 
+
+      /* ---- the buzzes the app already asked for ----
+         app.js calls navigator.vibrate?.(8) twice — when a swipe arms, and
+         when a long press lifts a row — and calls it optionally because it
+         knew some phones would not have it. Every iPhone is one of those
+         phones: no Safari and no web view has ever had the Vibration API,
+         so on the device this app is mostly used on, the two moments most
+         worth feeling were the two that were silent.
+
+         Polyfilling it rather than watching for the class is deliberate.
+         The call sites are already in the right places, they already carry
+         an intent in their duration, and anything added later gets this
+         for free without the shell knowing about it. */
+      if (!navigator.vibrate) {
+        navigator.vibrate = function (pattern) {
+          var ms = Array.isArray(pattern) ? pattern[0] : pattern;
+          ms = Number(ms) || 0;
+          if (ms <= 0) return true;                 // vibrate(0) cancels
+          post('haptic', { kind: ms <= 10 ? 'light' : ms <= 30 ? 'medium' : 'heavy' });
+          return true;
+        };
+      }
+
+      /* ---- and the one it has no way to ask for ----
+         Ticking a task off with the checkbox buzzes; swiping the same task
+         off used to do nothing, so the same outcome felt different
+         depending on how it was reached. leaveSwipe() is the commit, and
+         is-leaving is the only trace of it in the DOM — with is-left for
+         done and is-right for remove, still set from the last paint.
+
+         A flick commits without ever arming, so this cannot be folded into
+         the vibrate above: that one marks the threshold, this one marks
+         the deed. */
+      var buzzed = new WeakSet();
+      new MutationObserver(function (records) {
+        for (var i = 0; i < records.length; i++) {
+          var row = records[i].target;
+          if (!row.classList || !row.classList.contains('is-leaving')) continue;
+          if (buzzed.has(row)) continue;
+          buzzed.add(row);
+          post('haptic', { kind: row.classList.contains('is-left') ? 'success' : 'heavy' });
+        }
+      }).observe(document.body, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class'],   // style changes on every frame of a drag; class does not
+      });
+
       post('ready', {});
     })();
     """#
