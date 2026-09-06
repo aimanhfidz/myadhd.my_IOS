@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>my.adhd</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<!-- myadhd://dump?text=… , and the address Supabase redirects back to
+	     once Google is done. See GoogleSignIn.swift. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>my.adhd</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>myadhd</string>
+			</array>
+		</dict>
+	</array>
+
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+
+	<!-- Saves the export question later: nothing here uses encryption
+	     beyond the HTTPS every app gets for free. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- hold-to-talk, in voice.js. The shell grants the web view's request;
+	     iOS still asks the user, using this sentence. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hold the mic button to say what is in your head instead of typing it. The recording is transcribed and then thrown away.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Used to show rough words while you are still speaking. The real transcript is made from the recording.</string>
+
+	<!-- A static screen cannot know which theme was chosen, so it follows
+	     the system and the shell paints the remembered ground a frame later. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchGround</string>
+	</dict>
+
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+
+	<!-- site.webmanifest says portrait, and every screen is built for one
+	     column. The iPad gets the rest because it can put the app in a
+	     landscape split view whether we like it or not. -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>
