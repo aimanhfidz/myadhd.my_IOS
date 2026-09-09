@@ -57,6 +57,15 @@ open "ios/MyADHD.xcodeproj"
    manage signing* and choose your **Team**. A free Apple ID works: add it
    under *Xcode → Settings → Accounts* and it appears as `<your name>
    (Personal Team)`.
+
+   The team you pick is written to `ios/Local.xcconfig`, which is
+   git-ignored — that file is the only place a team id is meant to exist, and
+   `Signing.xcconfig` `#include?`s it. Writing it yourself does the same job:
+
+   ```bash
+   echo 'DEVELOPMENT_TEAM = YOURTEAMID' > ios/Local.xcconfig
+   ```
+
 3. If Xcode says the bundle identifier is taken, change
    `PRODUCT_BUNDLE_IDENTIFIER` from `my.adhd.ios` to anything unique —
    `my.adhd.ios.aiman` will do.
@@ -102,31 +111,48 @@ nothing; the app itself works, because it always did without an account.
 
 ```
 ios/
-├── Info.plist            bundle identity, the myadhd:// scheme, mic wording
-├── MyADHD.xcodeproj/     no build settings worth hiding; INFOPLIST_FILE and
-│                         a synchronised file group, so a new .swift file in
-│                         MyADHD/ is picked up with no project edit
-├── DumpShare/            the share extension — one file
-├── Shared/               compiled into both targets
-│   └── DumpQueue.swift   the handover, and why it is in the keychain
+├── Info.plist              bundle identity, the myadhd:// scheme, mic wording
+├── Signing.xcconfig        who signs this build. #includes Local.xcconfig,
+│                           which is git-ignored, so no team id is committed
+├── Local.xcconfig          DEVELOPMENT_TEAM, one line, untracked. Xcode writes
+│                           it when you pick a team, or echo it in yourself
+├── MyADHD.entitlements     one keychain access group, written as
+│                           $(AppIdentifierPrefix)my.adhd.shared
+├── DumpShare.entitlements  the same group, spelled the same way — which is
+│                           the whole mechanism behind the share sheet
+├── DumpShare-Info.plist    the extension's bundle keys and activation rule
+├── MyADHD.xcodeproj/       no build settings worth hiding; INFOPLIST_FILE and
+│                           a synchronised file group, so a new .swift file in
+│                           MyADHD/ is picked up with no project edit
+├── DumpShare/              the share extension — one file
+│   └── ShareViewController.swift
+│                           SLComposeServiceViewController: the box, the
+│                           Cancel and the button, for none of the code
+├── Shared/                 compiled into both targets
+│   └── DumpQueue.swift     the handover, and why it is in the keychain
 └── MyADHD/
-    ├── MyADHDApp.swift    the entry point, and nothing else
-    ├── RootView.swift     ground, page, and the cover that hides the white
-    │                      frame before first paint
-    ├── WebScreen.swift    the web view and every rule about where a tap may
-    │                      go — ours stays, everyone else's gets a Safari
-    │                      sheet, /auth/v1/authorize gets GoogleSignIn
-    ├── BridgeScript.swift the JavaScript pushed into the page
-    ├── Haptics.swift      warm generators, so the first tap is as sharp as
-    │                      the rest
-    ├── Reminders.swift    localStorage → UNNotificationRequest
-    ├── GoogleSignIn.swift ASWebAuthenticationSession, and why
-    ├── Inbox.swift        text arriving from a Shortcut or a myadhd:// link,
-    │                      written down so a cold launch cannot drop it
-    ├── DumpIntent.swift   the Siri phrase
-    ├── ShellState.swift   theme, painted, offline
-    ├── AppConfig.swift    every promise this project makes about the web app
-    └── Assets.xcassets/   the icon, rendered by icons/render.py at 1024
+    ├── MyADHDApp.swift        the entry point, and nothing else
+    ├── RootView.swift         ground, page, and the cover that hides the white
+    │                          frame before first paint
+    ├── WebScreen.swift        the web view and every rule about where a tap may
+    │                          go — ours stays, everyone else's gets a Safari
+    │                          sheet, /auth/v1/authorize gets GoogleSignIn
+    ├── OfflineView.swift      the first-launch-with-no-signal screen, and only
+    │                          then — once the page has painted, offline is the
+    │                          service worker's problem and it handles it
+    ├── BridgeScript.swift     the JavaScript pushed into the page
+    ├── Haptics.swift          warm generators, so the first tap is as sharp as
+    │                          the rest
+    ├── Reminders.swift        localStorage → UNNotificationRequest
+    ├── GoogleSignIn.swift     ASWebAuthenticationSession, and why
+    ├── Inbox.swift            text arriving from a Shortcut or a myadhd:// link,
+    │                          written down so a cold launch cannot drop it
+    ├── DumpIntent.swift       the Siri phrase
+    ├── ShellState.swift       theme, painted, offline
+    ├── AppConfig.swift        every promise this project makes about the web app
+    ├── PrivacyInfo.xcprivacy  the required-reason API declaration. Without it
+    │                          an upload bounces as ITMS-91053 before a human
+    └── Assets.xcassets/       the icon, rendered by icons/render.py at 1024
 ```
 
 ### Things worth knowing before changing it
@@ -158,10 +184,17 @@ ask" path. The website keeps its tin; the shell simply never shows it. Why: an
 external payment link is the least settled corner of App Review, and it is not
 worth spending a first submission on. No file outside `ios/` was touched.
 
-**Four values here are promises about the web app** and will break quietly if
+**Values here are promises about the web app** and will break quietly if
 either side moves: the two grounds in `AppConfig` (`theme.css`), the
-`#dump-input` id (`app.html`), the `myadhd.v1` store key (`app.js`), and the
-`.task-check` / `#btn-triage` selectors the haptics hang off.
+`#dump-input` id (`app.html`), the `myadhd.v1` store key (`app.js`, read again
+in `Reminders.swift`), and the `.task-check`, `#btn-triage` and `#composer-mic`
+selectors the haptics hang off (`BridgeScript.swift`).
+
+No count is given on purpose. The old "four" counted groups rather than
+values, and the selector group quietly became three when `#composer-mic` was
+added without the sentence above it changing. Before renaming anything on the
+web side, grep `ios/` for it: this list is a signpost, not a guarantee that it
+is complete.
 
 ## The share extension, and the keychain
 
@@ -172,12 +205,16 @@ way back to the front.
 
 The usual place to queue it is an App Group container, which needs an
 entitlement a free account is not given. **This uses the keychain instead** —
-the development profile already grants `YOURTEAMID.*`, the whole team prefix,
-so both targets can declare one shared access group and share a drawer with
-nothing bought and nothing hacked. Neither names the group in code: an
-unspecified access group means "the first one in my entitlement", and both
-entitlements list exactly one and the same, which also keeps the team id out
-of tracked source.
+the development profile already grants the whole team prefix, so both targets
+can declare one shared access group and share a drawer with nothing bought and
+nothing hacked. Neither names the group in code: an unspecified access group
+means "the first one in my entitlement", and both entitlements list exactly one
+and the same — spelled `$(AppIdentifierPrefix)my.adhd.shared`, which Xcode
+expands at build time.
+
+That spelling is the point. The team id is a fact about a machine and an Apple
+ID, so it lives in `Local.xcconfig`, which is git-ignored, and nothing tracked
+here ever writes it down — including this file, which used to.
 
 It is an odd drawer for a queue and the right one for the contents: a brain
 dump is private speech, and these are short strings that exist for the seconds
