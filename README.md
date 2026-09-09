@@ -2,6 +2,12 @@
 
 The web app, in a case that can buzz, ring, and be talked to by Siri.
 
+> **The web app is the public beta; this shell is not.** myadhd.my is open to
+> anyone now and is where development focus sits. This directory is a case
+> around that deployed page — it still builds and still works, but it is not
+> on a release track, and nothing wanted here is a reason to change the
+> website. The web app's own README is [`../README.md`](../README.md).
+
 **This project does not duplicate a line of the web app.** It opens
 `https://myadhd.my/app` in a full-screen `WKWebView` and adds the four things
 a page in a browser cannot do on an iPhone:
@@ -31,9 +37,10 @@ So when an iOS change looks like it needs the website edited — a selector
 added, a button removed, an endpoint changed — **stop and ask first.** There
 is almost always an injection that does it from this side; and when there is
 not, changing the web app is a decision about the website, not a step in an
-iOS task. The two App Store items that genuinely do live on the web side —
-in-app account deletion and Sign in with Apple — are listed at the bottom of
-this file as exactly that, and neither has been touched.
+iOS task. The App Store items that genuinely do live on the web side are
+listed at the bottom of this file as exactly that. In-app account deletion
+was one of them and has since shipped — on the web side, by a decision about
+the website, which is the shape the rest of them should take too.
 
 ## Running it on your iPhone
 
@@ -216,14 +223,17 @@ The full 26-step plan, in dependency order, is a checklist here:
   upload, forever, including ones that get rejected.
 - The donation link, closed from `BridgeScript.swift` — see above.
 
-**Left, and both of them live in the web app, so neither is this project's
-to start without asking:**
+**Done since, and in the web app rather than here:**
 
 - **In-app account deletion.** Guideline 5.1.1(v): an app offering accounts
-  must let people delete them inside it. `privacy.html` currently says to
-  email, which is named in the guideline as insufficient. Needs a control
-  beside the Sign out button in `app.html` and something behind it that
-  deletes the Supabase user and their rows.
+  must let people delete them inside it, and says pointing at an email
+  address does not count. `/api/delete-account` and the control beside
+  **Sign out** landed in `26f7d21`. Nothing in `ios/` was needed for it, and
+  nothing in `ios/` was changed.
+
+**Left, and it lives in the web app too, so it is not this project's to start
+without asking:**
+
 - **Sign in with Apple.** Guideline 4.8: Google is the only provider, and a
   third-party login setting up the primary account needs a companion that
   collects only name and email. There is a real argument the rule does not
