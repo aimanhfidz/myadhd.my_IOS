@@ -24,6 +24,8 @@ import WebKit
 extension Notification.Name {
     /// A myadhd:// link, or the Shortcut, arriving from the app entry point.
     static let myadhdOpen = Notification.Name("myadhd.open")
+    /// Asked for by myadhd://wallpaper and by the Shortcuts phrase.
+    static let myadhdWallpaper = Notification.Name("myadhd.wallpaper")
     /// The retry button on the offline screen.
     static let myadhdReload = Notification.Name("myadhd.reload")
 }

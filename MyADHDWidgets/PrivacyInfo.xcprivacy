@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required since May 2024; an upload without one bounces as
+	     ITMS-91053 before a human sees it.
+
+	     NSPrivacyAccessedAPITypes is empty and is meant to stay empty.
+	     This target reads one keychain item and draws it: SecItem* is not
+	     a required-reason API. Reach for UserDefaults (CA92.1), a file
+	     timestamp (C617.1) or free disk space (E174.1) in here and this
+	     manifest has to grow — so don't. The app target is where state
+	     belongs. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+</dict>
+</plist>

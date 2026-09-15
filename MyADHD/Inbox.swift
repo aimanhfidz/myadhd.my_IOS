@@ -33,12 +33,34 @@ enum Inbox {
         return text
     }
 
-    /// myadhd://dump?text=the%20rent%20thing
+    /// Asks for the wallpaper setup sheet. Its own notification rather
+    /// than a pending string: there is nothing to deliver, and a dump that
+    /// is not a dump would have to be filtered out at the far end.
+    static func openWallpaperSetup() {
+        NotificationCenter.default.post(name: .myadhdWallpaper, object: nil)
+    }
+
+    /// Three hosts now, and everything else is ignored rather than
+    /// guessed at — `myadhd://auth` in particular belongs to
+    /// ASWebAuthenticationSession's own callback and must never be
+    /// swallowed here.
+    ///
+    ///   myadhd://dump?text=the%20rent%20thing
+    ///   myadhd://open            — the widgets' tap target
+    ///   myadhd://wallpaper       — the setup sheet
     static func accept(url: URL) {
-        guard url.scheme?.lowercased() == AppConfig.callbackScheme,
-              url.host?.lowercased() == "dump" else { return }
-        let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?.first { $0.name == "text" }?.value ?? ""
-        put(text)
+        guard url.scheme?.lowercased() == AppConfig.callbackScheme else { return }
+        switch url.host?.lowercased() {
+        case "dump":
+            let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "text" }?.value ?? ""
+            put(text)
+        case "wallpaper":
+            openWallpaperSetup()
+        case "open":
+            break   // the app coming to the front is the whole of it
+        default:
+            break
+        }
     }
 }

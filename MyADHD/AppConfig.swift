@@ -41,6 +41,23 @@ enum AppConfig {
     /// The id of the textarea on the dump screen, from app.html.
     static let dumpBoxID = "dump-input"
 
+    /// The key app.js keeps its whole state under, and the only key the
+    /// shell ever reads or watches. It was written down twice — once in
+    /// Reminders.swift and once inside BridgeScript's injected source — and
+    /// a third copy was one target away, so it lives here now.
+    static let storeKey = "myadhd.v1"
+
+    /// The iCloud link to the prebuilt wallpaper shortcut, which halves
+    /// the setup from about eight taps to four. Nil until one is made:
+    /// build it once on a device, Share → Copy iCloud Link, paste it here.
+    ///
+    /// Shipping a signed .shortcut file instead is a dead end — iOS only
+    /// accepts Apple-signed ones, and the alternative is asking people to
+    /// turn on "Allow Untrusted Shortcuts", which is worse than doing it
+    /// by hand. A link can also rot: it is hosted against whoever's iCloud
+    /// account made it.
+    static let wallpaperShortcutURL: URL? = nil
+
     /// The two grounds from theme.css. The page is drawn on a transparent
     /// web view so the shell shows through at the edges and for the moment
     /// before first paint; if these drift from the stylesheet, opening the

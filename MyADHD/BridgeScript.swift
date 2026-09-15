@@ -79,7 +79,11 @@ enum BridgeScript {
 
     /* ---- at document end ----
        The DOM exists by now, which is what both halves of this need. */
-    static let atEnd = #"""
+    static var atEnd: String {
+        endTemplate.replacingOccurrences(of: "__STOREKEY__", with: AppConfig.storeKey)
+    }
+
+    private static let endTemplate = #"""
     (function () {
       var native = window.MYADHD_NATIVE;
       if (!native) return;
@@ -140,7 +144,7 @@ enum BridgeScript {
         var write = Storage.prototype.setItem;
         Storage.prototype.setItem = function (key, value) {
           write.apply(this, arguments);
-          if (key === 'myadhd.v1') post('store', {});
+          if (key === '__STOREKEY__') post('store', {});
         };
       } catch (e) { /* leave the store alone rather than break saving */ }
 

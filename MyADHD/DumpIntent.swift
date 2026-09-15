@@ -32,6 +32,8 @@ struct DumpIntent: AppIntent {
     }
 }
 
+/* The provider caps at ten, and every phrase has to carry
+   \(.applicationName) or the build refuses it. */
 struct MyADHDShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
@@ -43,6 +45,23 @@ struct MyADHDShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Dump a thought",
             systemImageName: "brain.head.profile"
+        )
+        AppShortcut(
+            intent: WallpaperIntent(),
+            phrases: [
+                "Update my \(.applicationName) wallpaper",
+                "Refresh \(.applicationName) lock screen"
+            ],
+            shortTitle: "Update wallpaper",
+            systemImageName: "photo.on.rectangle"
+        )
+        AppShortcut(
+            intent: WallpaperSetupIntent(),
+            phrases: [
+                "Set up \(.applicationName) wallpaper"
+            ],
+            shortTitle: "Set up wallpaper",
+            systemImageName: "gearshape"
         )
     }
 }

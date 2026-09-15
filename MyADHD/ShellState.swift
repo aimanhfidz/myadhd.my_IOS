@@ -22,6 +22,13 @@ final class ShellState: ObservableObject {
 
     private static let key = "myadhd.ground"
 
+    /// The same answer without needing an instance. The wallpaper intent
+    /// runs headless — no scene, no view hierarchy, no ShellState — and
+    /// still wants to draw on the ground the person actually uses.
+    static var rememberedTheme: String {
+        UserDefaults.standard.string(forKey: key) ?? "light"
+    }
+
     init() {
         /* theme.js defaults to light and the system preference does not get
            a vote, so the shell must not have one either. */

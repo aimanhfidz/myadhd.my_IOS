@@ -14,6 +14,11 @@ struct RootView: View {
 
     @StateObject private var state = ShellState()
 
+    /// The only piece of native UI over the page, and it is never shown
+    /// uninvited: myadhd://wallpaper, the Shortcuts phrase, or the widget
+    /// tapped on a phone that has not set the automation up.
+    @State private var showingWallpaper = false
+
     var body: some View {
         ZStack {
             state.ground
@@ -39,5 +44,9 @@ struct RootView: View {
            what makes the status bar readable against whichever ground the
            page is on. */
         .preferredColorScheme(state.theme == "dark" ? .dark : .light)
+        .sheet(isPresented: $showingWallpaper) { WallpaperSetup() }
+        .onReceive(NotificationCenter.default.publisher(for: .myadhdWallpaper)) { _ in
+            showingWallpaper = true
+        }
     }
 }

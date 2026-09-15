@@ -28,7 +28,7 @@ import WebKit
 enum Reminders {
 
     /// The key app.js writes its whole state under.
-    private static let storeKey = "myadhd.v1"
+    private static let storeKey = AppConfig.storeKey
 
     /// Ours, so a rebuild never touches a notification somebody else set.
     private static let idPrefix = "myadhd.task."
@@ -95,6 +95,14 @@ enum Reminders {
                exactly what a sync fired on launch, before the first load,
                would otherwise do. */
             guard error == nil else { finish(); return }
+
+            /* The widget's copy, taken from the same read and taken HERE —
+               above the permission gate below, which returns early for
+               anyone who declined notifications. A widget has nothing to do
+               with notifications and must not be starved by that answer.
+               The write is a few milliseconds of keychain, well inside the
+               background task this is already holding. */
+            TaskBridge.write(from: value as? String)
 
             let items = parse(value as? String)
             authorize(forItems: items) { allowed in

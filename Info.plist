@@ -88,5 +88,13 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<!-- The app's own face, so the wallpaper is drawn in it rather than
+	     in SF. A second copy of fonts/Baloo2-Variable.ttf from the web
+	     app: they have to be replaced together, and ios/README.md lists
+	     it as one of the promises this shell makes about the site. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Baloo2-Variable.ttf</string>
+	</array>
 </dict>
 </plist>

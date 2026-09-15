@@ -2,15 +2,26 @@
 
 The web app, in a case that can buzz, ring, and be talked to by Siri.
 
-> **The web app is the public beta; this shell is not.** myadhd.my is open to
-> anyone now and is where development focus sits. This directory is a case
-> around that deployed page — it still builds and still works, but it is not
-> on a release track, and nothing wanted here is a reason to change the
-> website. The web app's own README is [`../README.md`](../README.md).
+> **The web app ships; this shell does not.** This directory is a case around
+> the deployed page — it still builds and still works, but it is not on a
+> release track, and nothing wanted here is a reason to change the website.
+> The web app's own README is [`../README.md`](../README.md), and
+> [`../CLAUDE.md`](../CLAUDE.md) is the boundary between the two, with
+> [`../CLAUDE.ios.md`](../CLAUDE.ios.md) the standing rules for in here.
+
+> **⚠ The shell currently loads `/soon`, not the app.** The web app is held
+> behind a curtain while it is rebuilt: `app.html` sends everyone to `/soon`
+> before first paint except `localhost` and a browser carrying the dev key.
+> `AppConfig.home` is `https://myadhd.my/app` and a `WKWebView` is neither, so
+> every launch lands on the holding page. The fix is on this side — inject the
+> key from `BridgeScript.swift` before the page runs — and it is not done.
+> Until it is, the shell only does anything useful against a local server.
 
 **This project does not duplicate a line of the web app.** It opens
-`https://myadhd.my/app` in a full-screen `WKWebView` and adds the four things
-a page in a browser cannot do on an iPhone:
+`https://myadhd.my/app` in a full-screen `WKWebView` and adds what a page in a
+browser cannot do on an iPhone — the table below, plus the widgets and the
+wallpaper, which have a section of their own further down. No count is given
+here on purpose; the list has grown twice and a number in prose goes stale:
 
 | | why it needed the native side |
 |---|---|
@@ -79,6 +90,12 @@ launch until you plug in and press ⌘R again. A paid Apple Developer
 membership ($99/yr) raises that to a year and is also what TestFlight and the
 App Store need — none of which this build is waiting on.
 
+**That expiry now costs more than it used to.** It hits three targets rather
+than one, and an expired widget is *removed* from the home screen rather than
+left blank — so a weekly re-sign is also a weekly re-add. Each target is also
+its own App ID against the ten a free account gets per seven days, which is
+worth knowing before renaming one on a whim.
+
 To check it compiles without opening Xcode:
 
 ```bash
@@ -121,15 +138,33 @@ ios/
 ├── DumpShare.entitlements  the same group, spelled the same way — which is
 │                           the whole mechanism behind the share sheet
 ├── DumpShare-Info.plist    the extension's bundle keys and activation rule
+├── MyADHDWidgets.entitlements
+│                           the same keychain group again, spelled the same way
+├── MyADHDWidgets-Info.plist
+│                           NSExtensionPointIdentifier = widgetkit-extension,
+│                           which is the whole of what makes it a widget
 ├── MyADHD.xcodeproj/       no build settings worth hiding; INFOPLIST_FILE and
-│                           a synchronised file group, so a new .swift file in
-│                           MyADHD/ is picked up with no project edit
+│                           synchronised file groups, so a new .swift file in
+│                           MyADHD/ or MyADHDWidgets/ is picked up with no
+│                           project edit — Shared/ is NOT one of them, and a
+│                           file there needs a build-file entry per target
 ├── DumpShare/              the share extension — one file
 │   └── ShareViewController.swift
 │                           SLComposeServiceViewController: the box, the
 │                           Cancel and the button, for none of the code
-├── Shared/                 compiled into both targets
-│   └── DumpQueue.swift     the handover, and why it is in the keychain
+├── Shared/                 compiled into more than one target, by hand
+│   ├── DumpQueue.swift     the share extension's handover, and why it is in
+│   │                       the keychain
+│   ├── TaskSnapshot.swift  the model, and the one keychain item the app
+│   │                       leaves for anything that cannot reach the page
+│   └── TimelineBand.swift  the day as one band. No WidgetKit import, so the
+│                           wallpaper can draw the same chart
+├── MyADHDWidgets/          the widget extension
+│   ├── MyADHDWidgets.swift Next Up and Today Timeline, their provider, and
+│   │                       the gallery's fabricated day
+│   ├── PrivacyInfo.xcprivacy
+│   │                       deliberately declares nothing — see below
+│   └── Assets.xcassets/    AccentColor and WidgetBackground, nothing else
 └── MyADHD/
     ├── MyADHDApp.swift        the entry point, and nothing else
     ├── RootView.swift         ground, page, and the cover that hides the white
@@ -147,9 +182,20 @@ ios/
     ├── GoogleSignIn.swift     ASWebAuthenticationSession, and why
     ├── Inbox.swift            text arriving from a Shortcut or a myadhd:// link,
     │                          written down so a cold launch cannot drop it
-    ├── DumpIntent.swift       the Siri phrase
+    ├── DumpIntent.swift       the Siri phrases, and the AppShortcutsProvider
+    │                          all three intents are registered in
+    ├── TaskBridge.swift       localStorage → the keychain snapshot, riding on
+    │                          the read Reminders.sync already does
+    ├── Wallpaper.swift        ImageRenderer → a PNG in Documents
+    ├── WallpaperView.swift    what that PNG shows. UIKit-free on purpose, so
+    │                          it renders off-device and previews in the sheet
+    ├── WallpaperIntent.swift  the two App Intents Shortcuts calls
+    ├── WallpaperSetup.swift   the setup sheet, and the three states that stop
+    │                          it nagging once the automation works
     ├── ShellState.swift       theme, painted, offline
     ├── AppConfig.swift        every promise this project makes about the web app
+    ├── Baloo2-Variable.ttf    a copy of fonts/Baloo2-Variable.ttf, so the
+    │                          wallpaper is drawn in the app's own face
     ├── PrivacyInfo.xcprivacy  the required-reason API declaration. Without it
     │                          an upload bounces as ITMS-91053 before a human
     └── Assets.xcassets/       the icon, rendered by icons/render.py at 1024
@@ -186,9 +232,30 @@ worth spending a first submission on. No file outside `ios/` was touched.
 
 **Values here are promises about the web app** and will break quietly if
 either side moves: the two grounds in `AppConfig` (`theme.css`), the
-`#dump-input` id (`app.html`), the `myadhd.v1` store key (`app.js`, read again
-in `Reminders.swift`), and the `.task-check`, `#btn-triage` and `#composer-mic`
-selectors the haptics hang off (`BridgeScript.swift`).
+`#dump-input` id (`app.html`), the `myadhd.v1` store key — now
+`AppConfig.storeKey`, substituted into `BridgeScript` as `__STOREKEY__` and
+read by `Reminders.swift` — and the `.task-check`, `#btn-triage` and
+`#composer-mic` selectors the haptics hang off (`BridgeScript.swift`).
+
+Three more arrived with the widgets, and they are promises in a looser sense
+— nothing on the web side will break, but they will silently disagree with it:
+
+- **The task shape `TaskBridge` reads.** It picks `id`, `title`, `minutes`,
+  `when`, `at`, `category`, `energy`, `urgency`, `importance`, `firstStep`,
+  `done` and `skipped` out of `myadhd.v1` by name. `importance` is decoded as
+  optional on purpose, so a store written before it existed still works. A
+  renamed field elsewhere would leave the widget drawing a blank day rather
+  than failing, which is the worst way for this to go wrong — a version
+  number on the web store would let it refuse instead, and is the one change
+  on the site that would make this feature safer.
+- **`CategoryTint` in `Shared/TimelineBand.swift`.** Eight hues for the eight
+  categories, sampled between `--blue` and `--violet`. `theme.css` has no
+  per-category colour at all, so this is a shell invention; if the web app
+  ever ships its own, the two will not match.
+- **`MyADHD/Baloo2-Variable.ttf`** is a copy of `fonts/Baloo2-Variable.ttf`,
+  so the wallpaper is drawn in the app's own face rather than in SF. Replace
+  one and replace the other. Its PostScript name is `Baloo2-Regular`, which
+  is what `WallpaperView` asks for.
 
 No count is given on purpose. The old "four" counted groups rather than
 values, and the selector group quietly became three when `#composer-mic` was
@@ -282,8 +349,73 @@ Also outstanding, and nothing to do with code: a paid membership, the
 dead-ends inside the shell, screenshots, the privacy nutrition label, and the
 review notes.
 
+## The widgets, and the wallpaper
+
+Both of them draw the same thing — the next task and its two-minute first
+step — because that is the whole product, and a lock screen is the one place
+a person looks eighty times a day without deciding to.
+
+**Neither can reach the web view.** A widget's timeline provider runs in its
+own process on iOS's schedule; the wallpaper intent runs headless at seven in
+the morning. So the app pushes a snapshot out to somewhere both can read, and
+`Shared/TaskSnapshot.swift` is that: one upserted keychain item, the same
+unspecified-access-group trick `DumpQueue` uses, because a free account gets
+no App Group. Sixty-four trimmed tasks compress to about a kilobyte.
+
+`MyADHD/TaskBridge.swift` fills it, riding on the `evaluateJavaScript` that
+`Reminders.sync` already does at all four lifecycle moments. It sits **above**
+the notification-permission gate in `Reminders.sync` deliberately: that gate
+returns early for anyone who declined notifications, and a widget has nothing
+to do with notifications. Moving it below is a silent, total failure for
+those users.
+
+| | |
+|---|---|
+| **Next Up** | `systemSmall`, `accessoryCircular`, `accessoryInline` |
+| **Today Timeline** | `systemMedium`, `accessoryRectangular` (six hours around now, not twenty-four — a 160×72pt tile cannot carry a day) |
+
+The band's window is computed from the data rather than fixed at 0–24, which
+is worth about fifty per cent more pixels per hour. Untimed tasks never go on
+it; they are counted as "N anytime", because placing them at a made-up nine
+o'clock would be an invention.
+
+**The widget target touches neither `UserDefaults` nor the filesystem**, so
+`MyADHDWidgets/PrivacyInfo.xcprivacy` declares no accessed APIs at all.
+`SecItem*` is not a required-reason API; `UserDefaults` (CA92.1), file
+timestamps (C617.1) and free disk space (E174.1) are. Keep it that way.
+
+### The one thing still to prove
+
+`WallpaperIntent` returns the PNG as an `IntentFile`, on the assumption that
+Shortcuts' **Set Wallpaper Photo** will accept it as its image input. That is
+likely and unconfirmed — it needs a device and the Shortcuts app, and nothing
+on a Mac can answer it.
+
+If it is refused, the fallback is the photo library: `Find Photos → Recently
+Added → Limit 1 → Set Wallpaper Photo`, which needs
+`NSPhotoLibraryAddUsageDescription` and add-only authorization. Note that
+add-only cannot create or fetch a named album, so the camera roll gains one
+image per run — a reason to keep the automation daily. A named album needs
+full read-write Photos access, which changes the App Store privacy
+questionnaire **and `privacy.html`, which is outside `ios/`**. That is the
+strongest argument for making the `IntentFile` path work.
+
+**The most likely support question:** Set Wallpaper Photo silently does
+nothing when the current lock screen is **Photo Shuffle** rather than
+**Photo**. `WallpaperSetup.swift` says so, first.
+
+`AppConfig.wallpaperShortcutURL` is `nil` until somebody builds the shortcut
+once on a device and pastes its iCloud link in. That link roughly halves the
+setup. Shipping a signed `.shortcut` file instead is a dead end — iOS only
+accepts Apple-signed ones.
+
 ## Not done yet
 
-- **Widgets and Live Activities.** "One task" is a home-screen widget waiting
-  to happen. Needs a WidgetKit extension and a real read of the task list
-  from Swift rather than through the page.
+- **Live Activities.** Not attempted. They need `NSSupportsLiveActivities` in
+  the app's `Info.plist`, and a push-updated one needs APNs, which is a paid
+  capability. Nothing declares it today and nothing should until there is a
+  reason.
+- **A Control Center control.** "Dump a thought" belongs there, and
+  `ControlWidget` is iOS 18 while this project targets 17.0. Worth doing when
+  17 is dropped rather than fencing one member of a `WidgetBundle` behind
+  `@available`.
