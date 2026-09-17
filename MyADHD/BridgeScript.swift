@@ -432,7 +432,7 @@ enum BridgeScript {
           '#app{overscroll-behavior-y:none}' +
           '.myadhd-native-refresh{height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;transition:height .22s var(--ease)}' +
           '.myadhd-native-refresh.is-pulling{transition:none}' +
-          '.myadhd-native-refresh svg{width:22px;height:22px;color:var(--accent);opacity:0;transition:opacity .15s,transform .15s}' +
+          '.myadhd-native-refresh svg{width:30px;height:30px;color:var(--accent);opacity:0;transition:opacity .15s,transform .15s}' +
           '.myadhd-native-refresh.is-armed svg,.myadhd-native-refresh.is-loading svg{opacity:1}' +
           '.myadhd-native-refresh.is-loading svg{animation:myadhd-spin .8s linear infinite}' +
           '@keyframes myadhd-spin{to{transform:rotate(360deg)}}' +
@@ -556,6 +556,77 @@ enum BridgeScript {
         help.addEventListener('click', open);
       })();
 
+      /* ---- "Write one" reads better as what it does ---- */
+      try {
+        var first = document.querySelector('#btn-note-first .btn-text');
+        if (first) first.textContent = 'Write a note';
+      } catch (e) {}
+
+      /* ---- swipe from the left edge to go back ----
+         The page is one document — Home, Lists, Settings are shown and
+         hidden, never navigated — so WebKit's own back gesture has nothing
+         to pop, and it stays off (see WebScreen). This does what a person
+         means by the gesture: whatever the screen's own back control is,
+         it gets pressed. In order — a sheet inside the note editor, the
+         walkthrough's back or close, a screen's back button, the
+         composer's Cancel, the legal page's Back, and failing all of
+         those, home. Starts only in the outer 22px so it cannot be
+         mistaken for the swipe that ticks a task off. */
+      (function () {
+        var x0 = null, y0 = null, armed = false, dead = false;
+        var EDGE = 22, ARM = 70;
+
+        function visible(el) { return !!(el && el.offsetParent !== null); }
+        function firstVisible(sel, root) {
+          var list = (root || document).querySelectorAll(sel);
+          for (var i = 0; i < list.length; i++) if (visible(list[i])) return list[i];
+          return null;
+        }
+        function back() {
+          var wk = document.querySelector('.wk.is-open');
+          if (wk) {
+            var wb = wk.querySelector('.wk-back');
+            (wb && wb.style.visibility !== 'hidden' ? wb : wk.querySelector('.wk-x')).click();
+            return true;
+          }
+          var sheet = firstVisible('.note-sheet-x');
+          if (sheet) { sheet.click(); return true; }
+          var screen = document.querySelector('.screen:not(.is-hidden)');
+          var btn = screen && firstVisible('.sheet-back, .settings-back', screen);
+          if (btn) { btn.click(); return true; }
+          var bar = firstVisible('.composer-bar');
+          if (bar) { var c = bar.querySelector('button'); if (c) { c.click(); return true; } }
+          var legal = firstVisible('.myadhd-native-back');
+          if (legal) { legal.click(); return true; }
+          if (screen && screen.id !== 'screen-home') {
+            var home = document.getElementById('tab-home');
+            if (home) { home.click(); return true; }
+          }
+          return false;
+        }
+
+        document.addEventListener('touchstart', function (e) {
+          if (e.touches.length !== 1) { x0 = null; return; }
+          var t = e.touches[0];
+          if (t.clientX > EDGE) { x0 = null; return; }
+          x0 = t.clientX; y0 = t.clientY; armed = false; dead = false;
+        }, { passive: true, capture: true });
+
+        document.addEventListener('touchmove', function (e) {
+          if (x0 === null || dead) return;
+          var t = e.touches[0], dx = t.clientX - x0, dy = Math.abs(t.clientY - y0);
+          if (dy > 40 && dx < 30) { dead = true; return; }
+          if (dx >= ARM && !armed) { armed = true; try { post('haptic', { kind: 'light' }); } catch (err) {} }
+        }, { passive: true, capture: true });
+
+        function end() {
+          if (x0 !== null && armed && !dead) back();
+          x0 = null; armed = false; dead = false;
+        }
+        document.addEventListener('touchend', end, { passive: true, capture: true });
+        document.addEventListener('touchcancel', end, { passive: true, capture: true });
+      })();
+
       /* ---- pull to refresh ----
          A real refresh, not a spinner for its own sake: the page's cloud
          pass runs if there is an account, the screen repaints, and the
@@ -565,7 +636,7 @@ enum BridgeScript {
         var app = document.getElementById('app');
         if (!app) return;
         var startY = null, slot = null, pulling = false, loading = false;
-        var ARM = 52, MAX = 72;
+        var ARM = 60, MAX = 84;
 
         function slotFor() {
           var bar = document.querySelector('.screen:not(.is-hidden) > header.brand.myadhd-native');
