@@ -18,7 +18,7 @@ struct MonthWidget: Widget {
                 .widgetURL(URL(string: "myadhd://open"))
         }
         .configurationDisplayName("Month")
-        .description("The month, with a mark on every day your list has something on it.")
+        .description("Where you are in the month, and the next thing on the right.")
         .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
@@ -33,9 +33,13 @@ struct MonthView: View {
                the rows answer "now", and the two together are the only
                reason to spend a large tile on a calendar. */
             VStack(alignment: .leading, spacing: 10) {
-                MonthGrid(snapshot: entry.snapshot, now: entry.date, cellSize: 26)
+                /* 22pt cells and three rows, not 26 and four: six grid rows
+                   plus a header, a divider, a list and its footer have to
+                   share 324pt, and the larger version clipped the month name
+                   off the top and the footer off the bottom. */
+                MonthGrid(snapshot: entry.snapshot, now: entry.date, cellSize: 22)
                 Divider()
-                TodayList(snapshot: entry.snapshot, now: entry.date, rows: 4) { task in
+                TodayList(snapshot: entry.snapshot, now: entry.date, rows: 3) { task in
                     Button(intent: TickIntent(id: task.id)) {
                         TickBox(done: task.done)
                     }
@@ -44,7 +48,10 @@ struct MonthView: View {
                 }
             }
         } else {
-            MonthGrid(snapshot: entry.snapshot, now: entry.date, cellSize: 15)
+            /* Google Calendar's shape: grid left, what is next right. The
+               dotted full-width grid it replaces answered "when" and left
+               half the tile saying nothing about "now". */
+            MonthWithNext(snapshot: entry.snapshot, now: entry.date)
         }
     }
 }

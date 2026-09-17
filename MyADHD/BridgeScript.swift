@@ -256,6 +256,16 @@ enum BridgeScript {
              any single layer leaves a way back in. */
           'html{touch-action:pan-x pan-y}' +
 
+          /* ---- the eyebrows, gone ----
+             "SORTED INTO LISTS." and "NOTES." were each screen saying its
+             own name in small caps, because the header above them said
+             the app's name instead. The header says the screen's name
+             now (see TITLES below), so the eyebrow is the same word twice
+             in two sizes. The summary line under the lists one goes with
+             it — the count is on the tab bar badge and the header of
+             every bucket. */
+          '#eyebrow,#lists-summary,#notes-eyebrow,#notes-summary{display:none}' +
+
           /* ---- the matrix, as four cards rather than a list ----
              The site stacks the quadrants below 560px, and its own CSS
              says why: a task row at ~170px wraps its chips onto three
