@@ -239,25 +239,44 @@ enum BridgeScript {
       try {
         var css = document.createElement('style');
         css.textContent =
-          /* Double-tap to zoom, gone. A website wants it; an app with a
-             tab bar and a composer does not — every mis-hit near a task
-             row jumps the page to 2x and the person has to pinch their
-             way back out of a screen they never asked to leave.
+          /* No zooming at all. A website wants double-tap and pinch; an
+             app with a tab bar, a composer and rows you tap to open does
+             not — every mis-hit jumps the page to 2x and the person has to
+             fight their way back out of a screen they never asked for.
 
-             touch-action is not inherited, but the browser works out what
-             a gesture is allowed to do by intersecting the value down the
-             whole ancestor chain, so one rule on html covers the page.
-             'manipulation' is exactly 'pan-x pan-y pinch-zoom': panning
-             and PINCH still work, which matters — pinch is how somebody
-             who needs the text bigger gets it, and taking that away to
-             fix a mis-tap would be a bad trade. */
-          'html{touch-action:manipulation}' +
+             touch-action is not inherited, but the browser decides what a
+             gesture may do by intersecting the value down the whole
+             ancestor chain, so one rule at the root covers the page.
+             'pan-x pan-y' is 'manipulation' with pinch-zoom removed: the
+             page still scrolls, and nothing else.
+
+             This is one of three layers. The viewport below and the scroll
+             view lock in WebScreen.swift are the other two, because WebKit
+             re-derives its zoom limits from the viewport on every load and
+             any single layer leaves a way back in. */
+          'html{touch-action:pan-x pan-y}' +
           '.myadhd-native .brand-lockup{display:none}' +
           '.myadhd-native-title{' +
             'margin:0;font-family:var(--display);' +
             'font-size:clamp(26px,7.5vw,33px);font-weight:800;' +
             'letter-spacing:-.03em;line-height:1.1;color:var(--ink)}';
         document.head.appendChild(css);
+
+        /* The viewport, tightened. The page ships width=device-width,
+           initial-scale=1, viewport-fit=cover and nothing about scale, so
+           WebKit allows up to 5x. WKWebView still honours user-scalable=no
+           — Safari stopped in iOS 10, but this is not Safari — and it
+           re-reads the meta when it changes, so patching it late is fine.
+           viewport-fit=cover is kept: losing it would put the ground
+           back above the status bar. */
+        var vp = document.querySelector('meta[name="viewport"]');
+        if (vp) {
+          var parts = (vp.getAttribute('content') || '')
+            .split(',').map(function (p) { return p.trim(); })
+            .filter(function (p) { return p && !/^(maximum-scale|minimum-scale|user-scalable)\s*=/.test(p); });
+          parts.push('maximum-scale=1', 'minimum-scale=1', 'user-scalable=no');
+          vp.setAttribute('content', parts.join(', '));
+        }
 
         Object.keys(TITLES).forEach(function (id) {
           var screen = document.getElementById(id);

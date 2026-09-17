@@ -102,6 +102,12 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         /* body is overflow:hidden and #app does the scrolling, so this view
            has nothing to scroll — without this it still rubber-bands. */
         web.scrollView.bounces = false
+        /* No zoom. The pinch recogniser is the scroll view's own and can
+           be switched off here once; the zoom scales cannot, because
+           WebKit rewrites them from the viewport on every load — those
+           are re-locked in didFinish. See lockZoom. */
+        web.scrollView.pinchGestureRecognizer?.isEnabled = false
+        web.scrollView.bouncesZoom = false
 
         #if DEBUG
         web.isInspectable = true   // Safari > Develop > iPhone, on device
@@ -265,27 +271,36 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         state.painted = true
         state.offline = false
-        Self.stopDoubleTapZoom(in: webView)
+        Self.lockZoom(in: webView)
     }
 
-    /* The CSS rule in BridgeScript is what actually does this, and this is
-       the belt to its braces: a page that fails to load, or a future one
-       that sets touch-action on something itself, would get the gesture
-       back otherwise.
+    /* The native layer of the no-zoom rule. The CSS and the viewport patch
+       in BridgeScript do most of it; this is what holds if the page fails
+       to load, or a future version of it sets touch-action or a viewport
+       of its own.
 
-       WKWebView keeps its double-tap recogniser on the content view inside
-       the scroll view, not on the web view — and that view does not exist
-       until something has been loaded, which is why this runs on didFinish
-       and runs again on every navigation rather than once at setup.
+       Runs on didFinish, and on every navigation, for two reasons. WebKit
+       derives the scroll view's minimum and maximum zoom from the
+       viewport meta each time a page loads, so a lock set once at setup is
+       overwritten by the first load. And the double-tap recogniser lives
+       on the content view inside the scroll view, which does not exist
+       until something has loaded. */
+    private static func lockZoom(in webView: WKWebView) {
+        let scroll = webView.scrollView
+        scroll.pinchGestureRecognizer?.isEnabled = false
+        scroll.bouncesZoom = false
+        scroll.minimumZoomScale = 1
+        scroll.maximumZoomScale = 1
+        if scroll.zoomScale != 1 { scroll.setZoomScale(1, animated: false) }
 
-       Only the two-tap recognisers. The pinch lives on the scroll view and
-       is left alone on purpose. */
-    private static func stopDoubleTapZoom(in webView: WKWebView) {
-        for view in webView.scrollView.subviews {
+        for view in scroll.subviews {
             for gesture in view.gestureRecognizers ?? [] {
-                guard let tap = gesture as? UITapGestureRecognizer,
-                      tap.numberOfTapsRequired == 2 else { continue }
-                tap.isEnabled = false
+                if let tap = gesture as? UITapGestureRecognizer, tap.numberOfTapsRequired == 2 {
+                    tap.isEnabled = false
+                }
+                if gesture is UIPinchGestureRecognizer {
+                    gesture.isEnabled = false
+                }
             }
         }
     }
