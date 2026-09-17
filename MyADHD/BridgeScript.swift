@@ -212,6 +212,57 @@ enum BridgeScript {
         attributeFilter: ['class'],   // style changes on every frame of a drag; class does not
       });
 
+      /* ---- the header, as an app rather than a website ----
+         A website says its name at the top of every page, because a
+         browser tab does not. An installed app already says it on the
+         icon you tapped and in the switcher — so the wordmark is the one
+         thing in that bar carrying no information, in the place with the
+         least room for it. Ink puts the section's own name there instead,
+         which is what a native app does, and it is right.
+
+         Only the four tab screens. Settings, Profile and Plans already
+         have a back button and an h1.screen-title of their own, so they
+         are left alone rather than given a second title.
+
+         Injected, like everything else here: the page keeps its wordmark
+         in a browser and has no idea this happened. If a screen id or the
+         header class is ever renamed on the site, the title simply does
+         not appear — the app does not break, it just looks like the web
+         again. */
+      var TITLES = {
+        'screen-home':     'Home',
+        'screen-calendar': 'Calendar',
+        'screen-now':      'Lists',
+        'screen-notes':    'Notes',
+      };
+
+      try {
+        var css = document.createElement('style');
+        css.textContent =
+          '.myadhd-native .brand-lockup{display:none}' +
+          '.myadhd-native-title{' +
+            'margin:0;font-family:var(--display);' +
+            'font-size:clamp(26px,7.5vw,33px);font-weight:800;' +
+            'letter-spacing:-.03em;line-height:1.1;color:var(--ink)}';
+        document.head.appendChild(css);
+
+        Object.keys(TITLES).forEach(function (id) {
+          var screen = document.getElementById(id);
+          if (!screen) return;
+          var bar = screen.querySelector('header.brand');
+          if (!bar || bar.querySelector('.myadhd-native-title')) return;
+
+          var h = document.createElement('h1');
+          h.className = 'myadhd-native-title';
+          h.textContent = TITLES[id];
+
+          /* First child, so it takes the place the lockup had. The tools
+             carry margin-left:auto and stay where they are. */
+          bar.insertBefore(h, bar.firstChild);
+          bar.classList.add('myadhd-native');
+        });
+      } catch (e) { /* the page moved; leave its own header alone */ }
+
       post('ready', {});
     })();
     """#
