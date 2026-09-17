@@ -307,8 +307,14 @@ struct TodayTimelineView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(dayLine).font(.system(size: 12, weight: .bold))
             if let snap = entry.snapshot, !snap.timed.isEmpty {
+                /* minBlock: 0 — the proportional band, on purpose. A
+                   160x72pt lock-screen tile has no room for a label at
+                   all (the lane is nine points high), so widening blocks
+                   to fit one would buy nothing and overflow most of the
+                   day into a pip. Shape is the whole message here. */
                 TimelineBand(tasks: nearby(snap), now: entry.date,
-                             laneHeight: 9, laneGap: 2, maxLanes: 2, showTicks: false)
+                             laneHeight: 9, laneGap: 2, maxLanes: 2,
+                             showTicks: false, minBlock: 0)
             } else {
                 Text(subLine).font(.system(size: 11)).foregroundStyle(.secondary)
             }

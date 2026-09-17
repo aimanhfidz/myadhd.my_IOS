@@ -103,13 +103,28 @@ struct TimelineBand: View {
     var maxLanes: Int = 3
     var showTicks: Bool = true
 
+    /* How narrow a block is allowed to get before it stops being a task
+       and starts being a smudge. Wide enough for a few characters of
+       title at 9pt plus the urgency bar.
+
+       This is the band giving up on being a proportional chart, and it is
+       deliberate. At a medium widget's width a nineteen-hour day is about
+       a point every sixteen minutes, so a half-hour task is two points —
+       true about its length and useless about everything else. Ink solves
+       it the same way and is right to: on a tile this size the answer to
+       "what is at ten o'clock" matters more than the answer to "how long
+       does it take", and the second one is on the task's own row anyway.
+
+       Set it to 0 to get the honest proportional band back. */
+    var minBlock: CGFloat = 54
+
     private var window: DayWindow { DayWindow(tasks: tasks, now: now) }
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             let win = window
-            let laid = Self.lay(tasks, maxLanes: maxLanes)
+            let laid = Self.lay(tasks, maxLanes: maxLanes, win: win, width: w, minBlock: minBlock)
 
             ZStack(alignment: .topLeading) {
                 ForEach(laid.placed, id: \.task.id) { item in
@@ -139,13 +154,8 @@ struct TimelineBand: View {
     // MARK: pieces
 
     private func block(_ item: Placed, width: CGFloat, win: DayWindow) -> some View {
-        let x0 = Self.x(item.start, in: win, width: width)
-        let x1 = Self.x(item.start + item.task.minutes, in: win, width: width)
-        /* A fifteen-minute task is two pixels wide at this scale and might
-           as well not be drawn. Six points overlaps its neighbour slightly
-           and that is the better lie: being wrong about a length is
-           recoverable, losing a task is not. */
-        let w = max(6, x1 - x0)
+        let x0 = item.x
+        let w = item.width
 
         return RoundedRectangle(cornerRadius: 4, style: .continuous)
             .fill(CategoryTint.wash(item.task.category))
@@ -155,7 +165,7 @@ struct TimelineBand: View {
                 }
             }
             .overlay(alignment: .leading) {
-                if w > 44 {
+                if w >= 34 {
                     Text(item.task.title)
                         .font(.system(size: 9, weight: .semibold))
                         .lineLimit(1)
@@ -235,11 +245,25 @@ struct TimelineBand: View {
         let task: SnapTask
         let start: Int
         let lane: Int
+        /// In points, and already widened to minBlock. The packer needs it
+        /// to know what actually overlaps, so it is settled there rather
+        /// than recomputed at draw time.
+        let x: CGFloat
+        let width: CGFloat
     }
 
-    /// Greedy interval partition. Anything that will not fit in the lanes
-    /// available is counted rather than drawn on top of something else.
-    static func lay(_ tasks: [SnapTask], maxLanes: Int) -> (placed: [Placed], overflow: Int) {
+    /* Greedy interval partition, in POINTS rather than minutes.
+
+       Minutes was right while a block's width was its duration. Once a
+       half-hour task is widened to fifty-four points it takes up far more
+       of the day than it owns, and two tasks an hour apart — which do not
+       overlap in time at all — collide on screen. Packing on what is
+       drawn is the only version of this that cannot overlap.
+
+       Anything that will not fit in the lanes available is counted rather
+       than drawn on top of something else. */
+    static func lay(_ tasks: [SnapTask], maxLanes: Int,
+                    win: DayWindow, width: CGFloat, minBlock: CGFloat) -> (placed: [Placed], overflow: Int) {
         let timed = tasks
             .compactMap { t -> (SnapTask, Int)? in
                 guard let s = minutes(of: t.at) else { return nil }
@@ -247,14 +271,20 @@ struct TimelineBand: View {
             }
             .sorted { $0.1 < $1.1 }
 
-        var laneEnds = [Int](repeating: Int.min, count: maxLanes)
+        /* A lane is free from the point its last block ended, plus a
+           hair so two neighbours do not touch. */
+        var laneEnds = [CGFloat](repeating: -.greatestFiniteMagnitude, count: maxLanes)
         var placed: [Placed] = []
         var overflow = 0
 
         for (task, start) in timed {
-            if let lane = laneEnds.firstIndex(where: { $0 <= start }) {
-                laneEnds[lane] = start + task.minutes
-                placed.append(Placed(task: task, start: start, lane: lane))
+            let x0 = x(start, in: win, width: width)
+            let x1 = x(start + task.minutes, in: win, width: width)
+            let w = max(minBlock, max(6, x1 - x0))
+
+            if let lane = laneEnds.firstIndex(where: { $0 <= x0 }) {
+                laneEnds[lane] = x0 + w + 3
+                placed.append(Placed(task: task, start: start, lane: lane, x: x0, width: w))
             } else {
                 overflow += 1
             }
