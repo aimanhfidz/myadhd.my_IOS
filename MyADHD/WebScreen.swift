@@ -155,7 +155,18 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
             web.evaluateJavaScript(BridgeScript.fillDumpBox(with: text), completionHandler: nil)
         }
 
-        Reminders.sync(from: web)
+        drainThenSync()
+    }
+
+    /* The widget's ticks land first, then the rebuild — so TaskBridge
+       computes its snapshot from a store that already has them in it. The
+       other order writes `done: false` straight back over the row the user
+       ticked on the home screen, and the tile un-ticks itself. */
+    private func drainThenSync() {
+        OpDrain.drain(into: web) { [weak self] in
+            guard let self else { return }
+            Reminders.sync(from: self.web)
+        }
     }
 
     /// Called every time the page writes its store. Ticking a task off writes
@@ -382,8 +393,15 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         /* Only when there is something: dump() reloads the page to land on
            the box, and doing that on every return to the foreground would
            throw away the screen the user was looking at. */
-        if let text = Self.waiting() { dump(text) }
-        Reminders.sync(from: web)
+        if let text = Self.waiting() {
+            /* dump() reloads the page to land on the box, so a drain
+               started here would be talking to a document on its way out.
+               pageReady() catches it once the load has finished. */
+            dump(text)
+            Reminders.sync(from: web)
+            return
+        }
+        drainThenSync()
     }
 
     /// Everything queued up elsewhere while this was not the front app: a

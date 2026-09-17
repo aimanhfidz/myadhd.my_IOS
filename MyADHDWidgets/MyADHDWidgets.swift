@@ -36,7 +36,17 @@ struct SnapProvider: TimelineProvider {
             completion(SnapEntry(date: Date(), snapshot: .sample, isSample: true))
             return
         }
-        completion(SnapEntry(date: Date(), snapshot: TaskStore.read(), isSample: false))
+        completion(SnapEntry(date: Date(), snapshot: Self.current(), isSample: false))
+    }
+
+    /* The snapshot as the app last wrote it, plus anything ticked on a
+       tile since. The widget never writes the snapshot back — see the
+       header of Shared/OpQueue.swift for why that would quietly take the
+       item away from TaskBridge — so the tick lives as an overlay until
+       the app drains it, at which point the op vanishes and the fresh
+       snapshot says the same thing anyway. */
+    static func current() -> TaskSnapshot? {
+        TaskStore.read()?.applying(OpQueue.peek().map(\.op))
     }
 
     /* The now-line has to move, and a provider gets called something like
@@ -49,7 +59,7 @@ struct SnapProvider: TimelineProvider {
        point and a half a step and reads as continuous. A quarter of an
        hour after that, where nobody is looking closely. */
     func getTimeline(in context: Context, completion: @escaping (Timeline<SnapEntry>) -> Void) {
-        let snapshot = TaskStore.read()
+        let snapshot = Self.current()
         let now = Date()
 
         var dates: [Date] = [now]
@@ -96,7 +106,7 @@ struct NextUpView: View {
     @Environment(\.widgetFamily) private var family
     let entry: SnapEntry
 
-    private var task: SnapTask? { entry.snapshot?.next }
+    private var task: SnapTask? { entry.snapshot?.next(now: entry.date) }
 
     var body: some View {
         switch family {
@@ -187,7 +197,7 @@ struct TodayTimelineWidget: Widget {
         }
         .configurationDisplayName("Today")
         .description("Your day as one band, with a line where you are in it.")
-        .supportedFamilies([.systemMedium, .accessoryRectangular])
+        .supportedFamilies([.systemMedium, .systemLarge, .accessoryRectangular])
     }
 }
 
@@ -196,10 +206,40 @@ struct TodayTimelineView: View {
     let entry: SnapEntry
 
     var body: some View {
-        if family == .accessoryRectangular {
-            rectangular
-        } else {
+        switch family {
+        case .accessoryRectangular: rectangular
+        case .systemLarge: large
+        default: medium
+        }
+    }
+
+    /* The band answers "when", the rows answer "now", and the strip at the
+       bottom answers "what about tomorrow". Until this, systemLarge was
+       the one family nothing in the bundle claimed. */
+    private var large: some View {
+        VStack(alignment: .leading, spacing: 10) {
             medium
+
+            Divider()
+
+            TodayList(snapshot: entry.snapshot, now: entry.date, rows: 4) { task in
+                Button(intent: TickIntent(id: task.id)) {
+                    TickBox(done: task.done)
+                }
+                .buttonStyle(.plain)
+                .invalidatableContent()
+            }
+
+            if let snap = entry.snapshot, !snap.tomorrowTasks.isEmpty {
+                Divider()
+                TaskColumn(title: "Tomorrow",
+                           tasks: snap.tomorrowTasks,
+                           day: snap.effectiveDay(entry.date),
+                           limit: 2, titleSize: 12,
+                           emptyLine: "Nothing booked yet.",
+                           showDay: false)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -224,7 +264,7 @@ struct TodayTimelineView: View {
             Spacer(minLength: 8)
 
             if let snap = entry.snapshot, !snap.timed.isEmpty {
-                TimelineBand(tasks: snap.tasks, now: entry.date)
+                TimelineBand(tasks: snap.todayTasks, now: entry.date)
                     .opacity(snap.isStale(now: entry.date) ? 0.45 : 1)
             } else {
                 emptyBand
@@ -320,8 +360,15 @@ struct TodayTimelineView: View {
 @main
 struct MyADHDWidgetBundle: WidgetBundle {
     var body: some Widget {
+        /* Gallery order. The checklist goes first because it is the one
+           most people will add, and because it is the only one here that
+           can be acted on rather than only read. */
+        TodayChecklistWidget()
         NextUpWidget()
         TodayTimelineWidget()
+        AgendaWidget()
+        MonthWidget()
+        DoneGraphWidget()
     }
 }
 
@@ -331,14 +378,15 @@ extension TaskSnapshot {
     /// Nobody adds a widget from the gallery that looks broken, so the
     /// preview gets a day rather than an empty state.
     static var sample: TaskSnapshot {
+        let day = "2026-09-15"
         let mk = { (id: String, title: String, at: String?, mins: Int, cat: String, urg: Int, step: String) in
-            SnapTask(id: id, title: title, minutes: mins, at: at, category: cat,
+            SnapTask(id: id, title: title, minutes: mins, when: day, at: at, category: cat,
                      energy: "medium", urgency: urg, importance: "high",
                      firstStep: step, done: false)
         }
         return TaskSnapshot(
             generated: Date(),
-            day: "2026-09-15",
+            day: day,
             tasks: [
                 mk("s1", "Submit the expense claim", "09:00", 25, "work", 5,
                    "Open the expenses app and start a new claim."),
@@ -349,7 +397,12 @@ extension TaskSnapshot {
                 mk("s4", "Renew my passport", nil, 45, "admin", 2,
                    "Search \"passport renewal Malaysia\"."),
             ],
-            dropped: 0
+            dropped: 0,
+            doneToday: 3,
+            calFrom: DayKey.adding(-10, to: day),
+            cal: [0, 1, 0, 2, 1, 0, 0, 3, 1, 2, 4, 2, 1, 0, 1, 2, 0, 3, 1, 0, 2],
+            histFrom: DayKey.adding(-69, to: day),
+            hist: (0..<70).map { [0, 2, 1, 0, 3, 4, 1, 2, 0, 5][$0 % 10] }
         )
     }
 }

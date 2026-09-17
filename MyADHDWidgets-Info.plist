@@ -20,13 +20,14 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<!-- WidgetKit has no product type of its own; this key is the whole
-	     of what makes an app-extension target a widget. There is no
-	     principal class either — the @main WidgetBundle is the entry. -->
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Baloo2-Variable.ttf</string>
+	</array>
 </dict>
 </plist>

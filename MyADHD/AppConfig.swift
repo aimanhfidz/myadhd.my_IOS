@@ -47,6 +47,34 @@ enum AppConfig {
     /// a third copy was one target away, so it lives here now.
     static let storeKey = "myadhd.v1"
 
+    /* The curtain in front of the app, and the shell's way through it.
+
+       app.html carries an inline block in its <head> that sends everyone
+       to /soon before first paint. It lets two things past: a localhost
+       hostname, and a browser that has already been handed the key —
+       localStorage['myadhd.dev'] === '1', which ?dev=1 sets.
+
+       A WKWebView is neither. It is not localhost, it has never visited
+       with ?dev=1, and it loads a page whose very first script redirects
+       it — so without this the shell shows "The app is closed while we
+       rebuild it" and every widget stays on its empty state, because
+       there is no myadhd.v1 on /soon to read.
+
+       BridgeScript writes the key at .atDocumentStart, which runs after
+       the document element exists and before any of the page's own
+       markup is parsed. That is the only window where this works: the
+       gate is inline in <head> rather than in a file, deliberately, so
+       that it cannot fail open when the network does.
+
+       This is not a lock being picked. The test is in public JavaScript
+       and app.html says so in its own comment — it is a curtain, and the
+       shell is on the inside of it. An installed app showing its own
+       "we are closed" page is the curtain catching the wrong person.
+
+       DELETE THIS, and the block in BridgeScript that reads it, when
+       /soon comes down. app.html's comment lists the rest of that job. */
+    static let holdKey = "myadhd.dev"
+
     /// The iCloud link to the prebuilt wallpaper shortcut, which halves
     /// the setup from about eight taps to four. Nil until one is made:
     /// build it once on a device, Share → Copy iCloud Link, paste it here.

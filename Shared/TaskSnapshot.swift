@@ -37,6 +37,7 @@ struct SnapTask: Codable, Identifiable, Equatable {
     let id: String
     let title: String
     let minutes: Int
+    let when: String?        // "YYYY-MM-DD", or nil when it is on no day
     let at: String?          // "HH:MM", or nil when it is not booked into a time
     let category: String
     let energy: String
@@ -47,8 +48,88 @@ struct SnapTask: Codable, Identifiable, Equatable {
 
     /// Short keys because every byte here is a byte of a keychain item.
     enum CodingKeys: String, CodingKey {
-        case id = "i", title = "n", minutes = "m", at = "a", category = "c"
+        case id = "i", title = "n", minutes = "m", when = "w", at = "a", category = "c"
         case energy = "e", urgency = "u", importance = "p", firstStep = "f", done = "d"
+    }
+
+    /// The day this is dated to, as an absolute key rather than an offset
+    /// from the snapshot's own day. A snapshot is allowed to be stale —
+    /// isStale() says so, and the 07:00 wallpaper Shortcut reads yesterday's
+    /// on purpose — and an offset read a day late is wrong by a day with
+    /// nothing to reveal it.
+    func isOverdue(on day: String) -> Bool {
+        guard !done, let when else { return false }
+        return when < day
+    }
+}
+
+/* "YYYY-MM-DD" in the device's own zone, which is what app.js writes and
+   what every `when` here is. Local days, never ISO8601 with a Z on it —
+   a task dated today in Kuala Lumpur is dated yesterday in UTC for most of
+   the working day, and that is the whole bug this format avoids. */
+enum DayKey {
+
+    static func of(_ date: Date, _ calendar: Calendar = .current) -> String {
+        let p = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", p.year ?? 0, p.month ?? 0, p.day ?? 0)
+    }
+
+    static func date(_ key: String, _ calendar: Calendar = .current) -> Date? {
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var c = DateComponents()
+        c.year = parts[0]; c.month = parts[1]; c.day = parts[2]
+        return calendar.date(from: c)
+    }
+
+    static func adding(_ days: Int, to key: String, _ calendar: Calendar = .current) -> String {
+        guard let d = date(key, calendar),
+              let moved = calendar.date(byAdding: .day, value: days, to: d)
+        else { return key }
+        return of(moved, calendar)
+    }
+
+    /// Whole days from `a` to `b`, or nil if either is not a day key.
+    static func between(_ a: String, _ b: String, _ calendar: Calendar = .current) -> Int? {
+        guard let da = date(a, calendar), let db = date(b, calendar) else { return nil }
+        return calendar.dateComponents([.day], from: da, to: db).day
+    }
+
+    private static let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday",
+                                  "Thursday", "Friday", "Saturday"]
+    private static let monthNames = ["January", "February", "March", "April", "May", "June",
+                                     "July", "August", "September", "October", "November", "December"]
+
+    /// "4pm", "9.30am" — a period, not a colon. timeLabel() in app.js.
+    static func timeLabel(_ hhmm: String?) -> String? {
+        guard let m = minutes(hhmm) else { return nil }
+        let h24 = m / 60, mins = m % 60
+        let hour = h24 % 12 == 0 ? 12 : h24 % 12
+        let suffix = h24 < 12 ? "am" : "pm"
+        return mins == 0 ? "\(hour)\(suffix)" : String(format: "%d.%02d%@", hour, mins, suffix)
+    }
+
+    /// "Today", "Tomorrow", "Mon 9 Mar" — relative where that reads faster.
+    /// dayLabel() in app.js, including the year only when it is not this one.
+    static func dayLabel(_ key: String, today: String, _ calendar: Calendar = .current) -> String {
+        if key == today { return "Today" }
+        if key == adding(1, to: today, calendar) { return "Tomorrow" }
+        if key == adding(-1, to: today, calendar) { return "Yesterday" }
+        guard let d = date(key, calendar) else { return key }
+        let p = calendar.dateComponents([.year, .month, .day, .weekday], from: d)
+        let name = String(dayNames[(p.weekday ?? 1) - 1].prefix(3))
+        let month = String(monthNames[(p.month ?? 1) - 1].prefix(3))
+        let thisYear = date(today, calendar).map { calendar.component(.year, from: $0) }
+        let year = p.year == thisYear ? "" : " \(p.year ?? 0)"
+        return "\(name) \(p.day ?? 0) \(month)\(year)"
+    }
+
+    /// Minutes past midnight for "HH:MM", or nil.
+    static func minutes(_ hhmm: String?) -> Int? {
+        guard let hhmm else { return nil }
+        let parts = hhmm.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return nil }
+        return parts[0] * 60 + parts[1]
     }
 }
 
@@ -58,23 +139,172 @@ struct TaskSnapshot: Codable, Equatable {
     let tasks: [SnapTask]
     let dropped: Int         // cut for size; drawn as "+N" rather than pretended away
 
+    /* The aggregates below are counted from the whole store before the
+       task list is trimmed, so they stay true when `dropped > 0`. A month
+       grid derived from `tasks` would quietly under-count the moment the
+       cap bit; this one cannot. */
+
+    let doneToday: Int       // ticked off today, including ones `tasks` drops
+    let calFrom: String?     // first day `cal` describes
+    let cal: [Int]           // open dated tasks, one entry per day from calFrom
+    let histFrom: String?    // first day `hist` describes
+    let hist: [Int]          // tasks completed, one entry per day from histFrom
+
     enum CodingKeys: String, CodingKey {
         case generated = "g", day = "d", tasks = "t", dropped = "x"
+        case doneToday = "k", calFrom = "cf", cal = "cv", histFrom = "hf", hist = "hv"
     }
 
-    /// The next thing, which is the whole product in one line: soonest
-    /// first, then most urgent, then shortest.
-    var next: SnapTask? {
-        tasks.filter { !$0.done }.min { a, b in
-            let ka = a.at ?? "99:99", kb = b.at ?? "99:99"
-            if ka != kb { return ka < kb }
-            if a.urgency != b.urgency { return a.urgency > b.urgency }
-            return a.minutes < b.minutes
-        }
+    init(generated: Date, day: String, tasks: [SnapTask], dropped: Int,
+         doneToday: Int = 0,
+         calFrom: String? = nil, cal: [Int] = [],
+         histFrom: String? = nil, hist: [Int] = []) {
+        self.generated = generated
+        self.day = day
+        self.tasks = tasks
+        self.dropped = dropped
+        self.doneToday = doneToday
+        self.calFrom = calFrom
+        self.cal = cal
+        self.histFrom = histFrom
+        self.hist = hist
     }
 
-    var timed: [SnapTask] { tasks.filter { $0.at != nil } }
+    /* A blob written before the aggregates existed has none of these keys
+       and must still open. Throwing instead would blank the widget until
+       the next launch, which is survivable — and would leave the 07:00
+       wallpaper Shortcut, which runs with no app anywhere near it, showing
+       yesterday's picture to anyone who took the update overnight. Six
+       lines to not do that. */
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        generated = try c.decode(Date.self, forKey: .generated)
+        day       = try c.decode(String.self, forKey: .day)
+        tasks     = try c.decode([SnapTask].self, forKey: .tasks)
+        dropped   = try c.decode(Int.self, forKey: .dropped)
+        doneToday = try c.decodeIfPresent(Int.self, forKey: .doneToday) ?? 0
+        calFrom   = try c.decodeIfPresent(String.self, forKey: .calFrom)
+        cal       = try c.decodeIfPresent([Int].self, forKey: .cal) ?? []
+        histFrom  = try c.decodeIfPresent(String.self, forKey: .histFrom)
+        hist      = try c.decodeIfPresent([Int].self, forKey: .hist) ?? []
+    }
+
+    // MARK: what the day is made of
+
+    var tomorrow: String { DayKey.adding(1, to: day) }
+
+    /// Dated before the day this snapshot describes, and still open. Kept
+    /// by TaskBridge on purpose — late is the one thing that must not fall
+    /// off the bottom of a tile.
+    var overdue: [SnapTask] { tasks.filter { $0.isOverdue(on: day) } }
+
+    var todayTasks: [SnapTask] { tasks.filter { $0.when == day } }
+    var tomorrowTasks: [SnapTask] { tasks.filter { $0.when == tomorrow } }
+
+    /// Everything that belongs on today's band: dated today, and nothing
+    /// else. `tasks` also carries tomorrow and whatever is late, and both
+    /// draw at the wrong place on a 24-hour band.
+    var timed: [SnapTask] { tasks.filter { $0.when == day && $0.at != nil } }
+
+    /// No clock on it. Includes things dated today with no time, which is
+    /// what the band means by "N anytime".
     var untimed: [SnapTask] { tasks.filter { $0.at == nil && !$0.done } }
+
+    /// On no day at all — a stricter thing than `untimed`, and the right
+    /// count for a tile that has already drawn today and tomorrow in full.
+    var undated: [SnapTask] { tasks.filter { $0.when == nil && !$0.done } }
+
+    // MARK: the next thing
+
+    /* The whole product in one line. Five bands, in the order the day
+       presses on you, and it is paintToday()'s rule from app.js rather
+       than a second opinion about it: anything late, then anything dated
+       today in clock order, then whatever is simply open.
+
+       A time that has already gone is deliberately NOT demoted. Nine
+       o'clock at half past ten is the thing you have not done yet, and
+       burying it under this afternoon's is how a list starts lying about
+       what is pressing. The app does not do it either, and a tile that
+       ranked differently from the screen it stands for would be its own
+       bug.
+
+       `now` is still taken rather than read, because the day rolls: it is
+       what the timeline provider uses to precompute the whole day's
+       entries and let the tile advance without spending a reload. */
+    func next(now: Date) -> SnapTask? { ordered(now: now).first }
+
+    /* Which day "late" is measured against. Not simply `day`: a snapshot
+       written last night and read at seven this morning — which is exactly
+       what the wallpaper Shortcut does, on purpose — would otherwise still
+       think yesterday's nine o'clock is in the future. Never earlier than
+       the day it describes, because a clock set backwards should not
+       un-late anything. */
+    func effectiveDay(_ now: Date) -> String { max(day, DayKey.of(now)) }
+
+    /// The same ranking as a list. paintToday() takes three off the top of
+    /// this and calls it the answer to "what now"; `next` takes one and
+    /// calls it the product. One ordering so the two can never disagree.
+    func ordered(now: Date) -> [SnapTask] {
+        let today = effectiveDay(now)
+        return tasks.filter { !$0.done }.sorted { rank($0, today) < rank($1, today) }
+    }
+
+    private func rank(_ t: SnapTask, _ today: String) -> (Int, Int, Int, Int) {
+        let at = DayKey.minutes(t.at)
+        let band: Int
+        var within = 0
+
+        if t.isOverdue(on: today) {
+            band = 0
+            within = -(DayKey.between(t.when ?? today, today) ?? 0)   // longest late first
+        } else if t.when == today, let at {
+            band = 1
+            within = at
+        } else if t.when == today {
+            band = 2
+        } else if t.when == nil {
+            band = 3
+        } else {
+            band = 4
+            within = (DayKey.between(today, t.when ?? today) ?? 0) * 1440 + (at ?? 1439)
+        }
+        return (band, within, -t.urgency, t.minutes)
+    }
+
+    // MARK: the aggregates, read back by day
+
+    func count(on key: String) -> Int { at(key, from: calFrom, in: cal) }
+    func completed(on key: String) -> Int { at(key, from: histFrom, in: hist) }
+
+    private func at(_ key: String, from anchor: String?, in values: [Int]) -> Int {
+        guard let anchor, let i = DayKey.between(anchor, key),
+              i >= 0, i < values.count else { return 0 }
+        return values[i]
+    }
+
+    /// Consecutive days with something ticked off, counting back from the
+    /// snapshot's own day. Today counting as zero does not break it —
+    /// nothing done yet at nine in the morning is not a broken streak.
+    var streak: Int {
+        guard histFrom != nil, !hist.isEmpty else { return 0 }
+        var run = 0
+        var key = day
+        if completed(on: key) == 0 { key = DayKey.adding(-1, to: key) }
+        while completed(on: key) > 0 {
+            run += 1
+            key = DayKey.adding(-1, to: key)
+        }
+        return run
+    }
+
+    /// Same snapshot, different task list. The aggregates come along
+    /// untouched on purpose: they were counted from the whole store, and
+    /// trimming the list for size does not make the month any emptier.
+    func with(tasks: [SnapTask], dropped: Int? = nil) -> TaskSnapshot {
+        TaskSnapshot(generated: generated, day: day, tasks: tasks,
+                     dropped: dropped ?? self.dropped, doneToday: doneToday,
+                     calFrom: calFrom, cal: cal, histFrom: histFrom, hist: hist)
+    }
 
     /// A snapshot nobody has refreshed in a day is still worth drawing —
     /// it is just not worth drawing as if it were current.
@@ -164,10 +394,22 @@ enum TaskStore {
 
     // MARK: the wire format
 
-    /// One version byte, then zlib. The byte is what lets a future shape
-    /// be refused rather than half-read: anything that is not a 1 is not
-    /// something this build knows how to open.
-    private static let version: UInt8 = 1
+    /* One version byte, then zlib. The byte refuses a change of FORMAT —
+       a different compressor, a different envelope, a re-keyed struct —
+       so a blob written by a newer build beside an older one is turned
+       away rather than half-read.
+
+       It is not spent on added fields. Those are handled by
+       decodeIfPresent and a default in TaskSnapshot's own init(from:),
+       which is why 1 is still readable: the wallpaper Shortcut runs at
+       07:00 with no app around to rewrite the item, and refusing an old
+       one there means a lock screen frozen on yesterday for everybody who
+       took the update overnight.
+
+       So: write the current number, keep reading every number whose body
+       still parses, and only drop one when it genuinely stops parsing. */
+    private static let version: UInt8 = 2
+    private static let readable: ClosedRange<UInt8> = 1...2
 
     static func encode(_ snapshot: TaskSnapshot) -> Data? {
         let coder = JSONEncoder()
@@ -179,7 +421,7 @@ enum TaskStore {
     }
 
     static func decode(_ blob: Data) -> TaskSnapshot? {
-        guard let first = blob.first, first == version, blob.count > 1 else { return nil }
+        guard let first = blob.first, readable.contains(first), blob.count > 1 else { return nil }
         let body = Data(blob.dropFirst())
         guard let json = try? (body as NSData).decompressed(using: .zlib) as Data else { return nil }
         let coder = JSONDecoder()

@@ -24,11 +24,27 @@ enum BridgeScript {
        does — hiding the "add to home screen" prompt, mainly, which is a
        nonsense to show inside an installed app. */
     static var atStart: String {
-        template.replacingOccurrences(of: "__VERSION__", with: AppConfig.version)
+        template
+            .replacingOccurrences(of: "__VERSION__", with: AppConfig.version)
+            .replacingOccurrences(of: "__HOLDKEY__", with: AppConfig.holdKey)
     }
 
     private static let template = #"""
     (function () {
+      /* ---- past the curtain, before the page can draw it ----
+         This runs at .atDocumentStart: the document element exists, the
+         <head> has not been parsed, and app.html's hold has therefore not
+         had its chance to redirect yet. Writing the key here is the whole
+         fix — by the time the inline block reads it, it is already there.
+
+         Outside the return guard above on purpose. That guard exists so
+         the bridge is only built once, and this has to run on every
+         document, including one that has somehow already got a bridge.
+
+         Temporary. See AppConfig.holdKey for what to delete when the app
+         opens to everyone again. */
+      try { localStorage.setItem('__HOLDKEY__', '1'); } catch (e) { /* private mode, or no storage yet */ }
+
       if (window.MYADHD_NATIVE) return;
 
       function post(name, body) {

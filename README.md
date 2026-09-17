@@ -155,13 +155,30 @@ ios/
 ├── Shared/                 compiled into more than one target, by hand
 │   ├── DumpQueue.swift     the share extension's handover, and why it is in
 │   │                       the keychain
-│   ├── TaskSnapshot.swift  the model, and the one keychain item the app
-│   │                       leaves for anything that cannot reach the page
+│   ├── TaskSnapshot.swift  the model, DayKey, and the one keychain item the
+│   │                       app leaves for anything that cannot reach the page
+│   ├── OpQueue.swift       the other direction: what a widget did, waiting
+│   │                       for a page to tell. Never writes the snapshot
+│   ├── TaskRows.swift      a task as one row, a day as one column, and the
+│   │                       whole Today checklist
+│   ├── MonthGrid.swift     six weeks of it, off the day counts
+│   ├── DoneGraph.swift     the contribution grid, and why it is not green
 │   └── TimelineBand.swift  the day as one band. No WidgetKit import, so the
 │                           wallpaper can draw the same chart
 ├── MyADHDWidgets/          the widget extension
-│   ├── MyADHDWidgets.swift Next Up and Today Timeline, their provider, and
-│   │                       the gallery's fabricated day
+│   ├── MyADHDWidgets.swift Next Up, Today Timeline, the bundle, SnapProvider,
+│   │                       and the gallery's fabricated day
+│   ├── TodayChecklistWidget.swift
+│   │                       the checklist, and the only tile with a button
+│   ├── AgendaWidget.swift  today and tomorrow, two columns
+│   ├── MonthWidget.swift   the month, and Ink's "Month & Tasks" at large
+│   ├── DoneGraphWidget.swift
+│   │                       the only tile that looks backwards
+│   ├── TickIntent.swift    the button. Appends to OpQueue and asks for a
+│   │                       redraw; nothing comes to the front
+│   ├── DayProvider.swift   a timeline for the tiles with no now-line in them
+│   ├── Baloo2-Variable.ttf a second copy under ios/, so the tiles are set in
+│   │                       the app's own face rather than in SF
 │   ├── PrivacyInfo.xcprivacy
 │   │                       deliberately declares nothing — see below
 │   └── Assets.xcassets/    AccentColor and WidgetBackground, nothing else
@@ -186,6 +203,9 @@ ios/
     │                          all three intents are registered in
     ├── TaskBridge.swift       localStorage → the keychain snapshot, riding on
     │                          the read Reminders.sync already does
+    ├── OpDrain.swift          the widget's ticks → the page's own markDone()
+    ├── DoneLedger.swift       what the web app forgets after seven days, kept
+    │                          natively so the Done graph has a history
     ├── Wallpaper.swift        ImageRenderer → a PNG in Documents
     ├── WallpaperView.swift    what that PNG shows. UIKit-free on purpose, so
     │                          it renders off-device and previews in the sheet
@@ -195,7 +215,9 @@ ios/
     ├── ShellState.swift       theme, painted, offline
     ├── AppConfig.swift        every promise this project makes about the web app
     ├── Baloo2-Variable.ttf    a copy of fonts/Baloo2-Variable.ttf, so the
-    │                          wallpaper is drawn in the app's own face
+    │                          wallpaper is drawn in the app's own face. There
+    │                          is now a second copy under MyADHDWidgets/ —
+    │                          three files in all, replaced together
     ├── PrivacyInfo.xcprivacy  the required-reason API declaration. Without it
     │                          an upload bounces as ITMS-91053 before a human
     └── Assets.xcassets/       the icon, rendered by icons/render.py at 1024
@@ -252,10 +274,21 @@ Three more arrived with the widgets, and they are promises in a looser sense
   categories, sampled between `--blue` and `--violet`. `theme.css` has no
   per-category colour at all, so this is a shell invention; if the web app
   ever ships its own, the two will not match.
+- **`doneAt`**, a millisecond epoch stamped by `markDone` in `app.js`.
+  `TaskBridge` buckets it into local days to fill the Done graph, and
+  `DoneLedger` keeps the result because `pruneDone()` deletes the task itself
+  after seven days. A rename breaks the graph silently, not loudly.
+- **`window.markDone(id, after)` and `window.repaintLists()`.** `OpDrain`
+  calls both by name to land a tick taken on a widget. They are reachable only
+  because `app.js` is a classic script with no module wrapper — wrap it in one,
+  or rename either, and the drain falls back to editing `localStorage` and
+  reloading, which works but throws away the screen the user was on.
 - **`MyADHD/Baloo2-Variable.ttf`** is a copy of `fonts/Baloo2-Variable.ttf`,
   so the wallpaper is drawn in the app's own face rather than in SF. Replace
   one and replace the other. Its PostScript name is `Baloo2-Regular`, which
-  is what `WallpaperView` asks for.
+  is what `WallpaperView` asks for. **There are now two copies under `ios/`** —
+  the second in `MyADHDWidgets/`, so the tiles are set in the same face.
+  Replace one, replace all three.
 
 No count is given on purpose. The old "four" counted groups rather than
 values, and the selector group quietly became three when `#composer-mic` was
@@ -369,10 +402,23 @@ returns early for anyone who declined notifications, and a widget has nothing
 to do with notifications. Moving it below is a silent, total failure for
 those users.
 
-| | |
-|---|---|
-| **Next Up** | `systemSmall`, `accessoryCircular`, `accessoryInline` |
-| **Today Timeline** | `systemMedium`, `accessoryRectangular` (six hours around now, not twenty-four — a 160×72pt tile cannot carry a day) |
+| | families | |
+|---|---|---|
+| **Today** | `systemSmall`, `systemMedium`, `systemLarge` | The checklist, and the only one with a button in it. Rows come off `paintToday()`'s rule — anything late, then anything dated today, then whatever is open — two of them at small, three at medium, eight at large. |
+| **Next Up** | `systemSmall`, `accessoryCircular`, `accessoryInline` | One task and its two-minute step. |
+| **Today Timeline** | `systemMedium`, `systemLarge`, `accessoryRectangular` | The band. Rectangular is six hours around now rather than twenty-four — a 160×72pt tile cannot carry a day. Large is the band, then the checklist, then a tomorrow strip. |
+| **Agenda** | `systemMedium`, `systemLarge` | Today and tomorrow as two columns, with anything late folded into the top of the Today one. Hiding late in a tile that is looking at tomorrow would be the exact failure this app exists to prevent. |
+| **Month** | `systemMedium`, `systemLarge` | The month, a mark on every day the list has something dated to, today ringed in the accent and a past day with something still open marked in Vivid Orange. Large is the grid over the checklist. |
+| **Done** | `systemMedium`, `systemLarge` | A contribution grid of what has been finished. See the caveat below — it is the one tile whose content is thin on day one. |
+
+Six of them, against the seven Ink ships. Theirs are all read-only, because a
+wallpaper cannot have a button in it; ours is the same gallery with the one
+thing they structurally cannot answer added to it.
+
+**The counts the Month and Done tiles draw are swept from the whole store,
+before the task list is trimmed** — so they stay true when `dropped > 0`. A
+month grid derived from `tasks` would under-count every day past tomorrow and
+lose the rest once the cap bit, which is a calendar being wrong quietly.
 
 The band's window is computed from the data rather than fixed at 0–24, which
 is worth about fifty per cent more pixels per hour. Untimed tasks never go on
@@ -383,6 +429,77 @@ o'clock would be an invention.
 `MyADHDWidgets/PrivacyInfo.xcprivacy` declares no accessed APIs at all.
 `SecItem*` is not a required-reason API; `UserDefaults` (CA92.1), file
 timestamps (C617.1) and free disk space (E174.1) are. Keep it that way.
+
+### Ticking one off from a tile, and what it costs
+
+The Today checklist, the large timeline and the large Month tile all carry a
+`Button(intent: TickIntent(...))`. Ink has nothing like it; a wallpaper cannot
+have a button in it, which is the whole argument for a widget over a picture.
+
+The path is not direct, and cannot be. The widget's process has no web view,
+so:
+
+1. `TickIntent` appends a `done` op to `Shared/OpQueue.swift` — its own
+   keychain service, one item per op, `SecItemAdd` only.
+2. `SnapProvider.current()` lays the pending ops over the snapshot it reads,
+   so the row strikes through in the time WidgetKit takes to reload.
+3. The next time the app is in front of somebody, `OpDrain` calls the page's
+   own `window.markDone(id, function () {})` for each queued id and drops only
+   the ones the page confirmed.
+
+**Through `markDone`, not through `localStorage`.** `markDone` stamps `doneAt`,
+calls `save()` — which is `cloud.stamp()`, `persistOnly()`, `syncSoon()` and
+`cloud.soon()` — and offers the same Undo the app offers. Editing the store
+directly would get four of those five wrong and the live page would overwrite
+the fifth on its next save. The empty `after` is load-bearing: the default is
+`goToNext`, which would yank the user to another screen for something they did
+an hour ago on the home screen.
+
+What that costs, plainly:
+
+- **The tile ticks in well under a second. The web store catches up whenever
+  the app is next opened** — which could be days. This is inherent to a widget
+  process that cannot reach a web view, not to this design.
+- **An "Undo" toast appears for something done an hour ago**, once per drained
+  op, because `markDone` always toasts. Three ticks on the widget are three
+  toasts on next open. Accepted: it is an undo affordance, and suppressing it
+  means shimming another internal.
+- **The tick carries a `cloud.stamp()` from drain time, not tap time.** On a
+  two-device conflict it wins as though it happened when you opened the app. A
+  small lie about *when*, never about *what*.
+- **An op that lands nowhere is swept after 48 hours and the tile un-ticks.**
+  That is the honest outcome — better a row that comes back than one that
+  pretends.
+- **The drain runs at `pageReady()` and at `returning()`, and nowhere else.**
+  Not on the 1.5s store debounce, which `markDone`'s own `save()` triggers —
+  that is re-entrancy for no gain. Not on `leaving()`, where the background
+  window is already tight and nobody would see the repaint. And not on a
+  `returning()` that has queued share text, because `dump()` reloads the page
+  and `pageReady()` will catch it after the load.
+
+### The Done graph is thin on day one, and that needs a decision about the website
+
+`pruneDone()` in `app.js` deletes any finished task older than `DONE_TTL` —
+seven days. So the store can never hand over more than a week, and everything
+past that is accrued natively by `MyADHD/DoneLedger.swift`, one day at a time,
+from the day this shipped. The header says **"Since Sat 11 Jul."** rather than
+drawing half a year of empty squares and letting them read as half a year of
+doing nothing.
+
+It cannot be backfilled, and a fortnight away from the app leaves a real hole,
+because the days that would have filled it were pruned before anything looked.
+
+Two changes on the **web** side would fix it, and neither has been made,
+because changing the website is a decision about the website:
+
+1. Raise `DONE_TTL`. Cheapest, and it grows `state.tasks` without bound, which
+   is precisely what `pruneDone`'s own comment says it exists to stop.
+2. Have `pruneDone()` increment a `state.doneCounts[dayKey]` before it
+   deletes. Bounded at 365 small ints, survives forever, syncs through
+   `cloud.js` for free, about four lines. **This is the better one.**
+
+Until one of them happens the graph is honest but short, and that is the right
+way round.
 
 ### The one thing still to prove
 

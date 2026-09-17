@@ -17,6 +17,11 @@ struct WallpaperView: View {
     let snapshot: TaskSnapshot
     var dark: Bool = true
 
+    /// When the picture is being drawn for. A wallpaper is rendered once
+    /// and then looked at for hours, so "next" has to mean next at the
+    /// moment of rendering — not whatever was first on the list.
+    var now: Date = Date()
+
     /* The regions iOS draws over, as fractions of the height:
          0.00 – 0.30   the date line and the big clock
          0.30 – 0.38   the lock-screen widget row, when there is one
@@ -26,7 +31,7 @@ struct WallpaperView: View {
     private let top = 0.38
     private let bottom = 0.78
 
-    private var task: SnapTask? { snapshot.next }
+    private var task: SnapTask? { snapshot.next(now: now) }
 
     var body: some View {
         GeometryReader { geo in
@@ -76,7 +81,7 @@ struct WallpaperView: View {
                     .foregroundStyle(ink.opacity(0.5))
 
                 Text(task.title)
-                    .font(baloo(27, weight: .bold))
+                    .font(Font.baloo(27, .bold))
                     .foregroundStyle(ink)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -112,7 +117,7 @@ struct WallpaperView: View {
                     .tracking(1.6)
                     .foregroundStyle(ink.opacity(0.5))
                 Text("Nothing left in the queue.")
-                    .font(baloo(24, weight: .bold))
+                    .font(Font.baloo(24, .bold))
                     .foregroundStyle(ink)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -132,10 +137,4 @@ struct WallpaperView: View {
     /// on the picture that says start here.
     private var accent: Color { CategoryTint.urgent }
 
-    /// Font.custom falls back to the system face on its own when the
-    /// bundled file is missing, so this needs no UIFont lookup — and
-    /// without one the whole view compiles anywhere SwiftUI does.
-    private func baloo(_ size: CGFloat, weight: Font.Weight) -> Font {
-        .custom("Baloo2-Regular", size: size).weight(weight)
-    }
 }

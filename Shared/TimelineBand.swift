@@ -35,6 +35,19 @@ enum CategoryTint {
     /// Danger Red, and only for the now-line.
     static let now = Color(red: 217 / 255, green: 45 / 255, blue: 32 / 255)
 
+    /// The one brand colour that moves between themes: #4737FF by day,
+    /// #8B7DFF by night, because the day value is too dark to read on a
+    /// night ground. theme.css moves it for the same reason.
+    ///
+    /// Written out rather than read from the asset catalogue: an
+    /// AccentColor lookup resolves against a bundle, and this file has to
+    /// render under swiftc on a Mac where there is no bundle at all.
+    static func accent(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0x8B / 255, green: 0x7D / 255, blue: 0xFF / 255)
+            : Color(red: 0x47 / 255, green: 0x37 / 255, blue: 0xFF / 255)
+    }
+
     static func of(_ category: String) -> Color {
         let i = order.firstIndex(of: category.lowercased()) ?? order.count - 1
         let t = Double(i) / Double(max(1, order.count - 1))
@@ -247,5 +260,26 @@ struct TimelineBand: View {
             }
         }
         return (placed, overflow)
+    }
+}
+
+// MARK: - the app's own face
+
+/* Baloo 2 is the app's typeface and the wordmark's, so a tile drawn in SF
+   beside the app icon is visibly a different product. The file is bundled
+   into both the app and the widget extension — two copies under ios/, and
+   a third upstream at fonts/Baloo2-Variable.ttf, all replaced together.
+
+   Font.custom falls back to the system face on its own when the file is
+   missing, which is what lets this whole file render off-device with no
+   UIFont lookup anywhere in it. */
+extension Font {
+
+    /// The PostScript name inside Baloo2-Variable.ttf, which is not the
+    /// family name and is what Font.custom actually wants.
+    private static let balooFace = "Baloo2-Regular"
+
+    static func baloo(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .custom(balooFace, size: size).weight(weight)
     }
 }
