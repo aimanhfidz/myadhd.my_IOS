@@ -2,20 +2,24 @@
 
 The web app, in a case that can buzz, ring, and be talked to by Siri.
 
-> **The web app ships; this shell does not.** This directory is a case around
-> the deployed page — it still builds and still works, but it is not on a
-> release track, and nothing wanted here is a reason to change the website.
-> The web app's own README is [`../README.md`](../README.md), and
-> [`../CLAUDE.md`](../CLAUDE.md) is the boundary between the two, with
-> [`../CLAUDE.ios.md`](../CLAUDE.ios.md) the standing rules for in here.
+> **The web app ships; this shell does not.** This repo is a case around the
+> deployed page — it still builds and still works, but it is not on a release
+> track, and nothing wanted here is a reason to change the website.
+>
+> **The web app lives in a different repository**:
+> [aimanhfidz/my.adhd](https://github.com/aimanhfidz/my.adhd). It used to be
+> the parent directory of this one. Splitting them made the old boundary rule
+> — *no file outside `ios/` is edited to make an iOS feature work* — a fact
+> about the filesystem instead of a rule somebody had to keep: those files are
+> simply not in this checkout. `CLAUDE.md` in here is the standing rules.
 
-> **⚠ The shell currently loads `/soon`, not the app.** The web app is held
-> behind a curtain while it is rebuilt: `app.html` sends everyone to `/soon`
-> before first paint except `localhost` and a browser carrying the dev key.
-> `AppConfig.home` is `https://myadhd.my/app` and a `WKWebView` is neither, so
-> every launch lands on the holding page. The fix is on this side — inject the
-> key from `BridgeScript.swift` before the page runs — and it is not done.
-> Until it is, the shell only does anything useful against a local server.
+> **The web app is held behind `/soon`, and this shell gets past it.**
+> `app.html` sends everyone to a holding page before first paint, except
+> `localhost` and a browser carrying the dev key. A `WKWebView` is neither, so
+> the shell used to land on the holding page every launch. `BridgeScript`
+> now writes that key at `.atDocumentStart`, which runs before `<head>` is
+> parsed — see `AppConfig.holdKey` for what to delete when the curtain comes
+> down.
 
 **This project does not duplicate a line of the web app.** It opens
 `https://myadhd.my/app` in a full-screen `WKWebView` and adds what a page in a
@@ -59,7 +63,7 @@ Xcode 26.6 and the iOS 26.5 SDK are already on this machine. There is no
 package manager step and no dependency to fetch; the project builds as-is.
 
 ```bash
-open "ios/MyADHD.xcodeproj"
+open MyADHD.xcodeproj
 ```
 
 1. Plug the iPhone in and unlock it. Pick it in the device menu at the top
@@ -69,12 +73,12 @@ open "ios/MyADHD.xcodeproj"
    under *Xcode → Settings → Accounts* and it appears as `<your name>
    (Personal Team)`.
 
-   The team you pick is written to `ios/Local.xcconfig`, which is
+   The team you pick is written to `Local.xcconfig`, which is
    git-ignored — that file is the only place a team id is meant to exist, and
    `Signing.xcconfig` `#include?`s it. Writing it yourself does the same job:
 
    ```bash
-   echo 'DEVELOPMENT_TEAM = YOURTEAMID' > ios/Local.xcconfig
+   echo 'DEVELOPMENT_TEAM = YOURTEAMID' > Local.xcconfig
    ```
 
 3. If Xcode says the bundle identifier is taken, change
@@ -99,7 +103,7 @@ worth knowing before renaming one on a whim.
 To check it compiles without opening Xcode:
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project ios/MyADHD.xcodeproj -scheme MyADHD -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MyADHD.xcodeproj -scheme MyADHD -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
 The Simulator itself has no runtimes installed on this machine. `xcodebuild
@@ -127,7 +131,7 @@ nothing; the app itself works, because it always did without an account.
 ## What is where
 
 ```
-ios/
+myadhd.my_IOS/
 ├── Info.plist              bundle identity, the myadhd:// scheme, mic wording
 ├── Signing.xcconfig        who signs this build. #includes Local.xcconfig,
 │                           which is git-ignored, so no team id is committed
@@ -143,6 +147,11 @@ ios/
 ├── MyADHDWidgets-Info.plist
 │                           NSExtensionPointIdentifier = widgetkit-extension,
 │                           which is the whole of what makes it a widget
+├── CLAUDE.md               the standing rules. AGENTS.md is a symlink to it
+├── icons/                  render.py draws the app icon at 1024 straight into
+│                           the asset catalogue; icon-source.svg is the
+│                           readable definition. A copy of the web app's
+│                           script — see the promises below
 ├── MyADHD.xcodeproj/       no build settings worth hiding; INFOPLIST_FILE and
 │                           synchronised file groups, so a new .swift file in
 │                           MyADHD/ or MyADHDWidgets/ is picked up with no
@@ -177,8 +186,8 @@ ios/
 │   ├── TickIntent.swift    the button. Appends to OpQueue and asks for a
 │   │                       redraw; nothing comes to the front
 │   ├── DayProvider.swift   a timeline for the tiles with no now-line in them
-│   ├── Baloo2-Variable.ttf a second copy under ios/, so the tiles are set in
-│   │                       the app's own face rather than in SF
+│   ├── Baloo2-Variable.ttf the second copy in this repo, so the tiles are set
+│   │                       in the app's own face rather than in SF
 │   ├── PrivacyInfo.xcprivacy
 │   │                       deliberately declares nothing — see below
 │   └── Assets.xcassets/    AccentColor and WidgetBackground, nothing else
@@ -214,10 +223,10 @@ ios/
     │                          it nagging once the automation works
     ├── ShellState.swift       theme, painted, offline
     ├── AppConfig.swift        every promise this project makes about the web app
-    ├── Baloo2-Variable.ttf    a copy of fonts/Baloo2-Variable.ttf, so the
-    │                          wallpaper is drawn in the app's own face. There
-    │                          is now a second copy under MyADHDWidgets/ —
-    │                          three files in all, replaced together
+    ├── Baloo2-Variable.ttf    a copy of the web app's fonts/Baloo2-Variable.ttf,
+    │                          so the wallpaper is drawn in the app's own face.
+    │                          A second copy sits under MyADHDWidgets/ — three
+    │                          files across two repos, replaced together
     ├── PrivacyInfo.xcprivacy  the required-reason API declaration. Without it
     │                          an upload bounces as ITMS-91053 before a human
     └── Assets.xcassets/       the icon, rendered by icons/render.py at 1024
@@ -225,13 +234,21 @@ ios/
 
 ### Things worth knowing before changing it
 
-**The app icon is generated, not drawn.** `icons/render.py` in the repo root
-draws the mark from its geometry; the 1024 tile here came out of the same
-function, so it cannot drift from the favicons:
+**The app icon is generated, not drawn.** `icons/render.py` draws the mark
+from its geometry rather than rasterising the SVG, and writes the 1024 tile
+straight into the asset catalogue:
 
 ```bash
-python3 -c "import sys; sys.path.insert(0,'icons'); import render; render.draw_icon(1024).save('ios/MyADHD/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png', optimize=True)"
+python3 icons/render.py
 ```
+
+That script is a **copy** of the web app's `icons/render.py`, which uses the
+same `draw_icon()` for the favicons, the apple-touch-icon and the OAuth
+consent logo. It was copied rather than imported when the repos split: a build
+step that needs somebody else's checkout is a build step that stops working.
+The cost is that the mark's geometry now exists in two places and can drift —
+it is in the promises list below for that reason. `icons/icon-source.svg`
+beside it stays the readable definition.
 
 **The web view is transparent and ignores the safe area, on purpose.**
 `styles.css` already pads for `env(safe-area-inset-*)` on every screen, so
@@ -252,8 +269,11 @@ ask" path. The website keeps its tin; the shell simply never shows it. Why: an
 external payment link is the least settled corner of App Review, and it is not
 worth spending a first submission on. No file outside `ios/` was touched.
 
-**Values here are promises about the web app** and will break quietly if
-either side moves: the two grounds in `AppConfig` (`theme.css`), the
+**Values here are promises about the web app**, which since the split lives in
+[a different repository](https://github.com/aimanhfidz/my.adhd). They will
+break quietly if either side moves, and nothing in this checkout can catch it —
+there is no `app.js` here to grep, and no build that fails. That is the price
+of the split, and it is why this list is worth keeping accurate: the two grounds in `AppConfig` (`theme.css`), the
 `#dump-input` id (`app.html`), the `myadhd.v1` store key — now
 `AppConfig.storeKey`, substituted into `BridgeScript` as `__STOREKEY__` and
 read by `Reminders.swift` — and the `.task-check`, `#btn-triage` and
@@ -283,17 +303,23 @@ Three more arrived with the widgets, and they are promises in a looser sense
   because `app.js` is a classic script with no module wrapper — wrap it in one,
   or rename either, and the drain falls back to editing `localStorage` and
   reloading, which works but throws away the screen the user was on.
-- **`MyADHD/Baloo2-Variable.ttf`** is a copy of `fonts/Baloo2-Variable.ttf`,
-  so the wallpaper is drawn in the app's own face rather than in SF. Replace
-  one and replace the other. Its PostScript name is `Baloo2-Regular`, which
-  is what `WallpaperView` asks for. **There are now two copies under `ios/`** —
-  the second in `MyADHDWidgets/`, so the tiles are set in the same face.
-  Replace one, replace all three.
+- **`MyADHD/Baloo2-Variable.ttf` and `MyADHDWidgets/Baloo2-Variable.ttf`** are
+  copies of the web app's `fonts/Baloo2-Variable.ttf`, so the wallpaper and the
+  widget tiles are drawn in the app's own face rather than in SF. Its
+  PostScript name is `Baloo2-Regular`, which is what `WallpaperView` and
+  `Font.baloo` ask for. Three files in two repos; replace one, replace all
+  three. Both copies the build needs are tracked here, so nothing breaks on a
+  fresh clone — what breaks is the day somebody changes the typeface and only
+  one repo hears about it.
+- **`icons/render.py`** is a copy of the web app's script of the same name, and
+  `draw_icon()`'s geometry is the shared part. The mark changing on the website
+  does not change the app icon until somebody runs this one too.
 
 No count is given on purpose. The old "four" counted groups rather than
 values, and the selector group quietly became three when `#composer-mic` was
 added without the sentence above it changing. Before renaming anything on the
-web side, grep `ios/` for it: this list is a signpost, not a guarantee that it
+web side, grep this repo for it — it is a separate checkout now, so the grep
+has to be deliberate. This list is a signpost, not a guarantee that it
 is complete.
 
 ## The share extension, and the keychain

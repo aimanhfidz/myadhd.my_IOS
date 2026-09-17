@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Full-bleed ground: iOS and Android both mask the corners themselves,
+       so the tile must be opaque edge to edge or it lands on black. -->
+  <rect width="512" height="512" fill="#2A2D33"/>
+  <!-- The mark fills 66% of the tile: at 50% it read as lost inside its own
+       ground on a home screen. Its widest reach is r=171 from the centre,
+       still inside the 205px maskable safe circle.
+       icons/render.py draws this same geometry — change both together. -->
+  <g transform="translate(-8.00 -8.00) scale(5.2800)">
+    <g fill="#F75C03">
+      <rect x="46.5" y="18" width="7" height="64"/>
+      <rect x="46.5" y="18" width="7" height="64" transform="rotate(90 50 50)"/>
+      <rect x="46.5" y="18" width="7" height="64" transform="rotate(45 50 50)"/>
+      <rect x="46.5" y="18" width="7" height="32" transform="rotate(-45 50 50)"/>
+    </g>
+    <path d="M64.5 64.5l7 7" stroke="#7B3FE4" stroke-width="7" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

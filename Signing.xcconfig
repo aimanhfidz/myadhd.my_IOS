@@ -11,7 +11,7 @@
 // back. This is what stops that happening again: the setting lives in
 // Local.xcconfig, which is git-ignored.
 //
-//     echo 'DEVELOPMENT_TEAM = YOURTEAMID' > ios/Local.xcconfig
+//     echo 'DEVELOPMENT_TEAM = YOURTEAMID' > Local.xcconfig
 //
 // Or leave it out entirely and pick a team in Xcode under Signing &
 // Capabilities, which writes the same file. Without one the project still

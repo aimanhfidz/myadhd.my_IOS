@@ -8,8 +8,8 @@
    It lands by calling the page's own markDone(), not by editing
    localStorage behind its back. app.js is a classic script with no module
    wrapper, so every top-level function is on `window` and markDone is
-   reachable from an injected call — which is route (a) in CLAUDE.md, the
-   sanctioned one, and requires nothing on the web side to change.
+   reachable from an injected call — which is one of the two
+   routes CLAUDE.md allows, and requires nothing on the web side to change.
 
    Going through markDone rather than the store is not a shortcut, it is
    the point. markDone stamps doneAt (which pruneDone ages on and the Done

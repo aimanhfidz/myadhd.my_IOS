@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Xcode. The project file and the shared scheme are the build; xcuserdata is
+# one person's window layout and breakpoints, and DerivedData is output.
+**/xcuserdata/
+build/
+DerivedData/
+*.xcuserstate
+
+# Signing is per-machine — see Signing.xcconfig. The team id lives here and
+# nowhere else, including prose.
+Local.xcconfig
