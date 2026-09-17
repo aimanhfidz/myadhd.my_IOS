@@ -265,6 +265,29 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         state.painted = true
         state.offline = false
+        Self.stopDoubleTapZoom(in: webView)
+    }
+
+    /* The CSS rule in BridgeScript is what actually does this, and this is
+       the belt to its braces: a page that fails to load, or a future one
+       that sets touch-action on something itself, would get the gesture
+       back otherwise.
+
+       WKWebView keeps its double-tap recogniser on the content view inside
+       the scroll view, not on the web view — and that view does not exist
+       until something has been loaded, which is why this runs on didFinish
+       and runs again on every navigation rather than once at setup.
+
+       Only the two-tap recognisers. The pinch lives on the scroll view and
+       is left alone on purpose. */
+    private static func stopDoubleTapZoom(in webView: WKWebView) {
+        for view in webView.scrollView.subviews {
+            for gesture in view.gestureRecognizers ?? [] {
+                guard let tap = gesture as? UITapGestureRecognizer,
+                      tap.numberOfTapsRequired == 2 else { continue }
+                tap.isEnabled = false
+            }
+        }
     }
 
     func webView(_ webView: WKWebView,

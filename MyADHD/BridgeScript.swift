@@ -239,6 +239,19 @@ enum BridgeScript {
       try {
         var css = document.createElement('style');
         css.textContent =
+          /* Double-tap to zoom, gone. A website wants it; an app with a
+             tab bar and a composer does not — every mis-hit near a task
+             row jumps the page to 2x and the person has to pinch their
+             way back out of a screen they never asked to leave.
+
+             touch-action is not inherited, but the browser works out what
+             a gesture is allowed to do by intersecting the value down the
+             whole ancestor chain, so one rule on html covers the page.
+             'manipulation' is exactly 'pan-x pan-y pinch-zoom': panning
+             and PINCH still work, which matters — pinch is how somebody
+             who needs the text bigger gets it, and taking that away to
+             fix a mis-tap would be a bad trade. */
+          'html{touch-action:manipulation}' +
           '.myadhd-native .brand-lockup{display:none}' +
           '.myadhd-native-title{' +
             'margin:0;font-family:var(--display);' +
