@@ -360,9 +360,33 @@ enum BridgeScript {
              phone leave ~165px a card, and three lines of chips there is
              the reason the site gave up and stacked them. */
           '#matrix .quad .list-items{gap:8px}' +
-          '#matrix .quad .task{padding:10px 10px 10px 8px;border-radius:14px;border-color:transparent;background:color-mix(in srgb,var(--surface) 78%,transparent)}' +
+          /* Ink's rows: no card behind each task, a small ring in the
+             quadrant's own hue, and the title at reading size. A white
+             pill per row inside a tinted card was a card inside a card. */
+          '#matrix .quad .list-items{gap:1px}' +
+          '#matrix .quad .task{padding:5px 0 5px 1px;gap:9px;border:0;border-radius:8px;background:transparent;align-items:center}' +
+          '#matrix .quad .task-check{width:18px;height:18px;margin-top:0;border-width:1.5px}' +
+          '#matrix .quad--do .task-check{border-color:var(--orange)}' +
+          '#matrix .quad--plan .task-check{border-color:var(--accent)}' +
+          '#matrix .quad--delegate .task-check{border-color:var(--violet)}' +
+          '#matrix .quad--drop .task-check{border-color:var(--muted)}' +
           '#matrix .quad .task-meta{display:none}' +
-          '#matrix .quad .task-title{font-size:13.5px;line-height:1.25;-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}' +
+          '#matrix .quad .task-title{font-size:12.5px;font-weight:500;line-height:1.25;-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}' +
+
+          /* ---- pull to refresh, with the header staying put ----
+             #app is the scroller and the header is sticky INSIDE it, so
+             the rubber-band at the top carried the header down with it
+             and opened a blank strip above. overscroll-behavior:none
+             stops the bounce; the pull is then ours to draw, and it
+             draws the way Ink's does — the header fixed, and the app's
+             own mark spinning in a strip under it. */
+          '#app{overscroll-behavior-y:none}' +
+          '.myadhd-native-refresh{height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;transition:height .22s var(--ease)}' +
+          '.myadhd-native-refresh.is-pulling{transition:none}' +
+          '.myadhd-native-refresh svg{width:22px;height:22px;color:var(--accent);opacity:0;transition:opacity .15s,transform .15s}' +
+          '.myadhd-native-refresh.is-armed svg,.myadhd-native-refresh.is-loading svg{opacity:1}' +
+          '.myadhd-native-refresh.is-loading svg{animation:myadhd-spin .8s linear infinite}' +
+          '@keyframes myadhd-spin{to{transform:rotate(360deg)}}' +
           '.myadhd-native .brand-lockup{display:none}' +
           '.myadhd-native-title{' +
             'margin:0;font-family:var(--display);' +
@@ -402,6 +426,88 @@ enum BridgeScript {
           bar.classList.add('myadhd-native');
         });
       } catch (e) { /* the page moved; leave its own header alone */ }
+
+      /* ---- pull to refresh ----
+         A real refresh, not a spinner for its own sake: the page's cloud
+         pass runs if there is an account, the screen repaints, and the
+         shell is told — which rewrites the widget snapshot and drains
+         any ticks taken on a tile. Then the strip closes. */
+      (function () {
+        var app = document.getElementById('app');
+        if (!app) return;
+        var startY = null, slot = null, pulling = false, loading = false;
+        var ARM = 52, MAX = 72;
+
+        function slotFor() {
+          var bar = document.querySelector('.screen:not(.is-hidden) > header.brand.myadhd-native');
+          if (!bar) return null;
+          var next = bar.nextElementSibling;
+          if (next && next.classList.contains('myadhd-native-refresh')) return next;
+          var el = document.createElement('div');
+          el.className = 'myadhd-native-refresh';
+          el.innerHTML = '<svg viewBox="0 0 100 100" aria-hidden="true"><use href="#logo-mark"/></svg>';
+          bar.parentNode.insertBefore(el, bar.nextSibling);
+          return el;
+        }
+
+        function refresh(done) {
+          var waits = [new Promise(function (r) { setTimeout(r, 750); })];
+          try { post('refresh', {}); } catch (e) {}
+          try {
+            if (window.cloud && cloud.configured && cloud.configured() && cloud.now) {
+              var p = cloud.now(); if (p && p.then) waits.push(p.catch(function () {}));
+            }
+          } catch (e) {}
+          try {
+            var now = document.querySelector('.screen:not(.is-hidden)');
+            if (now && now.id === 'screen-now'  && typeof repaintLists === 'function') repaintLists();
+            if (now && now.id === 'screen-home' && typeof renderHome   === 'function') renderHome();
+          } catch (e) {}
+          Promise.all(waits).then(done, done);
+        }
+
+        app.addEventListener('touchstart', function (e) {
+          if (loading || app.scrollTop > 0 || e.touches.length !== 1) { startY = null; return; }
+          startY = e.touches[0].clientY; pulling = false;
+        }, { passive: true });
+
+        app.addEventListener('touchmove', function (e) {
+          if (startY === null || loading) return;
+          var dy = e.touches[0].clientY - startY;
+          if (dy <= 0 || app.scrollTop > 0) { if (pulling && slot) { slot.style.height = '0px'; slot.classList.remove('is-armed'); } return; }
+          slot = slot || slotFor(); if (!slot) return;
+          pulling = true;
+          var h = Math.min(MAX, dy * 0.55);
+          slot.classList.add('is-pulling');
+          slot.style.height = h + 'px';
+          var armed = h >= ARM;
+          if (armed && !slot.classList.contains('is-armed')) { try { post('haptic', { kind: 'light' }); } catch (e) {} }
+          slot.classList.toggle('is-armed', armed);
+        }, { passive: true });
+
+        function end() {
+          if (startY === null) return;
+          startY = null;
+          if (!pulling || !slot) return;
+          pulling = false;
+          slot.classList.remove('is-pulling');
+          if (slot.classList.contains('is-armed')) {
+            loading = true;
+            slot.style.height = ARM + 'px';
+            slot.classList.add('is-loading');
+            refresh(function () {
+              slot.classList.remove('is-loading', 'is-armed');
+              slot.style.height = '0px';
+              loading = false;
+            });
+          } else {
+            slot.classList.remove('is-armed');
+            slot.style.height = '0px';
+          }
+        }
+        app.addEventListener('touchend', end, { passive: true });
+        app.addEventListener('touchcancel', end, { passive: true });
+      })();
 
       /* ---- the legal pages get a way back ---- */
       try {

@@ -144,6 +144,12 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
             share(body["text"] as? String ?? "")
         case "store":
             reminderSyncSoon()
+        case "refresh":
+            /* A pull on the page. The page has already run its own cloud
+               pass; this side re-reads the store into the widget snapshot
+               and lands any ticks taken on a tile, so a pull is the one
+               gesture that brings every surface up to date at once. */
+            drainThenSync()
         case "ready":
             pageReady()
         default:

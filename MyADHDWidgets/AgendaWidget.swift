@@ -24,7 +24,7 @@ struct AgendaWidget: Widget {
         }
         .configurationDisplayName("Agenda")
         .description("Today and tomorrow, in two columns, with anything late at the top.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 
@@ -33,9 +33,13 @@ struct AgendaView: View {
     let entry: SnapEntry
 
     var body: some View {
-        AgendaPair(snapshot: entry.snapshot,
-                   now: entry.date,
-                   limit: family == .systemLarge ? 8 : 3,
-                   titleSize: family == .systemLarge ? 13 : 12)
+        if family == .systemSmall {
+            AgendaDay(snapshot: entry.snapshot, now: entry.date)
+        } else {
+            AgendaPair(snapshot: entry.snapshot,
+                       now: entry.date,
+                       limit: family == .systemLarge ? 7 : 3,
+                       titleSize: family == .systemLarge ? 13 : 11.5)
+        }
     }
 }

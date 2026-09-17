@@ -124,6 +124,25 @@ enum DayKey {
         return "\(name) \(p.day ?? 0) \(month)\(year)"
     }
 
+    /// "9am – 10am", from a start and a length. The end wraps at midnight
+    /// rather than reading 25:00, and a task with no clock has no range.
+    static func rangeLabel(_ hhmm: String?, minutes: Int) -> String? {
+        guard let start = self.minutes(hhmm), let a = timeLabel(hhmm) else { return nil }
+        let end = (start + max(0, minutes)) % 1440
+        let b = timeLabel(String(format: "%02d:%02d", end / 60, end % 60)) ?? ""
+        return b.isEmpty || minutes <= 0 ? a : "\(a) \u{2013} \(b)"
+    }
+
+    /// "18 Sep, Friday" — the date line the Today Timeline tile already
+    /// uses, so the two agree.
+    static func longLabel(_ key: String, _ calendar: Calendar = .current) -> String {
+        guard let d = date(key, calendar) else { return key }
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.dateFormat = "d MMM, EEEE"
+        return f.string(from: d)
+    }
+
     /// Minutes past midnight for "HH:MM", or nil.
     static func minutes(_ hhmm: String?) -> Int? {
         guard let hhmm else { return nil }

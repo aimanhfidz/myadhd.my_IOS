@@ -155,6 +155,49 @@ extension TaskRow where Lead == EmptyView {
     }
 }
 
+// MARK: - an agenda row
+
+/* Ink's Agenda row: a bar in the item's colour, the title, the time range
+   beneath it. Different from TaskRow on purpose — that row is a checklist
+   line with its meta on the trailing edge; this is a calendar line, and a
+   calendar reads down the left. The bar is the category tint, or Vivid
+   Orange once the task is late, which is the one thing that colour is for. */
+struct AgendaRow: View {
+
+    let task: SnapTask
+    let day: String
+    var titleSize: CGFloat = 12.5
+
+    private var late: Bool { task.isOverdue(on: day) }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .fill(late ? CategoryTint.urgent : CategoryTint.of(task.category))
+                .frame(width: 3)
+                .padding(.vertical, 1)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(task.title)
+                    .font(.baloo(titleSize, .semibold))
+                    .lineLimit(1)
+                    .strikethrough(task.done, color: .secondary)
+                    .foregroundStyle(task.done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                Text(sub)
+                    .font(.system(size: titleSize - 2.5, weight: .medium))
+                    .foregroundStyle(late ? AnyShapeStyle(CategoryTint.urgent) : AnyShapeStyle(.secondary))
+                    .lineLimit(1)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var sub: String {
+        if late { return "\(DayKey.dayLabel(task.when ?? day, today: day)) \u{00B7} late" }
+        return DayKey.rangeLabel(task.at, minutes: task.minutes) ?? "anytime \u{00B7} \(task.minutes) min"
+    }
+}
+
 // MARK: - a column of them
 
 /// One day as a short list. Used twice by the Agenda tile and once under
@@ -169,10 +212,19 @@ struct TaskColumn: View {
     var emptyLine: String = "Nothing booked."
     var late: Bool = false
     var showDay: Bool = true
+    /// Agenda rows — bar, title, time beneath — instead of checklist rows.
+    var agenda: Bool = false
+
+    private var heading: String {
+        /* On an agenda column the overflow rides on the heading — "TODAY · +1"
+           — rather than taking a row of its own. A medium tile has room for
+           the date, two headings and three rows each, and not one line more. */
+        agenda && tasks.count > limit ? "\(title) · +\(tasks.count - limit)" : title
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title.uppercased())
+        VStack(alignment: .leading, spacing: agenda ? 5 : 6) {
+            Text(heading.uppercased())
                 .font(.system(size: 9, weight: .bold))
                 .tracking(0.9)
                 .foregroundStyle(late ? AnyShapeStyle(CategoryTint.urgent)
@@ -185,9 +237,13 @@ struct TaskColumn: View {
                     .lineLimit(2)
             } else {
                 ForEach(tasks.prefix(limit)) { t in
-                    TaskRow(task: t, day: day, titleSize: titleSize, showDay: showDay)
+                    if agenda {
+                        AgendaRow(task: t, day: day, titleSize: titleSize)
+                    } else {
+                        TaskRow(task: t, day: day, titleSize: titleSize, showDay: showDay)
+                    }
                 }
-                if tasks.count > limit {
+                if tasks.count > limit && !agenda {
                     Text("+\(tasks.count - limit) more")
                         .font(.system(size: titleSize - 2.5, weight: .semibold))
                         .foregroundStyle(.tertiary)
@@ -235,13 +291,17 @@ struct AgendaPair: View {
 
     var body: some View {
         if let snapshot {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(DayKey.longLabel(day))
+                    .font(.baloo(12.5, .bold))
+                    .lineLimit(1)
+
                 HStack(alignment: .top, spacing: 14) {
                     TaskColumn(title: lateCount > 0 ? "Today · \(lateCount) late" : "Today",
                                tasks: todayColumn, day: day, limit: limit,
                                titleSize: titleSize,
                                emptyLine: "Nothing booked today.",
-                               late: lateCount > 0)
+                               late: lateCount > 0, agenda: true)
 
                     Rectangle()
                         .fill(Color.secondary.opacity(0.18))
@@ -251,7 +311,7 @@ struct AgendaPair: View {
                                tasks: tomorrowColumn, day: day, limit: limit,
                                titleSize: titleSize,
                                emptyLine: "Nothing booked yet.",
-                               showDay: false)
+                               showDay: false, agenda: true)
                 }
 
                 if !snapshot.undated.isEmpty || snapshot.dropped > 0 {
@@ -382,5 +442,51 @@ struct TodayList<Lead: View>: View {
             }
             Spacer(minLength: 0)
         }
+    }
+}
+
+// MARK: - one day, small
+
+/* Ink's small Agenda: the date, then today's items as agenda rows. Three
+   fit; anything past that is a count, because a small tile that scrolls
+   in the mind is a tile that does not get read. */
+struct AgendaDay: View {
+
+    let snapshot: TaskSnapshot?
+    let now: Date
+    var limit: Int = 3
+
+    private var day: String { snapshot?.effectiveDay(now) ?? DayKey.of(now) }
+    private var rows: [SnapTask] {
+        guard let snapshot else { return [] }
+        return snapshot.ordered(now: now).filter { $0.isOverdue(on: day) || $0.when == day }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(DayKey.longLabel(day))
+                .font(.baloo(12.5, .bold))
+                .lineLimit(1)
+
+            if snapshot == nil || rows.isEmpty {
+                Spacer(minLength: 0)
+                Text(snapshot == nil ? Nothing.line(nil) : "Nothing booked today.")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                Spacer(minLength: 0)
+            } else {
+                ForEach(rows.prefix(limit)) { t in
+                    AgendaRow(task: t, day: day, titleSize: 12)
+                }
+                if rows.count > limit {
+                    Text("+\(rows.count - limit) more")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
