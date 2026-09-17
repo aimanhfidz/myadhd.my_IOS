@@ -255,6 +255,58 @@ enum BridgeScript {
              re-derives its zoom limits from the viewport on every load and
              any single layer leaves a way back in. */
           'html{touch-action:pan-x pan-y}' +
+
+          /* ---- the matrix, as four cards rather than a list ----
+             The site stacks the quadrants below 560px, and its own CSS
+             says why: a task row at ~170px wraps its chips onto three
+             lines and truncates the title to nothing. Inside the shell
+             the chips come off the rows instead — the quadrant already
+             says how urgent and how important — and the 2x2 stays.
+
+             Colour follows the house rule, not Ink's textbook palette.
+             Do now is the one card Vivid Orange is FOR: it means act now.
+             Plan takes the accent, Delegate the violet, Drop stays grey.
+             Red is never on a card that is not destructive, and there is
+             still no green anywhere in the app. Washes are mixed against
+             --surface so they read on both grounds without a second set
+             of values.
+
+             Everything is scoped under #matrix, which outranks every
+             class rule in styles.css, so this wins without !important. */
+          '#matrix.matrix{grid-template-columns:1fr 1fr;grid-auto-rows:1fr;align-items:stretch;gap:12px}' +
+          '#matrix .quad{position:relative;min-height:204px;border:0;border-left:0;border-radius:24px;padding:18px 16px 16px;gap:8px}' +
+          '#matrix .quad--do{background:color-mix(in srgb,var(--orange) 15%,var(--surface))}' +
+          '#matrix .quad--plan{background:color-mix(in srgb,var(--accent) 13%,var(--surface))}' +
+          '#matrix .quad--delegate{background:color-mix(in srgb,var(--violet) 13%,var(--surface))}' +
+          '#matrix .quad--drop{background:var(--wash-2)}' +
+          '#matrix .quad-head{align-items:flex-start;gap:8px}' +
+          '#matrix .quad-name{font-size:24px;font-weight:800;letter-spacing:-.025em;line-height:1.05}' +
+          '#matrix .quad--do .quad-name{color:var(--orange)}' +
+          '#matrix .quad--plan .quad-name{color:var(--accent)}' +
+          '#matrix .quad--delegate .quad-name{color:var(--violet)}' +
+          '#matrix .quad--drop .quad-name{color:var(--muted)}' +
+          '#matrix .quad-sub{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.3}' +
+          '#matrix .quad-add{width:34px;height:34px;border:0;background:var(--surface);box-shadow:0 1px 3px rgba(16,16,24,.08)}' +
+          '#matrix .quad--do .quad-add{color:var(--orange)}' +
+          '#matrix .quad--plan .quad-add{color:var(--accent)}' +
+          '#matrix .quad--delegate .quad-add{color:var(--violet)}' +
+          '#matrix .quad--drop .quad-add{color:var(--muted)}' +
+          '#matrix .quad-add svg{width:17px;height:17px}' +
+          /* Empty state, centred in whatever height the card has, with a
+             tray above it. currentColor, so each card tints its own. */
+          '#matrix .quad-empty{margin:auto 0;padding:14px 0 10px;text-align:center;font-size:13px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px}' +
+          '#matrix .quad-empty::before{content:"";width:34px;height:34px;opacity:.55;background:currentColor;' +
+            '-webkit-mask:url("data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.6%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M3 13l2.2-6.3A2 2 0 0 1 7.1 5.3h9.8a2 2 0 0 1 1.9 1.4L21 13%22/%3E%3Cpath d=%22M3 13v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4%22/%3E%3Cpath d=%22M3 13h5l1.5 2.5h5L16 13h5%22/%3E%3C/svg%3E") center/contain no-repeat}' +
+          '#matrix .quad--do .quad-empty{color:var(--orange)}' +
+          '#matrix .quad--plan .quad-empty{color:var(--accent)}' +
+          '#matrix .quad--delegate .quad-empty{color:var(--violet)}' +
+          /* Rows inside a quadrant: title and tick only. Two columns on a
+             phone leave ~165px a card, and three lines of chips there is
+             the reason the site gave up and stacked them. */
+          '#matrix .quad .list-items{gap:8px}' +
+          '#matrix .quad .task{padding:10px 10px 10px 8px;border-radius:14px;border-color:transparent;background:color-mix(in srgb,var(--surface) 78%,transparent)}' +
+          '#matrix .quad .task-meta{display:none}' +
+          '#matrix .quad .task-title{font-size:13.5px;line-height:1.25;-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}' +
           '.myadhd-native .brand-lockup{display:none}' +
           '.myadhd-native-title{' +
             'margin:0;font-family:var(--display);' +
