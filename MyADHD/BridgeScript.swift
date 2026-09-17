@@ -348,6 +348,13 @@ enum BridgeScript {
           '.wk-back{flex:none;width:52px;height:52px;border-radius:999px;border:0;background:var(--wash);color:var(--ink);display:grid;place-items:center;padding:0}' +
           '.wk-back::before{content:"";width:10px;height:10px;border-left:2.5px solid currentColor;border-bottom:2.5px solid currentColor;transform:rotate(45deg);margin-left:4px}' +
           '.wk-foot .btn-primary{flex:1;min-height:52px}' +
+          /* ---- the interactive pop ---- */
+          '#app.myadhd-sliding{position:relative;z-index:2;will-change:transform;box-shadow:-10px 0 28px rgba(16,16,24,.16)}' +
+          '.myadhd-ghost-layer{position:fixed;inset:0;z-index:1;overflow:hidden;pointer-events:none;background:var(--surface)}' +
+          '.myadhd-ghost{position:absolute;inset:0;overflow:hidden;will-change:transform}' +
+          '.myadhd-ghost-dim{position:absolute;inset:0;background:#000}' +
+          /* Release: UIKit's pop is about a quarter second on an ease-out. */
+          '#app.myadhd-settling,.myadhd-settling .myadhd-ghost,.myadhd-settling .myadhd-ghost-dim{transition:transform .27s cubic-bezier(.2,.8,.2,1),opacity .27s cubic-bezier(.2,.8,.2,1)}' +
           '#matrix.matrix{grid-template-rows:1fr 1fr;min-height:0}' +
           '#matrix .quad{min-height:0;overflow-y:auto;overscroll-behavior:contain}' +
 
@@ -429,7 +436,7 @@ enum BridgeScript {
              stops the bounce; the pull is then ours to draw, and it
              draws the way Ink's does — the header fixed, and the app's
              own mark spinning in a strip under it. */
-          '#app{overscroll-behavior-y:none}' +
+          '#app,.myadhd-ghost{overscroll-behavior-y:none}' +
           '.myadhd-native-refresh{height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;transition:height .22s var(--ease)}' +
           '.myadhd-native-refresh.is-pulling{transition:none}' +
           '.myadhd-native-refresh svg{width:30px;height:30px;color:var(--accent);opacity:0;transition:opacity .15s,transform .15s}' +
@@ -562,19 +569,43 @@ enum BridgeScript {
         if (first) first.textContent = 'Write a note';
       } catch (e) {}
 
-      /* ---- swipe from the left edge to go back ----
+      /* ---- swipe from the left edge to go back, the way iOS does it ----
          The page is one document — Home, Lists, Settings are shown and
-         hidden, never navigated — so WebKit's own back gesture has nothing
-         to pop, and it stays off (see WebScreen). This does what a person
-         means by the gesture: whatever the screen's own back control is,
-         it gets pressed. In order — a sheet inside the note editor, the
-         walkthrough's back or close, a screen's back button, the
-         composer's Cancel, the legal page's Back, and failing all of
-         those, home. Starts only in the outer 22px so it cannot be
-         mistaken for the swipe that ticks a task off. */
+         hidden, never navigated — so WebKit's own back gesture has
+         nothing to pop and stays off. This builds the interactive pop
+         instead: the screen you are on follows the finger to the right,
+         the screen you came from waits underneath — offset a third and
+         dimmed, as UIKit does it — and letting go either finishes the
+         slide and presses the real back control, or snaps back.
+
+         The screen underneath is a clone of #app with the previous screen
+         un-hidden, not the real one: un-hiding the real one would run the
+         page's own layout and paint logic mid-gesture, and a preview that
+         goes stale for 300ms is fine. The clone KEEPS its ids — every rule
+         in this file that hides or restyles something is scoped by id, and
+         a ghost without them showed the stats and "Worth a look" the app
+         no longer has. It is inserted after #app, so getElementById keeps
+         returning the original, and it is inert. It exists only for the
+         duration of the swipe.
+
+         Starts only in the outer 22px, so it cannot be mistaken for the
+         swipe that ticks a task off; a mostly vertical move kills it so a
+         scroll that began near the edge stays a scroll. */
       (function () {
-        var x0 = null, y0 = null, armed = false, dead = false;
-        var EDGE = 22, ARM = 70;
+        var app = document.getElementById('app');
+        var EDGE = 22, DONE = 0.33, PARALLAX = 0.3, DIM = 0.16;
+        /* Where "back" lands from each screen. Anything not here — the
+           composer, a sheet, the walkthrough, a legal page — gets the
+           plain press with no slide. */
+        var PREV = {
+          'screen-settings': 'screen-home', 'screen-profile': 'screen-settings',
+          'screen-feedback': 'screen-settings', 'screen-plans': 'screen-settings',
+          'screen-note': 'screen-notes',
+          'screen-now': 'screen-home', 'screen-calendar': 'screen-home', 'screen-notes': 'screen-home'
+        };
+
+        var x0 = null, y0 = null, dead = false, armed = false, live = false;
+        var W = 0, layer = null, ghost = null, dim = null, current = null;
 
         function visible(el) { return !!(el && el.offsetParent !== null); }
         function firstVisible(sel, root) {
@@ -582,7 +613,7 @@ enum BridgeScript {
           for (var i = 0; i < list.length; i++) if (visible(list[i])) return list[i];
           return null;
         }
-        function back() {
+        function press() {
           var wk = document.querySelector('.wk.is-open');
           if (wk) {
             var wb = wk.querySelector('.wk-back');
@@ -591,7 +622,7 @@ enum BridgeScript {
           }
           var sheet = firstVisible('.note-sheet-x');
           if (sheet) { sheet.click(); return true; }
-          var screen = document.querySelector('.screen:not(.is-hidden)');
+          var screen = document.querySelector('#app .screen:not(.is-hidden)');
           var btn = screen && firstVisible('.sheet-back, .settings-back', screen);
           if (btn) { btn.click(); return true; }
           var bar = firstVisible('.composer-bar');
@@ -599,14 +630,69 @@ enum BridgeScript {
           var legal = firstVisible('.myadhd-native-back');
           if (legal) { legal.click(); return true; }
           if (screen && screen.id !== 'screen-home') {
-            var home = document.getElementById('tab-home');
-            if (home) { home.click(); return true; }
+            var home = document.getElementById('tab-home'); if (home) { home.click(); return true; }
           }
           return false;
         }
 
+        /* Whether this swipe can be drawn, and if so, put the previous
+           screen underneath. */
+        function begin() {
+          if (!app || document.querySelector('.wk.is-open') || firstVisible('.note-sheet-x') || firstVisible('.composer-bar')) return false;
+          current = document.querySelector('#app .screen:not(.is-hidden)');
+          var prevId = current && PREV[current.id];
+          if (!prevId) return false;
+          var screens = app.querySelectorAll('.screen');
+          var index = -1;
+          for (var i = 0; i < screens.length; i++) if (screens[i].id === prevId) index = i;
+          if (index < 0) return false;
+
+          ghost = app.cloneNode(true);
+          ghost.removeAttribute('id');   // #app itself must stay unique; the rest may repeat
+          ghost.setAttribute('inert', '');
+          ghost.setAttribute('aria-hidden', 'true');
+          var gs = ghost.querySelectorAll('.screen');
+          for (var k = 0; k < gs.length; k++) gs[k].classList.toggle('is-hidden', k !== index);
+          ghost.className += ' myadhd-ghost';
+
+          layer = document.createElement('div');
+          layer.className = 'myadhd-ghost-layer';
+          dim = document.createElement('div');
+          dim.className = 'myadhd-ghost-dim';
+          layer.appendChild(ghost); layer.appendChild(dim);
+          app.parentNode.insertBefore(layer, app.nextSibling);   // after #app: originals win every id lookup
+
+          W = window.innerWidth;
+          app.classList.add('myadhd-sliding');
+          paint(0);
+          return true;
+        }
+        function paint(p) {
+          app.style.transform = 'translateX(' + (p * W) + 'px)';
+          ghost.style.transform = 'translateX(' + (-PARALLAX * W * (1 - p)) + 'px)';
+          dim.style.opacity = String(DIM * (1 - p));
+        }
+        function settle(finish) {
+          app.classList.add('myadhd-settling'); layer.classList.add('myadhd-settling');
+          paint(finish ? 1 : 0);
+          var done = false;
+          function cleanup() {
+            if (done) return; done = true;
+            if (finish) press();
+            /* The page has switched to the very screen the ghost was
+               showing, so dropping the ghost and the transform in the same
+               frame is invisible. */
+            app.classList.remove('myadhd-sliding', 'myadhd-settling');
+            app.style.transform = '';
+            if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
+            layer = ghost = dim = current = null; live = false;
+          }
+          app.addEventListener('transitionend', cleanup, { once: true });
+          setTimeout(cleanup, 320);
+        }
+
         document.addEventListener('touchstart', function (e) {
-          if (e.touches.length !== 1) { x0 = null; return; }
+          if (live || e.touches.length !== 1) { x0 = null; return; }
           var t = e.touches[0];
           if (t.clientX > EDGE) { x0 = null; return; }
           x0 = t.clientX; y0 = t.clientY; armed = false; dead = false;
@@ -615,13 +701,25 @@ enum BridgeScript {
         document.addEventListener('touchmove', function (e) {
           if (x0 === null || dead) return;
           var t = e.touches[0], dx = t.clientX - x0, dy = Math.abs(t.clientY - y0);
-          if (dy > 40 && dx < 30) { dead = true; return; }
-          if (dx >= ARM && !armed) { armed = true; try { post('haptic', { kind: 'light' }); } catch (err) {} }
+          if (!live) {
+            if (dy > 40 && dx < 30) { dead = true; return; }
+            if (dx < 12) return;
+            live = begin();
+            if (!live) { dead = !(dx >= 70); if (dx >= 70) { armed = true; } return; }
+          }
+          var p = Math.max(0, Math.min(1, dx / W));
+          paint(p);
+          var arm = p >= DONE;
+          if (arm && !armed) { try { post('haptic', { kind: 'light' }); } catch (err) {} }
+          armed = arm;
         }, { passive: true, capture: true });
 
         function end() {
-          if (x0 !== null && armed && !dead) back();
+          if (x0 === null) return;
+          var wasLive = live, wasArmed = armed && !dead;
           x0 = null; armed = false; dead = false;
+          if (wasLive) { settle(wasArmed); return; }
+          if (wasArmed) press();
         }
         document.addEventListener('touchend', end, { passive: true, capture: true });
         document.addEventListener('touchcancel', end, { passive: true, capture: true });
@@ -639,7 +737,7 @@ enum BridgeScript {
         var ARM = 60, MAX = 84;
 
         function slotFor() {
-          var bar = document.querySelector('.screen:not(.is-hidden) > header.brand.myadhd-native');
+          var bar = document.querySelector('#app .screen:not(.is-hidden) > header.brand.myadhd-native');
           if (!bar) return null;
           var next = bar.nextElementSibling;
           if (next && next.classList.contains('myadhd-native-refresh')) return next;
@@ -659,7 +757,7 @@ enum BridgeScript {
             }
           } catch (e) {}
           try {
-            var now = document.querySelector('.screen:not(.is-hidden)');
+            var now = document.querySelector('#app .screen:not(.is-hidden)');
             if (now && now.id === 'screen-now'  && typeof repaintLists === 'function') repaintLists();
             if (now && now.id === 'screen-home' && typeof renderHome   === 'function') renderHome();
           } catch (e) {}
