@@ -309,6 +309,45 @@ enum BridgeScript {
              scrolls inside itself. The height is measured, not guessed —
              fitMatrix() below — because the header and chip bar are the
              page's and could change under us. */
+          /* ---- how the matrix works: the ? and its four pages ---- */
+          '.myadhd-native-help{font-family:var(--display);font-size:16px;font-weight:700;line-height:1}' +
+          '.wk{position:fixed;inset:0;z-index:60;background:var(--surface);color:var(--ink);display:none;flex-direction:column;' +
+            'padding:calc(env(safe-area-inset-top,0px) + 10px) 20px calc(env(safe-area-inset-bottom,0px) + 18px)}' +
+          '.wk.is-open{display:flex}' +
+          '.wk-bar{display:grid;grid-template-columns:40px 1fr 40px;align-items:center;margin-bottom:22px}' +
+          '.wk-bar h2{grid-column:2;margin:0;text-align:center;font-family:var(--display);font-size:15px;font-weight:600}' +
+          '.wk-x{grid-column:3;width:40px;height:40px;border-radius:999px;border:0;background:var(--wash);color:var(--ink);font-size:22px;line-height:1;display:grid;place-items:center;padding:0}' +
+          '.wk-page{display:none;flex:1;flex-direction:column;min-height:0}' +
+          '.wk-page.is-on{display:flex}' +
+          '.wk-page h1{font-family:var(--display);font-size:clamp(26px,7.5vw,32px);font-weight:800;letter-spacing:-.03em;line-height:1.08;margin:0 0 8px}' +
+          '.wk-page p{margin:0 0 22px;font-size:15.5px;line-height:1.4;color:var(--muted)}' +
+          '.wk-art{flex:1;min-height:0;display:flex;flex-direction:column}' +
+          '.wk-rows{display:flex;flex-direction:column;gap:8px}' +
+          '.wk-row{display:flex;align-items:center;gap:12px;background:var(--wash);border-radius:14px;padding:11px 14px;font-size:14px;font-weight:500}' +
+          '.wk-ring{flex:none;width:18px;height:18px;border-radius:50%;border:2px solid var(--c)}' +
+          '.wk-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;flex:1;min-height:0}' +
+          '.wk-quad{border-radius:20px;padding:14px;background:color-mix(in srgb,var(--c) 13%,var(--surface));display:flex;flex-direction:column;gap:9px;min-height:0;overflow:hidden}' +
+          '.wk-quad h3{margin:0 0 2px;font-family:var(--display);font-size:17px;font-weight:800;letter-spacing:-.02em;color:var(--c)}' +
+          '.wk-quad .wk-row{background:transparent;padding:0;gap:9px;font-size:13px}' +
+          '.wk-quad .wk-ring{width:16px;height:16px}' +
+          '.wk-phone{flex:1;min-height:0;margin:0 10px;border:5px solid var(--ink);border-bottom:0;border-radius:38px 38px 0 0;padding:20px 14px 0;' +
+            'background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 10%,var(--surface)),var(--surface));display:flex;flex-direction:column;gap:14px;overflow:hidden}' +
+          '.wk-page p.wk-date{text-align:center;font-size:13px;color:var(--muted);margin:0}' +
+          '.wk-page p.wk-time{text-align:center;font-family:var(--display);font-size:54px;font-weight:700;letter-spacing:-.04em;line-height:1;color:var(--ink);margin:0 0 6px}' +
+          '.wk-page p.wk-eyebrow{margin:0 0 8px}' +
+          '.wk-widget{background:var(--surface);border-radius:20px;padding:14px 14px 12px;margin:6px 2px 0;box-shadow:0 4px 18px rgba(16,16,24,.08)}' +
+          '.wk-widget .wk-eyebrow{font-size:9.5px;font-weight:700;letter-spacing:.09em;color:var(--muted);margin:0 0 8px}' +
+          '.wk-widget .wk-row{background:transparent;padding:5px 0;gap:9px;font-size:13.5px;font-family:var(--display);font-weight:600}' +
+          '.wk-widget .wk-row .wk-ring{border-color:var(--line-strong)}' +
+          '.wk-widget .wk-row.is-done .wk-ring{background:var(--accent);border-color:var(--accent)}' +
+          '.wk-widget .wk-row.is-done span{text-decoration:line-through;color:var(--muted)}' +
+          '.wk-dots{display:flex;justify-content:center;gap:9px;margin:18px 0}' +
+          '.wk-dots i{width:7px;height:7px;border-radius:50%;background:var(--line-strong);display:block}' +
+          '.wk-dots i.is-on{background:var(--ink)}' +
+          '.wk-foot{display:flex;gap:12px;align-items:center}' +
+          '.wk-back{flex:none;width:52px;height:52px;border-radius:999px;border:0;background:var(--wash);color:var(--ink);display:grid;place-items:center;padding:0}' +
+          '.wk-back::before{content:"";width:10px;height:10px;border-left:2.5px solid currentColor;border-bottom:2.5px solid currentColor;transform:rotate(45deg);margin-left:4px}' +
+          '.wk-foot .btn-primary{flex:1;min-height:52px}' +
           '#matrix.matrix{grid-template-rows:1fr 1fr;min-height:0}' +
           '#matrix .quad{min-height:0;overflow-y:auto;overscroll-behavior:contain}' +
 
@@ -331,31 +370,41 @@ enum BridgeScript {
              class rule in styles.css, so this wins without !important. */
           '#matrix.matrix{grid-template-columns:1fr 1fr;grid-auto-rows:1fr;align-items:stretch;gap:12px}' +
           '#matrix .quad{position:relative;min-height:204px;border:0;border-left:0;border-radius:24px;padding:18px 16px 16px;gap:8px}' +
-          '#matrix .quad--do{background:color-mix(in srgb,var(--orange) 15%,var(--surface))}' +
-          '#matrix .quad--plan{background:color-mix(in srgb,var(--accent) 13%,var(--surface))}' +
-          '#matrix .quad--delegate{background:color-mix(in srgb,var(--violet) 13%,var(--surface))}' +
-          '#matrix .quad--drop{background:var(--wash-2)}' +
+          /* The four quadrant hues, from the brand guidelines: red is
+             --danger, purple is --violet, orange is --orange. There is no
+             green in the guidelines at all, so Drop's is chosen to sit
+             with the other three — mid-saturation, similar weight to the
+             orange — with a lighter cut for dark grounds the way
+             --danger-ink is to --danger. One variable to change. */
+          ':root{--q-do:var(--danger);--q-plan:var(--violet);--q-delegate:var(--orange);--q-drop:#1F8A45}' +
+          'html[data-theme="dark"]{--q-do:var(--danger-ink,#FF8A7E);--q-plan:#A97BFF;--q-drop:#4CC47A}' +
+          '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--q-do:var(--danger-ink,#FF8A7E);--q-plan:#A97BFF;--q-drop:#4CC47A}}' +
+          '#matrix .quad--do{background:color-mix(in srgb,var(--q-do) 13%,var(--surface))}' +
+          '#matrix .quad--plan{background:color-mix(in srgb,var(--q-plan) 13%,var(--surface))}' +
+          '#matrix .quad--delegate{background:color-mix(in srgb,var(--q-delegate) 14%,var(--surface))}' +
+          '#matrix .quad--drop{background:color-mix(in srgb,var(--q-drop) 13%,var(--surface))}' +
           '#matrix .quad-head{align-items:flex-start;gap:8px}' +
           '#matrix .quad-name{font-size:24px;font-weight:800;letter-spacing:-.025em;line-height:1.05}' +
-          '#matrix .quad--do .quad-name{color:var(--orange)}' +
-          '#matrix .quad--plan .quad-name{color:var(--accent)}' +
-          '#matrix .quad--delegate .quad-name{color:var(--violet)}' +
-          '#matrix .quad--drop .quad-name{color:var(--muted)}' +
+          '#matrix .quad--do .quad-name{color:var(--q-do)}' +
+          '#matrix .quad--plan .quad-name{color:var(--q-plan)}' +
+          '#matrix .quad--delegate .quad-name{color:var(--q-delegate)}' +
+          '#matrix .quad--drop .quad-name{color:var(--q-drop)}' +
           '#matrix .quad-sub{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.3}' +
           '#matrix .quad-add{width:34px;height:34px;border:0;background:var(--surface);box-shadow:0 1px 3px rgba(16,16,24,.08)}' +
-          '#matrix .quad--do .quad-add{color:var(--orange)}' +
-          '#matrix .quad--plan .quad-add{color:var(--accent)}' +
-          '#matrix .quad--delegate .quad-add{color:var(--violet)}' +
-          '#matrix .quad--drop .quad-add{color:var(--muted)}' +
+          '#matrix .quad--do .quad-add{color:var(--q-do)}' +
+          '#matrix .quad--plan .quad-add{color:var(--q-plan)}' +
+          '#matrix .quad--delegate .quad-add{color:var(--q-delegate)}' +
+          '#matrix .quad--drop .quad-add{color:var(--q-drop)}' +
           '#matrix .quad-add svg{width:17px;height:17px}' +
           /* Empty state, centred in whatever height the card has, with a
              tray above it. currentColor, so each card tints its own. */
           '#matrix .quad-empty{margin:auto 0;padding:14px 0 10px;text-align:center;font-size:13px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px}' +
           '#matrix .quad-empty::before{content:"";width:34px;height:34px;opacity:.55;background:currentColor;' +
             '-webkit-mask:url("data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.6%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M3 13l2.2-6.3A2 2 0 0 1 7.1 5.3h9.8a2 2 0 0 1 1.9 1.4L21 13%22/%3E%3Cpath d=%22M3 13v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4%22/%3E%3Cpath d=%22M3 13h5l1.5 2.5h5L16 13h5%22/%3E%3C/svg%3E") center/contain no-repeat}' +
-          '#matrix .quad--do .quad-empty{color:var(--orange)}' +
-          '#matrix .quad--plan .quad-empty{color:var(--accent)}' +
-          '#matrix .quad--delegate .quad-empty{color:var(--violet)}' +
+          '#matrix .quad--do .quad-empty{color:var(--q-do)}' +
+          '#matrix .quad--plan .quad-empty{color:var(--q-plan)}' +
+          '#matrix .quad--delegate .quad-empty{color:var(--q-delegate)}' +
+          '#matrix .quad--drop .quad-empty{color:var(--q-drop)}' +
           /* Rows inside a quadrant: title and tick only. Two columns on a
              phone leave ~165px a card, and three lines of chips there is
              the reason the site gave up and stacked them. */
@@ -366,10 +415,10 @@ enum BridgeScript {
           '#matrix .quad .list-items{gap:1px}' +
           '#matrix .quad .task{padding:5px 0 5px 1px;gap:9px;border:0;border-radius:8px;background:transparent;align-items:center}' +
           '#matrix .quad .task-check{width:18px;height:18px;margin-top:0;border-width:1.5px}' +
-          '#matrix .quad--do .task-check{border-color:var(--orange)}' +
-          '#matrix .quad--plan .task-check{border-color:var(--accent)}' +
-          '#matrix .quad--delegate .task-check{border-color:var(--violet)}' +
-          '#matrix .quad--drop .task-check{border-color:var(--muted)}' +
+          '#matrix .quad--do .task-check{border-color:var(--q-do)}' +
+          '#matrix .quad--plan .task-check{border-color:var(--q-plan)}' +
+          '#matrix .quad--delegate .task-check{border-color:var(--q-delegate)}' +
+          '#matrix .quad--drop .task-check{border-color:var(--q-drop)}' +
           '#matrix .quad .task-meta{display:none}' +
           '#matrix .quad .task-title{font-size:12.5px;font-weight:500;line-height:1.25;-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}' +
 
@@ -426,6 +475,86 @@ enum BridgeScript {
           bar.classList.add('myadhd-native');
         });
       } catch (e) { /* the page moved; leave its own header alone */ }
+
+      /* ---- how the matrix works ----
+         A ? beside List/Matrix, and four pages behind it. The sample tasks
+         are made up — the point is the shape, not the person's list — and
+         the fourth page shows what this app actually puts on a home
+         screen, which is the Today widget, not a wallpaper. */
+      (function () {
+        var tools = document.querySelector('#screen-now .brand-tools');
+        var view = document.getElementById('btn-view');
+        if (!tools || !view || document.querySelector('.myadhd-native-help')) return;
+
+        var help = document.createElement('button');
+        help.type = 'button';
+        help.className = 'icon-btn myadhd-native-help';
+        help.setAttribute('aria-label', 'How the matrix works');
+        help.textContent = '?';
+        tools.insertBefore(help, view);
+
+        var Q = { do: 'var(--q-do)', plan: 'var(--q-plan)', delegate: 'var(--q-delegate)', drop: 'var(--q-drop)' };
+        var T = [
+          ['Send the invoice', 'do'], ['Sort old photos', 'drop'], ['Plan next month', 'plan'],
+          ['Reply to the vendor', 'delegate'], ['Pay the rent', 'do'], ['Watch that series', 'drop'],
+          ['Book the flights', 'delegate'], ['Save for the trip', 'plan']
+        ];
+        function row(t, q, extra) {
+          return '<div class="wk-row' + (extra || '') + '"><i class="wk-ring" style="--c:' + Q[q] + '"></i><span>' + t + '</span></div>';
+        }
+        function quad(key, name, rows) {
+          return '<div class="wk-quad" style="--c:' + Q[key] + '"><h3>' + name + '</h3>' + rows.join('') + '</div>';
+        }
+        function grid(moved) {
+          var by = { do: [], plan: [], delegate: [], drop: [] };
+          T.forEach(function (x) {
+            var q = x[1];
+            if (moved && x[0] === 'Pay the rent') { by.plan.push(row(x[0], 'do')); return; }
+            by[q].push(row(x[0], q));
+          });
+          return '<div class="wk-grid">' + quad('do', 'Do now', by.do) + quad('plan', 'Plan', by.plan) +
+                 quad('delegate', 'Delegate', by.delegate) + quad('drop', 'Drop', by.drop) + '</div>';
+        }
+        var pages = [
+          { h: 'One list, no order', p: 'Everything shouts the same. Nothing says what to do first.', cta: 'Sort them into boxes',
+            art: '<div class="wk-rows">' + T.map(function (x) { return row(x[0], x[1]); }).join('') + '</div>' },
+          { h: 'Four boxes, one decision', p: 'Urgent and important first. The rest waits, moves, or goes.', cta: 'Move one', art: grid(false) },
+          { h: 'Hold, then drag', p: 'Press a task and drop it in another box. Nothing is stuck where it landed.', cta: 'See it on the home screen', art: grid(true) },
+          { h: 'On your home screen', p: 'The Today widget shows the next few things every time you look — and you can tick one off right there.', cta: 'Done',
+            art: '<div class="wk-phone"><p class="wk-date">Friday, 18 September</p><p class="wk-time">05:59</p>' +
+                 '<div class="wk-widget"><p class="wk-eyebrow">TODAY</p>' + row('Send the invoice', 'do', ' is-done') + row('Pay the rent', 'do') + row('Plan next month', 'plan') + '</div></div>' }
+        ];
+
+        var wk = null, at = 0;
+        function build() {
+          wk = document.createElement('div');
+          wk.className = 'wk';
+          wk.setAttribute('role', 'dialog');
+          wk.setAttribute('aria-label', 'How the matrix works');
+          wk.innerHTML =
+            '<div class="wk-bar"><h2>How the matrix works</h2><button type="button" class="wk-x" aria-label="Close">×</button></div>' +
+            pages.map(function (pg) {
+              return '<section class="wk-page"><h1>' + pg.h + '</h1><p>' + pg.p + '</p><div class="wk-art">' + pg.art + '</div></section>';
+            }).join('') +
+            '<div class="wk-dots">' + pages.map(function () { return '<i></i>'; }).join('') + '</div>' +
+            '<div class="wk-foot"><button type="button" class="wk-back" aria-label="Back"></button><button type="button" class="btn-primary wk-next"><span class="btn-text"></span></button></div>';
+          document.body.appendChild(wk);
+          wk.querySelector('.wk-x').addEventListener('click', close);
+          wk.querySelector('.wk-back').addEventListener('click', function () { go(at - 1); });
+          wk.querySelector('.wk-next').addEventListener('click', function () { at === pages.length - 1 ? close() : go(at + 1); });
+        }
+        function go(n) {
+          at = Math.max(0, Math.min(pages.length - 1, n));
+          var ps = wk.querySelectorAll('.wk-page'), ds = wk.querySelectorAll('.wk-dots i');
+          for (var i = 0; i < ps.length; i++) { ps[i].classList.toggle('is-on', i === at); ds[i].classList.toggle('is-on', i === at); }
+          wk.querySelector('.wk-back').style.visibility = at === 0 ? 'hidden' : 'visible';
+          wk.querySelector('.wk-next .btn-text').textContent = pages[at].cta;
+          try { post('haptic', { kind: 'selection' }); } catch (e) {}
+        }
+        function open()  { if (!wk) build(); wk.classList.add('is-open'); go(0); }
+        function close() { if (wk) wk.classList.remove('is-open'); }
+        help.addEventListener('click', open);
+      })();
 
       /* ---- pull to refresh ----
          A real refresh, not a spinner for its own sake: the page's cloud
