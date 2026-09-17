@@ -227,16 +227,37 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
            either continues here or leaves. */
         if targetFrame == nil {
             decisionHandler(.cancel)
-            if isOurs(url) { webView.load(URLRequest(url: url)) } else { openOutside(url) }
+            if isOurs(url) {
+                if Self.isInApp(url) { webView.load(URLRequest(url: url)) }
+            } else {
+                openOutside(url)
+            }
             return
         }
 
         if isOurs(url) {
-            decisionHandler(.allow)
+            /* Our host, but not the app: the marketing site. A shell that
+               opens / or /tools inside itself has become a browser with
+               no address bar and no back button, and the person is lost
+               in a website they never chose to visit. Cancelled, and
+               nothing happens — which is what a button that goes nowhere
+               should do. The known ones are hidden by BridgeScript; this
+               catches the rest. */
+            decisionHandler(Self.isInApp(url) ? .allow : .cancel)
         } else {
             decisionHandler(.cancel)
             openOutside(url)
         }
+    }
+
+    /// The app, the hold, the two legal pages and the auth callback. Nothing
+    /// else on our host is ours to show.
+    private static func isInApp(_ url: URL) -> Bool {
+        var path = url.path.isEmpty ? "/" : url.path
+        if path.hasSuffix(".html") { path.removeLast(5) }
+        if path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        if AppConfig.inAppPaths.contains(path) { return true }
+        return AppConfig.inAppPathPrefixes.contains { path.hasPrefix($0) }
     }
 
     /// The backstop for a window.open the policy handler let through.

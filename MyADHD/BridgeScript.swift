@@ -265,6 +265,52 @@ enum BridgeScript {
              it — the count is on the tab bar badge and the header of
              every bucket. */
           '#eyebrow,#lists-summary,#notes-eyebrow,#notes-summary{display:none}' +
+          /* With the eyebrow gone the chip bar was floating 30-40px below
+             the header — the wrap's own top padding plus the header's
+             margin, both sized for a label that is no longer there. */
+          '#screen-now .now-wrap,#screen-notes .notes-wrap{padding-top:2px}' +
+          '#screen-now .brand--sm,#screen-notes .brand--sm{margin-bottom:6px}' +
+          '#screen-now .cat-bar{margin-bottom:12px}' +
+
+          /* ---- home: the stats and "Worth a look", gone ----
+             Five numbers about the list, and four links to the website —
+             the screener, the tools, the blog, the about page. The numbers
+             are on the tab-bar badge and every bucket's header; the links
+             are the marketing site, and the shell does not go there (see
+             AppConfig.inAppPaths). What is left on home is the box and
+             the next three things, which is what home is for. */
+          '#screen-home .stat-row,#home-discover{display:none}' +
+
+          /* ---- the legal pages, as pages in the app ----
+             privacy.html and terms.html open inside the shell. Their
+             lockup, "Back to my.adhd" and footer all lead to /, which is
+             the website; the header above already has the app's chrome. */
+          '.legal-nav .brand-lockup,.legal-back,footer.site-foot,.legal-nav .nav-clock{display:none}' +
+          /* The nav keeps its theme toggle, so it needs to clear the status
+             bar: the shell draws under it (viewport-fit=cover, no content
+             inset). The clock goes — a website nicety, and the phone's own
+             status bar is showing the time an inch above it. */
+          '.legal-nav{display:flex;align-items:center;gap:10px;min-height:0;' +
+            'padding-top:calc(env(safe-area-inset-top,0px) + 6px);margin-bottom:14px}' +
+          /* The way back. Both exits the page shipped with — the lockup and
+             "Back to my.adhd" — went to /, which is the website and which
+             the shell no longer follows. Without this the reader is
+             stranded on a legal page with no button out. Styled like the
+             app's own settings-back, and pointing at the app. */
+          '.myadhd-native-back{display:inline-flex;align-items:center;gap:2px;margin-right:auto;' +
+            'font-family:var(--display);font-size:15px;font-weight:600;color:var(--accent);' +
+            'text-decoration:none;padding:6px 2px}' +
+          '.myadhd-native-back::before{content:"";width:9px;height:9px;border-left:2px solid currentColor;' +
+            'border-bottom:2px solid currentColor;transform:rotate(45deg);margin-right:4px}' +
+
+          /* ---- the matrix fits the screen ----
+             Two equal rows, the grid as tall as the space between the chip
+             bar and the tab bar, and a card that has more rows than fit
+             scrolls inside itself. The height is measured, not guessed —
+             fitMatrix() below — because the header and chip bar are the
+             page's and could change under us. */
+          '#matrix.matrix{grid-template-rows:1fr 1fr;min-height:0}' +
+          '#matrix .quad{min-height:0;overflow-y:auto;overscroll-behavior:contain}' +
 
           /* ---- the matrix, as four cards rather than a list ----
              The site stacks the quadrants below 560px, and its own CSS
@@ -356,6 +402,47 @@ enum BridgeScript {
           bar.classList.add('myadhd-native');
         });
       } catch (e) { /* the page moved; leave its own header alone */ }
+
+      /* ---- the legal pages get a way back ---- */
+      try {
+        var legal = document.querySelector('.legal-nav');
+        if (legal && !legal.querySelector('.myadhd-native-back')) {
+          var back = document.createElement('a');
+          back.className = 'myadhd-native-back';
+          back.href = '/app';
+          back.textContent = 'Back';
+          back.setAttribute('aria-label', 'Back to the app');
+          legal.insertBefore(back, legal.firstChild);
+        }
+      } catch (e) { /* not a legal page, or it moved */ }
+
+      /* ---- fitMatrix: the 2x2 as tall as the screen allows ----
+         Runs whenever the lists screen or the matrix changes state, and on
+         resize. The matrix is rebuilt by innerHTML on every paint but the
+         #matrix container itself survives, so a height set on it holds. */
+      (function () {
+        var matrix = document.getElementById('matrix');
+        var screen = document.getElementById('screen-now');
+        var tabbar = document.getElementById('tabbar');
+        if (!matrix || !screen) return;
+
+        function fit() {
+          if (matrix.classList.contains('is-hidden') || screen.classList.contains('is-hidden')) {
+            matrix.style.height = ''; return;
+          }
+          var top = matrix.getBoundingClientRect().top;
+          var bar = tabbar && !tabbar.classList.contains('is-hidden')
+            ? (window.innerHeight - tabbar.getBoundingClientRect().top) : 0;
+          var h = window.innerHeight - top - bar - 10;
+          matrix.style.height = h > 240 ? h + 'px' : '';
+        }
+
+        var kick = function () { requestAnimationFrame(fit); };
+        window.addEventListener('resize', kick);
+        new MutationObserver(kick).observe(screen, { attributes: true, attributeFilter: ['class'] });
+        new MutationObserver(kick).observe(matrix, { attributes: true, attributeFilter: ['class'], childList: true });
+        kick();
+      })();
 
       post('ready', {});
     })();

@@ -24,6 +24,16 @@ enum AppConfig {
     /// donation page, Google's account pages, a link out of the privacy
     /// policy — goes to Safari, where there is an address bar and the user
     /// can see whose form they are filling in.
+    /* The pages on our own host this shell is allowed to navigate to. Every
+       other own-host path is the marketing site — /, /tools, /self-check,
+       /blog, the footer — and a tap on any of those is a tap out of the app
+       into a website that happens to share its name. The shell hides the
+       buttons it knows about; this is what holds when a page adds one it
+       does not. Compared with and without a .html suffix, because Vercel
+       serves both with cleanUrls on. */
+    static let inAppPaths: Set<String> = ["/app", "/soon", "/privacy", "/terms"]
+    static let inAppPathPrefixes: [String] = ["/auth"]
+
     static let ownHosts: Set<String> = ["myadhd.my", "www.myadhd.my"]
 
     /// Supabase's front door to Google, the same path on every project.
