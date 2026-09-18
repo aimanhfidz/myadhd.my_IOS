@@ -366,6 +366,21 @@ enum BridgeScript {
              them. A vertical rail at mid-height on the right is Ink's
              answer and it is the right one: the keyboard never reaches it,
              and the thumb does. */
+          /* ---- notes: once there is one, the button becomes a + ----
+             A full-width "New note" above a list of notes is a banner for
+             the one thing the screen is already about. Ink puts a round +
+             at the bottom right and it reads immediately. Same button,
+             same handler — restyled by :has(), so with no notes the empty
+             state and its "Write a note" are exactly as they were. Ink
+             colour, the app's way: the ink colour, which is near-black by
+             day and near-white by night. */
+          '#screen-notes:has(#notes-list > *) #btn-note-new{position:fixed;right:18px;bottom:calc(env(safe-area-inset-bottom,0px) + 90px);' +
+            'width:60px;height:60px;padding:0;border-radius:999px;z-index:44;background:var(--ink);color:var(--surface);' +
+            'box-shadow:0 10px 26px rgba(16,16,24,.22);display:grid;place-items:center}' +
+          '#screen-notes:has(#notes-list > *) #btn-note-new .btn-text{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}' +
+          '#screen-notes:has(#notes-list > *) #btn-note-new::before{content:"";width:22px;height:2.5px;background:currentColor;border-radius:2px;position:absolute}' +
+          '#screen-notes:has(#notes-list > *) #btn-note-new::after{content:"";width:2.5px;height:22px;background:currentColor;border-radius:2px;position:absolute}' +
+          '#screen-notes:has(#notes-list > *) .notes-wrap{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 160px)}' +
           '#screen-note #note-tools{position:fixed;left:auto;right:12px;bottom:auto;top:46%;transform:translateY(-50%);' +
             'flex-direction:column;width:54px;padding:10px 0;gap:4px;border-radius:999px;z-index:30;' +
             'background:color-mix(in srgb,var(--surface) 84%,transparent);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);' +
