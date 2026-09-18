@@ -8,6 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		1A000000000000000000001D /* DumpShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000014 /* DumpShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1A0000000000000000000025 /* DumpQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000024 /* DumpQueue.swift */; };
+		1A0000000000000000000026 /* DumpQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000024 /* DumpQueue.swift */; };
+		1A0000000000000000000028 /* TaskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000027 /* TaskSnapshot.swift */; };
+		1A000000000000000000002A /* MyADHDWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000029 /* MyADHDWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1A0000000000000000000037 /* TaskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000027 /* TaskSnapshot.swift */; };
+		1A0000000000000000000039 /* TimelineBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000038 /* TimelineBand.swift */; };
+		1A000000000000000000003A /* TimelineBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000038 /* TimelineBand.swift */; };
 		1A000000000000000000003C /* TaskRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000000000000000000003B /* TaskRows.swift */; };
 		1A000000000000000000003D /* TaskRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000000000000000000003B /* TaskRows.swift */; };
 		1A000000000000000000003F /* OpQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000000000000000000003E /* OpQueue.swift */; };
@@ -16,13 +23,6 @@
 		1A0000000000000000000043 /* MonthGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000041 /* MonthGrid.swift */; };
 		1A0000000000000000000045 /* DoneGraph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000044 /* DoneGraph.swift */; };
 		1A0000000000000000000046 /* DoneGraph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000044 /* DoneGraph.swift */; };
-		1A0000000000000000000025 /* DumpQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000024 /* DumpQueue.swift */; };
-		1A0000000000000000000026 /* DumpQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000024 /* DumpQueue.swift */; };
-		1A0000000000000000000028 /* TaskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000027 /* TaskSnapshot.swift */; };
-		1A000000000000000000002A /* MyADHDWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000029 /* MyADHDWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		1A0000000000000000000037 /* TaskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000027 /* TaskSnapshot.swift */; };
-		1A0000000000000000000039 /* TimelineBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000038 /* TimelineBand.swift */; };
-		1A000000000000000000003A /* TimelineBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000038 /* TimelineBand.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,16 +66,16 @@
 		1A0000000000000000000020 /* DumpShare-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "DumpShare-Info.plist"; sourceTree = "<group>"; };
 		1A0000000000000000000021 /* MyADHD.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyADHD.entitlements; sourceTree = "<group>"; };
 		1A0000000000000000000022 /* DumpShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DumpShare.entitlements; sourceTree = "<group>"; };
-		1A000000000000000000003B /* TaskRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRows.swift; sourceTree = "<group>"; };
-		1A000000000000000000003E /* OpQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpQueue.swift; sourceTree = "<group>"; };
-		1A0000000000000000000041 /* MonthGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonthGrid.swift; sourceTree = "<group>"; };
-		1A0000000000000000000044 /* DoneGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoneGraph.swift; sourceTree = "<group>"; };
 		1A0000000000000000000024 /* DumpQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DumpQueue.swift; sourceTree = "<group>"; };
 		1A0000000000000000000027 /* TaskSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskSnapshot.swift; sourceTree = "<group>"; };
 		1A0000000000000000000029 /* MyADHDWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MyADHDWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A000000000000000000002C /* MyADHDWidgets-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "MyADHDWidgets-Info.plist"; sourceTree = "<group>"; };
 		1A000000000000000000002D /* MyADHDWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MyADHDWidgets.entitlements; sourceTree = "<group>"; };
 		1A0000000000000000000038 /* TimelineBand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineBand.swift; sourceTree = "<group>"; };
+		1A000000000000000000003B /* TaskRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRows.swift; sourceTree = "<group>"; };
+		1A000000000000000000003E /* OpQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpQueue.swift; sourceTree = "<group>"; };
+		1A0000000000000000000041 /* MonthGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonthGrid.swift; sourceTree = "<group>"; };
+		1A0000000000000000000044 /* DoneGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoneGraph.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
