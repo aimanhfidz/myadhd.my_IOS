@@ -1030,9 +1030,11 @@ enum BridgeScript {
           var grid = pane.querySelector('.myadhd-grid'), app = document.getElementById('app');
           var stuck = pane.querySelector('.myadhd-wk, .myadhd-colhead');
           if (!grid || !app || !stuck) return;
-          var key = picked() + '|' + view;
-          if (key === lastKey) return;
-          lastKey = key;
+          /* Keyed on the view alone: swiping to another day, or tapping
+             one on the strip, keeps the hour you were looking at, the way
+             Ink's does. Only entering the view finds the working hours. */
+          if (view === lastKey) return;
+          lastKey = view;
           requestAnimationFrame(function () {
             var target = grid.getBoundingClientRect().top + Number(grid.dataset.focus || 7) * Number(grid.dataset.hh || 56);
             var under = stuck.getBoundingClientRect().bottom;
@@ -1055,6 +1057,68 @@ enum BridgeScript {
           pill.querySelectorAll('button').forEach(function (bt) { bt.classList.toggle('is-on', bt.dataset.view === v); });
           render();
         }
+
+        /* ---- swipe sideways for the next day, or the next week ----
+           The pane follows the finger, and on release glides off over the
+           same 220ms the month uses (CAL_GLIDE_MS), while the new day
+           glides in from the other side. Horizontal only: the first dozen
+           points decide whether this is a swipe or a scroll, and after
+           that it is one or the other. The outer 22px belong to the back
+           gesture and are left alone. */
+        var GLIDE = 220, EASE = 'cubic-bezier(.2,.8,.2,1)';
+        function swipeable(pane, step) {
+          var x0 = null, y0 = null, mode = null, dx = 0, busy = false;
+          pane.style.willChange = 'transform';
+
+          pane.addEventListener('touchstart', function (e) {
+            if (busy || e.touches.length !== 1 || e.touches[0].clientX <= 22) { x0 = null; return; }
+            x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; mode = null; dx = 0;
+          }, { passive: true });
+
+          pane.addEventListener('touchmove', function (e) {
+            if (x0 === null) return;
+            var t = e.touches[0]; dx = t.clientX - x0; var dy = t.clientY - y0;
+            if (!mode) {
+              if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+              mode = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+            }
+            if (mode !== 'h') return;
+            pane.style.transition = 'none';
+            pane.style.transform = 'translateX(' + dx + 'px)';
+          }, { passive: true });
+
+          function glide(to, then) {
+            pane.style.transition = 'transform ' + GLIDE + 'ms ' + EASE;
+            pane.style.transform = to;
+            var done = false;
+            function fin() { if (done) return; done = true; pane.removeEventListener('transitionend', fin); then(); }
+            pane.addEventListener('transitionend', fin);
+            setTimeout(fin, GLIDE + 40);
+          }
+
+          function end() {
+            if (x0 === null) return;
+            var wasH = mode === 'h', moved = dx; x0 = null; mode = null;
+            if (!wasH) return;
+            var W = pane.offsetWidth || window.innerWidth;
+            if (Math.abs(moved) < 60) { glide('translateX(0)', function () { pane.style.transition = ''; pane.style.transform = ''; }); return; }
+            busy = true;
+            var dir = moved < 0 ? 1 : -1;   // swipe left: forward in time
+            try { post('haptic', { kind: 'selection' }); } catch (err) {}
+            glide('translateX(' + (-dir * W) + 'px)', function () {
+              pane.style.transition = 'none';
+              pane.style.transform = 'translateX(' + (dir * W) + 'px)';
+              pick(add(picked(), dir * step));
+              requestAnimationFrame(function () { requestAnimationFrame(function () {
+                glide('translateX(0)', function () { pane.style.transition = ''; pane.style.transform = ''; busy = false; });
+              }); });
+            });
+          }
+          pane.addEventListener('touchend', end, { passive: true });
+          pane.addEventListener('touchcancel', end, { passive: true });
+        }
+        swipeable(panes.day, 1);
+        swipeable(panes.week, 7);
 
         /* The page rewrites #cal-agenda on every renderCalendar, which is
            every change that could matter here — a tick, a drag, a new
@@ -1109,23 +1173,13 @@ enum BridgeScript {
           startY = e.touches[0].clientY; pulling = false;
         }, { passive: true });
 
-        /* Only home refreshes. The other tabs are lists the page keeps
-           current itself, and a spinner there would be theatre — so a pull
-           on them is a light tap at the arm point and nothing else. */
-        var tapped = false;
-        function onHome() {
-          var cur = document.querySelector('#app .screen:not(.is-hidden)');
-          return !!cur && cur.id === 'screen-home';
-        }
-
+        /* Every tab pulls: home, calendar, lists, notes. The strip goes
+           under whichever header is showing, and the refresh is the same
+           one — cloud pass, repaint, snapshot. */
         app.addEventListener('touchmove', function (e) {
           if (startY === null || loading) return;
           var dy = e.touches[0].clientY - startY;
-          if (dy <= 0 || app.scrollTop > 0) { if (pulling && slot) { slot.style.height = '0px'; slot.classList.remove('is-armed'); } tapped = false; return; }
-          if (!onHome()) {
-            if (dy >= ARM && !tapped) { tapped = true; try { post('haptic', { kind: 'light' }); } catch (e2) {} }
-            return;
-          }
+          if (dy <= 0 || app.scrollTop > 0) { if (pulling && slot) { slot.style.height = '0px'; slot.classList.remove('is-armed'); } return; }
           slot = slot || slotFor(); if (!slot) return;
           pulling = true;
           var h = Math.min(MAX, dy * 0.55);
@@ -1138,7 +1192,7 @@ enum BridgeScript {
 
         function end() {
           if (startY === null) return;
-          startY = null; tapped = false;
+          startY = null;
           if (!pulling || !slot) return;
           pulling = false;
           slot.classList.remove('is-pulling');
