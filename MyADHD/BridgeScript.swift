@@ -255,6 +255,12 @@ enum BridgeScript {
              re-derives its zoom limits from the viewport on every load and
              any single layer leaves a way back in. */
           'html{touch-action:pan-x pan-y}' +
+          /* Nothing here is prose to copy. A long press on a tab, an hour
+             label or a block was selecting it and offering Copy, Look Up,
+             Translate — a browser's affordance in an app. Off everywhere,
+             back on for the places a person actually types. */
+          'html,body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}' +
+          'input,textarea,[contenteditable],[contenteditable] *{-webkit-user-select:text;user-select:text}' +
 
           /* ---- the eyebrows, gone ----
              "SORTED INTO LISTS." and "NOTES." were each screen saying its
@@ -426,7 +432,16 @@ enum BridgeScript {
           '.myadhd-wk button.is-picked b,.myadhd-wk button.is-picked small{color:var(--accent)}' +
           '.myadhd-wk button.is-today b{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}' +
           /* the hour grid, shared by day and week */
-          '.myadhd-grid{position:relative;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid var(--line);max-height:calc(100dvh - 330px);min-height:320px}' +
+          /* The grid used to scroll inside itself, inside the page — two
+             scrollers, and a finger never knew which one it had. Now the
+             page is the only scroller and the grid is just tall. What
+             stays put is the month row and the week strip, stuck under
+             the header, so the hours scroll beneath them the way Ink's
+             do. Their offsets are measured, not guessed — see render(). */
+          '.myadhd-grid{position:relative;border-top:1px solid var(--line)}' +
+          '#screen-calendar.myadhd-view-day .cal-head,#screen-calendar.myadhd-view-week .cal-head{position:sticky;top:calc(var(--safe-top,0px) + var(--myadhd-hdr,54px));z-index:6;background:var(--surface);margin:0;padding-bottom:6px}' +
+          '#screen-calendar.myadhd-view-day .myadhd-wk,#screen-calendar.myadhd-view-week .myadhd-colhead{position:sticky;top:calc(var(--safe-top,0px) + var(--myadhd-hdr,54px) + var(--myadhd-calhead,58px));z-index:6;background:var(--surface);margin:0;padding:4px 0 8px}' +
+          '#screen-calendar.myadhd-view-day .cal-wrap,#screen-calendar.myadhd-view-week .cal-wrap{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 120px)}' +
           '.myadhd-grid-in{position:relative;display:grid;grid-template-columns:44px 1fr}' +
           '.myadhd-hours{display:grid;grid-auto-rows:var(--hh)}' +
           '.myadhd-hours span{font-size:10.5px;color:var(--faint);transform:translateY(-6px);padding-left:2px}' +
@@ -537,7 +552,7 @@ enum BridgeScript {
           '#app,.myadhd-ghost{overscroll-behavior-y:none}' +
           '.myadhd-native-refresh{height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;transition:height .22s var(--ease)}' +
           '.myadhd-native-refresh.is-pulling{transition:none}' +
-          '.myadhd-native-refresh svg{width:30px;height:30px;color:var(--accent);opacity:0;transition:opacity .15s,transform .15s}' +
+          '.myadhd-native-refresh svg{width:36px;height:36px;color:var(--accent);opacity:0;transition:opacity .15s,transform .15s}' +
           '.myadhd-native-refresh.is-armed svg,.myadhd-native-refresh.is-loading svg{opacity:1}' +
           '.myadhd-native-refresh.is-loading svg{animation:myadhd-spin .8s linear infinite}' +
           '@keyframes myadhd-spin{to{transform:rotate(360deg)}}' +
@@ -946,9 +961,8 @@ enum BridgeScript {
             cols.appendChild(col);
           });
           inner.appendChild(hours); inner.appendChild(cols); grid.appendChild(inner);
-          /* open on the working morning, or on now if it is today */
-          var focus = days.indexOf(t) >= 0 ? Math.max(0, new Date().getHours() - 2) : 7;
-          requestAnimationFrame(function () { grid.scrollTop = focus * hh; });
+          grid.dataset.focus = days.indexOf(t) >= 0 ? Math.max(0, new Date().getHours() - 2) : 7;
+          grid.dataset.hh = hh;
           return grid;
         }
 
@@ -1003,11 +1017,35 @@ enum BridgeScript {
           var a = anytime(days); if (a) p.appendChild(a);
           p.appendChild(hourGrid(days, HHW));
         }
+        var lastKey = null, lastView = null;
+        function measure() {
+          var hdr = screen.querySelector('header.brand'), ch = screen.querySelector('.cal-head');
+          if (hdr) screen.style.setProperty('--myadhd-hdr', hdr.offsetHeight + 'px');
+          if (ch) screen.style.setProperty('--myadhd-calhead', ch.offsetHeight + 'px');
+        }
+        /* Scroll the PAGE so the working hours sit just under the stuck
+           strip — only when the view or the day has changed, never on the
+           minute tick or a repaint, which would yank the page mid-read. */
+        function settleScroll(pane) {
+          var grid = pane.querySelector('.myadhd-grid'), app = document.getElementById('app');
+          var stuck = pane.querySelector('.myadhd-wk, .myadhd-colhead');
+          if (!grid || !app || !stuck) return;
+          var key = picked() + '|' + view;
+          if (key === lastKey) return;
+          lastKey = key;
+          requestAnimationFrame(function () {
+            var target = grid.getBoundingClientRect().top + Number(grid.dataset.focus || 7) * Number(grid.dataset.hh || 56);
+            var under = stuck.getBoundingClientRect().bottom;
+            app.scrollTop += target - under;
+          });
+        }
         function render() {
           if (screen.classList.contains('is-hidden')) return;
+          measure();
           if (view === 'list') renderList();
-          else if (view === 'day') renderDay();
-          else if (view === 'week') renderWeek();
+          else if (view === 'day') { renderDay(); settleScroll(panes.day); }
+          else if (view === 'week') { renderWeek(); settleScroll(panes.week); }
+          lastView = view;
         }
         function setView(v) {
           view = v;
@@ -1036,7 +1074,7 @@ enum BridgeScript {
         var app = document.getElementById('app');
         if (!app) return;
         var startY = null, slot = null, pulling = false, loading = false;
-        var ARM = 60, MAX = 84;
+        var ARM = 66, MAX = 92;
 
         function slotFor() {
           var bar = document.querySelector('#app .screen:not(.is-hidden) > header.brand.myadhd-native');
@@ -1071,10 +1109,23 @@ enum BridgeScript {
           startY = e.touches[0].clientY; pulling = false;
         }, { passive: true });
 
+        /* Only home refreshes. The other tabs are lists the page keeps
+           current itself, and a spinner there would be theatre — so a pull
+           on them is a light tap at the arm point and nothing else. */
+        var tapped = false;
+        function onHome() {
+          var cur = document.querySelector('#app .screen:not(.is-hidden)');
+          return !!cur && cur.id === 'screen-home';
+        }
+
         app.addEventListener('touchmove', function (e) {
           if (startY === null || loading) return;
           var dy = e.touches[0].clientY - startY;
-          if (dy <= 0 || app.scrollTop > 0) { if (pulling && slot) { slot.style.height = '0px'; slot.classList.remove('is-armed'); } return; }
+          if (dy <= 0 || app.scrollTop > 0) { if (pulling && slot) { slot.style.height = '0px'; slot.classList.remove('is-armed'); } tapped = false; return; }
+          if (!onHome()) {
+            if (dy >= ARM && !tapped) { tapped = true; try { post('haptic', { kind: 'light' }); } catch (e2) {} }
+            return;
+          }
           slot = slot || slotFor(); if (!slot) return;
           pulling = true;
           var h = Math.min(MAX, dy * 0.55);
@@ -1087,7 +1138,7 @@ enum BridgeScript {
 
         function end() {
           if (startY === null) return;
-          startY = null;
+          startY = null; tapped = false;
           if (!pulling || !slot) return;
           pulling = false;
           slot.classList.remove('is-pulling');
