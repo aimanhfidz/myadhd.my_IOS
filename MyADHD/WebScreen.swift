@@ -109,6 +109,19 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         web.scrollView.pinchGestureRecognizer?.isEnabled = false
         web.scrollView.bouncesZoom = false
 
+        /* Pull to refresh, recognised here rather than in the page. When
+           #app is taller than the screen, WebKit gives a vertical drag to
+           its scroller and the page's touch events stop arriving — so the
+           page-side gesture worked on home, which is short, and on nothing
+           else. A pan recogniser on the web view sees every drag whatever
+           WebKit decides to do with it. The page still draws the strip and
+           runs the refresh; this only tells it how far the finger has gone. */
+        let pull = UIPanGestureRecognizer(target: self, action: #selector(pulled(_:)))
+        pull.cancelsTouchesInView = false
+        pull.delaysTouchesBegan = false
+        pull.delegate = self
+        web.addGestureRecognizer(pull)
+
         #if DEBUG
         web.isInspectable = true   // Safari > Develop > iPhone, on device
         #endif
@@ -192,6 +205,38 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         }
         storeSettle = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+    }
+
+    // MARK: - pull to refresh
+
+    private var pullVertical: Bool?
+    private var pullLast: CFTimeInterval = 0
+
+    @objc private func pulled(_ g: UIPanGestureRecognizer) {
+        let t = g.translation(in: web)
+        switch g.state {
+        case .began:
+            pullVertical = nil
+        case .changed:
+            /* The first dozen points decide: a sideways drag is the day
+               swipe or the back gesture and this stays out of it. */
+            if pullVertical == nil {
+                if abs(t.x) < 12 && abs(t.y) < 12 { return }
+                pullVertical = abs(t.y) > abs(t.x) && t.y > 0
+            }
+            guard pullVertical == true else { return }
+            let now = CACurrentMediaTime()
+            if now - pullLast < 1.0 / 60 { return }
+            pullLast = now
+            web.evaluateJavaScript("window.__myadhdPull && __myadhdPull.move(\(Int(t.y)))", completionHandler: nil)
+        case .ended, .cancelled, .failed:
+            if pullVertical == true {
+                web.evaluateJavaScript("window.__myadhdPull && __myadhdPull.end()", completionHandler: nil)
+            }
+            pullVertical = nil
+        default:
+            break
+        }
     }
 
     // MARK: - where a tap is allowed to go
@@ -505,4 +550,9 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         storeSettle?.cancel()      // no point waiting out a debounce we are leaving
         Reminders.sync(from: web)
     }
+}
+
+extension Coordinator: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 }

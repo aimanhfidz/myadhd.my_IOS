@@ -1145,14 +1145,17 @@ enum BridgeScript {
       })();
 
       /* ---- pull to refresh ----
-         A real refresh, not a spinner for its own sake: the page's cloud
-         pass runs if there is an account, the screen repaints, and the
-         shell is told — which rewrites the widget snapshot and drains
-         any ticks taken on a tile. Then the strip closes. */
+         Driven from the shell: a native pan recogniser calls
+         __myadhdPull.move(dy) as the finger moves and .end() when it
+         lifts, because once #app is taller than the screen WebKit hands a
+         vertical drag to its scroller and the page's own touch events go
+         quiet. Everything visible still happens here — the strip under
+         the header, the mark, the refresh — and it only happens when the
+         page is resting at the top and a tab screen is showing. */
       (function () {
         var app = document.getElementById('app');
         if (!app) return;
-        var startY = null, slot = null, pulling = false, loading = false;
+        var slot = null, pulling = false, loading = false, armed = false, ignore = false;
         var ARM = 66, MAX = 92;
 
         function slotFor() {
@@ -1179,45 +1182,44 @@ enum BridgeScript {
             var now = document.querySelector('#app .screen:not(.is-hidden)');
             if (now && now.id === 'screen-now'  && typeof repaintLists === 'function') repaintLists();
             if (now && now.id === 'screen-home' && typeof renderHome   === 'function') renderHome();
+            if (now && now.id === 'screen-calendar' && typeof renderCalendar === 'function') renderCalendar();
           } catch (e) {}
           Promise.all(waits).then(done, done);
         }
 
-        app.addEventListener('touchstart', function (e) {
-          if (loading || app.scrollTop > 0 || e.touches.length !== 1) { startY = null; return; }
-          startY = e.touches[0].clientY; pulling = false;
-        }, { passive: true });
-
-        /* Every tab pulls: home, calendar, lists, notes. The strip goes
-           under whichever header is showing, and the refresh is the same
-           one — cloud pass, repaint, snapshot. */
-        app.addEventListener('touchmove', function (e) {
-          if (startY === null || loading) return;
-          var dy = e.touches[0].clientY - startY;
-          if (dy <= 0 || app.scrollTop > 0) { if (pulling && slot) { slot.style.height = '0px'; slot.classList.remove('is-armed'); } return; }
-          slot = slot || slotFor(); if (!slot) return;
-          pulling = true;
-          var h = Math.min(MAX, dy * 0.55);
+        function move(dy) {
+          if (loading || ignore) return;
+          if (!pulling) {
+            /* Decided once, at the first movement: the page must be resting
+               at the top, and a tab screen must be showing. Otherwise this
+               drag is a scroll, or a sheet, and the pull stays out of it. */
+            if (app.scrollTop > 0) { ignore = true; return; }
+            slot = slotFor();
+            if (!slot) { ignore = true; return; }
+            pulling = true; armed = false;
+          }
+          var h = Math.max(0, Math.min(MAX, dy * 0.55));
           slot.classList.add('is-pulling');
           slot.style.height = h + 'px';
-          var armed = h >= ARM;
-          if (armed && !slot.classList.contains('is-armed')) { try { post('haptic', { kind: 'light' }); } catch (e) {} }
+          var arm = h >= ARM;
+          if (arm && !armed) { try { post('haptic', { kind: 'light' }); } catch (e) {} }
+          armed = arm;
           slot.classList.toggle('is-armed', armed);
-        }, { passive: true });
+        }
 
         function end() {
-          if (startY === null) return;
-          startY = null;
-          if (!pulling || !slot) return;
-          pulling = false;
+          var wasPulling = pulling, wasArmed = armed;
+          pulling = false; armed = false; ignore = false;
+          if (!wasPulling || !slot) return;
           slot.classList.remove('is-pulling');
-          if (slot.classList.contains('is-armed')) {
+          if (wasArmed) {
             loading = true;
             slot.style.height = ARM + 'px';
             slot.classList.add('is-loading');
+            var s = slot;
             refresh(function () {
-              slot.classList.remove('is-loading', 'is-armed');
-              slot.style.height = '0px';
+              s.classList.remove('is-loading', 'is-armed');
+              s.style.height = '0px';
               loading = false;
             });
           } else {
@@ -1225,8 +1227,8 @@ enum BridgeScript {
             slot.style.height = '0px';
           }
         }
-        app.addEventListener('touchend', end, { passive: true });
-        app.addEventListener('touchcancel', end, { passive: true });
+
+        window.__myadhdPull = { move: move, end: end };
       })();
 
       /* ---- the legal pages get a way back ---- */
