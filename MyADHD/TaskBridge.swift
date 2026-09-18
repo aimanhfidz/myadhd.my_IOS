@@ -55,7 +55,7 @@ enum TaskBridge {
               let raw = root["tasks"] as? [[String: Any]]
         else { return }
 
-        let snapshot = build(from: raw)
+        let snapshot = build(from: raw, root: root)
         guard var blob = TaskStore.encode(snapshot) else { return }
 
         var shrunk = snapshot
@@ -90,7 +90,7 @@ enum TaskBridge {
 
     // MARK: - building it
 
-    private static func build(from raw: [[String: Any]]) -> TaskSnapshot {
+    private static func build(from raw: [[String: Any]], root: [String: Any]) -> TaskSnapshot {
         let today = dayKey(Date())
         let horizon = dayKey(Calendar.current.date(byAdding: .day, value: daysAhead, to: Date()) ?? Date())
 
@@ -167,6 +167,17 @@ enum TaskBridge {
             return a.minutes < b.minutes
         }
 
+        /* The page keeps its own count of what pruneDone() has deleted —
+           state.doneCounts, day -> n — and that is the only record of a
+           task once its row is gone. A live done task and a pruned one
+           are never the same task, so the two add rather than overlap. */
+        if let pruned = root["doneCounts"] as? [String: Any] {
+            for (day, n) in pruned {
+                if let n = (n as? NSNumber)?.intValue, n > 0, day.count == 10 {
+                    finished[day, default: 0] += n
+                }
+            }
+        }
         let history = DoneLedger.merge(finished, today: today)
 
         let dropped = max(0, kept.count - taskMax)
