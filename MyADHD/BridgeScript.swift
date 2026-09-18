@@ -355,6 +355,71 @@ enum BridgeScript {
           '.myadhd-ghost-dim{position:absolute;inset:0;background:#000}' +
           /* Release: UIKit's pop is about a quarter second on an ease-out. */
           '#app.myadhd-settling,.myadhd-settling .myadhd-ghost,.myadhd-settling .myadhd-ghost-dim{transition:transform .27s cubic-bezier(.2,.8,.2,1),opacity .27s cubic-bezier(.2,.8,.2,1)}' +
+          /* ---- the theme toggle lives on home, and only there ----
+             One switch for the whole app is enough; a copy in every header
+             was a control that did the same thing from five places. */
+          '.screen:not(#screen-home) .theme-toggle,.legal-nav .theme-toggle{display:none}' +
+
+          /* ---- the note editor's tools, as a rail on the right ----
+             They sat in a pill at the bottom, and the keyboard's accessory
+             bar (removed natively now, see QuietKeyboard.swift) drew over
+             them. A vertical rail at mid-height on the right is Ink's
+             answer and it is the right one: the keyboard never reaches it,
+             and the thumb does. */
+          '#screen-note #note-tools{position:fixed;left:auto;right:12px;bottom:auto;top:46%;transform:translateY(-50%);' +
+            'flex-direction:column;width:54px;padding:10px 0;gap:4px;border-radius:999px;z-index:30;' +
+            'background:color-mix(in srgb,var(--surface) 84%,transparent);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);' +
+            'box-shadow:0 8px 28px rgba(16,16,24,.14);border:1px solid color-mix(in srgb,var(--line) 70%,transparent)}' +
+          '#screen-note .note-tool{width:44px;height:44px;border-radius:999px}' +
+          '#screen-note .note-tool svg{width:22px;height:22px}' +
+          '#screen-note .note-canvas{padding-right:22px}' +
+
+          /* ---- the calendar: list, day, week, and the month it already had ---- */
+          '.myadhd-calview{display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--wash);border:1.5px solid var(--line)}' +
+          '.myadhd-calview button{width:34px;height:30px;border:0;border-radius:999px;background:transparent;color:var(--muted);display:grid;place-items:center;padding:0}' +
+          '.myadhd-calview button svg{width:17px;height:17px}' +
+          '.myadhd-calview button.is-on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(16,16,24,.10)}' +
+          '.myadhd-cal-pane{display:none;flex-direction:column;min-height:0}' +
+          '.myadhd-cal-pane.is-on{display:flex}' +
+          '#screen-calendar.myadhd-view-list #cal-months,#screen-calendar.myadhd-view-list #cal-tip,#screen-calendar.myadhd-view-list #cal-agenda,' +
+          '#screen-calendar.myadhd-view-day #cal-months,#screen-calendar.myadhd-view-day #cal-tip,#screen-calendar.myadhd-view-day #cal-agenda,#screen-calendar.myadhd-view-day #cal-undated,' +
+          '#screen-calendar.myadhd-view-week #cal-months,#screen-calendar.myadhd-view-week #cal-tip,#screen-calendar.myadhd-view-week #cal-agenda,#screen-calendar.myadhd-view-week #cal-undated{display:none}' +
+          /* the week strip: Mon to Sun of the picked week */
+          '.myadhd-wk{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:2px 0 12px}' +
+          '.myadhd-wk button{border:0;background:transparent;border-radius:14px;padding:8px 0 7px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink)}' +
+          '.myadhd-wk button small{font-size:11px;font-weight:600;color:var(--muted)}' +
+          '.myadhd-wk button b{font-family:var(--display);font-size:19px;font-weight:700;line-height:1}' +
+          '.myadhd-wk button.is-picked{background:color-mix(in srgb,var(--accent) 14%,var(--surface))}' +
+          '.myadhd-wk button.is-picked b,.myadhd-wk button.is-picked small{color:var(--accent)}' +
+          '.myadhd-wk button.is-today b{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}' +
+          /* the hour grid, shared by day and week */
+          '.myadhd-grid{position:relative;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid var(--line);max-height:calc(100dvh - 330px);min-height:320px}' +
+          '.myadhd-grid-in{position:relative;display:grid;grid-template-columns:44px 1fr}' +
+          '.myadhd-hours{display:grid;grid-auto-rows:var(--hh)}' +
+          '.myadhd-hours span{font-size:10.5px;color:var(--faint);transform:translateY(-6px);padding-left:2px}' +
+          '.myadhd-cols{position:relative;display:grid;grid-template-columns:repeat(var(--cols),1fr)}' +
+          '.myadhd-col{position:relative;height:calc(var(--hh) * 24);border-left:1px solid var(--line);' +
+            'background:repeating-linear-gradient(to bottom,var(--line) 0 1px,transparent 1px var(--hh))}' +
+          '.myadhd-blk{position:absolute;left:3px;right:3px;border-radius:8px;padding:4px 6px 4px 8px;overflow:hidden;' +
+            'background:color-mix(in srgb,var(--accent) 15%,var(--surface));border-left:3px solid var(--accent);font-size:12px;line-height:1.25}' +
+          '.myadhd-blk b{display:block;font-family:var(--display);font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+          '.myadhd-blk small{display:block;color:var(--muted);font-size:10.5px}' +
+          '.myadhd-blk.is-late{background:color-mix(in srgb,var(--orange) 15%,var(--surface));border-left-color:var(--orange)}' +
+          '.myadhd-blk.is-done{opacity:.45}' +
+          '.myadhd-blk.is-done b{text-decoration:line-through}' +
+          '.myadhd-view-week .myadhd-blk{padding:3px 3px 3px 5px;border-radius:6px;border-left-width:2px}' +
+          '.myadhd-view-week .myadhd-blk b{font-size:9.5px;font-weight:600}' +
+          '.myadhd-view-week .myadhd-blk small{display:none}' +
+          '.myadhd-now{position:absolute;left:0;right:0;height:2px;background:var(--danger);z-index:2;pointer-events:none}' +
+          '.myadhd-now::before{content:"";position:absolute;left:-5px;top:-4px;width:10px;height:10px;border-radius:50%;background:var(--danger)}' +
+          '.myadhd-colhead{display:grid;grid-template-columns:44px repeat(var(--cols),1fr);margin-bottom:6px}' +
+          '.myadhd-colhead span{text-align:center;font-size:12px;color:var(--muted)}' +
+          '.myadhd-colhead span b{color:var(--ink);font-weight:700}' +
+          '.myadhd-colhead span.is-today b{color:var(--accent)}' +
+          '.myadhd-anytime{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}' +
+          '.myadhd-anytime span{font-size:12px;padding:5px 10px;border-radius:999px;background:var(--wash);border:1px solid var(--line)}' +
+          '.myadhd-anytime i{font-style:normal;font-size:11px;color:var(--muted);align-self:center}' +
+          '.myadhd-cal-list .cal-group{margin-bottom:18px}' +
           '#matrix.matrix{grid-template-rows:1fr 1fr;min-height:0}' +
           '#matrix .quad{min-height:0;overflow-y:auto;overscroll-behavior:contain}' +
 
@@ -723,6 +788,210 @@ enum BridgeScript {
         }
         document.addEventListener('touchend', end, { passive: true, capture: true });
         document.addEventListener('touchcancel', end, { passive: true, capture: true });
+      })();
+
+      /* ---- the calendar's other three views ----
+         The page draws a month and an agenda for the picked day, and
+         keeps them; that view is untouched. These are List (the next two
+         weeks, grouped by day, drawn by the page's own agendaGroup so
+         the rows behave exactly as they do below the month), Day (an
+         hour grid for the picked day, with a now-line) and Week (the same
+         grid, seven columns). All three read the page's own globals —
+         state, tasksOn, calPicked — which is possible because app.js is a
+         classic script, and they redraw whenever the page redraws its
+         agenda, which it does on every change. The chosen view is
+         remembered under its own key: it is the shell's preference, not
+         the page's data. */
+      (function () {
+        var screen = document.getElementById('screen-calendar');
+        var header = screen && screen.querySelector('header.brand');
+        /* The calendar's header is the one with no .brand-tools — its
+           toggle sat directly in the bar — so the slot the pill goes in
+           is made here when it is missing. */
+        var tools = header && header.querySelector('.brand-tools');
+        if (header && !tools) {
+          tools = document.createElement('div');
+          tools.className = 'brand-tools';
+          header.appendChild(tools);
+        }
+        var wrap = screen && screen.querySelector('.cal-wrap');
+        var anchor = document.getElementById('cal-months');
+        var agenda = document.getElementById('cal-agenda');
+        if (!screen || !tools || !wrap || !anchor || !agenda) return;
+        if (typeof tasksOn !== 'function' || typeof agendaGroup !== 'function' || typeof dayKey !== 'function') return;
+
+        var KEY = 'myadhd.ios.calView', HH = 56, HHW = 40;
+        var VIEWS = ['list', 'day', 'week', 'month'];
+        var ICON = {
+          list:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+          day:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M3.5 11h17"/></svg>',
+          week:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M9.2 5v14M14.8 5v14"/></svg>',
+          month: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="6" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="18" cy="12" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>'
+        };
+        var LABEL = { list: 'List', day: 'Day', week: 'Week', month: 'Month' };
+
+        var view = 'month';
+        try { var saved = localStorage.getItem(KEY); if (VIEWS.indexOf(saved) >= 0) view = saved; } catch (e) {}
+
+        /* the switcher, where the theme toggle used to be */
+        var pill = document.createElement('div');
+        pill.className = 'myadhd-calview';
+        pill.setAttribute('role', 'tablist');
+        VIEWS.forEach(function (v) {
+          var bt = document.createElement('button');
+          bt.type = 'button'; bt.innerHTML = ICON[v];
+          bt.setAttribute('aria-label', LABEL[v]); bt.dataset.view = v;
+          bt.addEventListener('click', function () { setView(v); try { post('haptic', { kind: 'selection' }); } catch (e) {} });
+          pill.appendChild(bt);
+        });
+        tools.appendChild(pill);
+
+        /* the three panes, after the month grid */
+        var panes = {};
+        ['list', 'day', 'week'].forEach(function (v) {
+          var p = document.createElement('div');
+          p.className = 'myadhd-cal-pane myadhd-cal-' + v;
+          anchor.parentNode.insertBefore(p, anchor.nextSibling);
+          panes[v] = p;
+        });
+
+        function today() { return dayKey(); }
+        function picked() { return (typeof calPicked === 'string' && calPicked) ? calPicked : today(); }
+        function add(key, n) { return dayKey(addDays(keyToDate(key), n)); }
+        function mondayOf(key) {
+          var d = keyToDate(key), back = (d.getDay() + 6) % 7;
+          return add(key, -back);
+        }
+        function mins(at) { if (!at) return null; var p = at.split(':').map(Number); return p[0] * 60 + p[1]; }
+        function pick(key) {
+          try { calPicked = key; if (typeof renderCalendar === 'function') renderCalendar(); } catch (e) {}
+        }
+
+        function weekStrip(base) {
+          var mon = mondayOf(base), t = today(), el = document.createElement('div');
+          el.className = 'myadhd-wk';
+          for (var i = 0; i < 7; i++) {
+            var key = add(mon, i), d = keyToDate(key), bt = document.createElement('button');
+            bt.type = 'button';
+            bt.className = (key === base ? 'is-picked ' : '') + (key === t ? 'is-today' : '');
+            bt.innerHTML = '<small>' + DAY_NAMES[d.getDay()].slice(0, 3) + '</small><b>' + d.getDate() + '</b>';
+            bt.addEventListener('click', (function (k) { return function () { pick(k); }; })(key));
+            el.appendChild(bt);
+          }
+          return el;
+        }
+
+        function block(task, hh, t) {
+          var start = mins(task.at), len = Math.max(20, task.minutes || 20);
+          var el = document.createElement('div');
+          var late = !task.done && task.when < t;
+          el.className = 'myadhd-blk' + (late ? ' is-late' : '') + (task.done ? ' is-done' : '');
+          el.style.top = (start / 60 * hh) + 'px';
+          el.style.height = Math.max(hh * 0.5, len / 60 * hh - 2) + 'px';
+          el.innerHTML = '<b>' + task.title.replace(/</g, '&lt;') + '</b><small>' +
+            (typeof timeLabel === 'function' ? timeLabel(task.at) : task.at) + ' · ' + len + ' min</small>';
+          return el;
+        }
+
+        function hourGrid(days, hh) {
+          var t = today();
+          var grid = document.createElement('div'); grid.className = 'myadhd-grid';
+          var inner = document.createElement('div'); inner.className = 'myadhd-grid-in'; inner.style.setProperty('--hh', hh + 'px');
+          var hours = document.createElement('div'); hours.className = 'myadhd-hours';
+          for (var h = 0; h < 24; h++) { var sp = document.createElement('span'); sp.textContent = (h < 10 ? '0' : '') + h + ':00'; hours.appendChild(sp); }
+          var cols = document.createElement('div'); cols.className = 'myadhd-cols'; cols.style.setProperty('--cols', days.length);
+          days.forEach(function (key) {
+            var col = document.createElement('div'); col.className = 'myadhd-col';
+            state.tasks.filter(function (x) { return x.when === key && x.at && !x.skipped; })
+              .forEach(function (x) { col.appendChild(block(x, hh, t)); });
+            if (key === t) {
+              var now = new Date(), line = document.createElement('div');
+              line.className = 'myadhd-now';
+              line.style.top = ((now.getHours() * 60 + now.getMinutes()) / 60 * hh) + 'px';
+              col.appendChild(line);
+            }
+            cols.appendChild(col);
+          });
+          inner.appendChild(hours); inner.appendChild(cols); grid.appendChild(inner);
+          /* open on the working morning, or on now if it is today */
+          var focus = days.indexOf(t) >= 0 ? Math.max(0, new Date().getHours() - 2) : 7;
+          requestAnimationFrame(function () { grid.scrollTop = focus * hh; });
+          return grid;
+        }
+
+        function anytime(days) {
+          var items = state.tasks.filter(function (x) { return days.indexOf(x.when) >= 0 && !x.at && !x.done && !x.skipped; });
+          if (!items.length) return null;
+          var row = document.createElement('div'); row.className = 'myadhd-anytime';
+          var lab = document.createElement('i'); lab.textContent = 'Anytime'; row.appendChild(lab);
+          items.slice(0, 6).forEach(function (x) { var sp = document.createElement('span'); sp.textContent = x.title; row.appendChild(sp); });
+          if (items.length > 6) { var more = document.createElement('i'); more.textContent = '+' + (items.length - 6); row.appendChild(more); }
+          return row;
+        }
+
+        function renderList() {
+          var p = panes.list, t = today(), from = picked() < t ? picked() : t;
+          p.innerHTML = '';
+          if (from === t && typeof overdueTasks === 'function') {
+            var late = overdueTasks(t);
+            if (late.length) p.appendChild(agendaGroup(late.length + ' overdue', late, t, true));
+          }
+          var any = false;
+          for (var i = 0; i < 14; i++) {
+            var key = add(from, i), items = tasksOn(key);
+            if (!items.length) continue;
+            any = true;
+            p.appendChild(agendaGroup(dayLabel(key, t), items, t, false));
+          }
+          if (!any) {
+            var e = document.createElement('p'); e.className = 'cal-empty';
+            e.textContent = 'Nothing in the next two weeks. Say a day in the dump box and it lands here.';
+            p.appendChild(e);
+          }
+        }
+        function renderDay() {
+          var p = panes.day, key = picked(); p.innerHTML = '';
+          p.appendChild(weekStrip(key));
+          var a = anytime([key]); if (a) p.appendChild(a);
+          p.appendChild(hourGrid([key], HH));
+        }
+        function renderWeek() {
+          var p = panes.week, key = picked(), mon = mondayOf(key), t = today(); p.innerHTML = '';
+          var days = []; for (var i = 0; i < 7; i++) days.push(add(mon, i));
+          var head = document.createElement('div'); head.className = 'myadhd-colhead'; head.style.setProperty('--cols', 7);
+          head.appendChild(document.createElement('span'));
+          days.forEach(function (k) {
+            var d = keyToDate(k), sp = document.createElement('span');
+            sp.className = k === t ? 'is-today' : '';
+            sp.innerHTML = DAY_NAMES[d.getDay()].slice(0, 3) + ' <b>' + d.getDate() + '</b>';
+            head.appendChild(sp);
+          });
+          p.appendChild(head);
+          var a = anytime(days); if (a) p.appendChild(a);
+          p.appendChild(hourGrid(days, HHW));
+        }
+        function render() {
+          if (screen.classList.contains('is-hidden')) return;
+          if (view === 'list') renderList();
+          else if (view === 'day') renderDay();
+          else if (view === 'week') renderWeek();
+        }
+        function setView(v) {
+          view = v;
+          try { localStorage.setItem(KEY, v); } catch (e) {}
+          VIEWS.forEach(function (x) { screen.classList.toggle('myadhd-view-' + x, x === v); });
+          Object.keys(panes).forEach(function (x) { panes[x].classList.toggle('is-on', x === v); });
+          pill.querySelectorAll('button').forEach(function (bt) { bt.classList.toggle('is-on', bt.dataset.view === v); });
+          render();
+        }
+
+        /* The page rewrites #cal-agenda on every renderCalendar, which is
+           every change that could matter here — a tick, a drag, a new
+           task, a picked day. Redraw on that rather than guessing. */
+        new MutationObserver(function () { requestAnimationFrame(render); }).observe(agenda, { childList: true });
+        new MutationObserver(function () { requestAnimationFrame(render); }).observe(screen, { attributes: true, attributeFilter: ['class'] });
+        setInterval(function () { if (view === 'day' || view === 'week') render(); }, 60000);
+        setView(view);
       })();
 
       /* ---- pull to refresh ----

@@ -299,6 +299,7 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         state.painted = true
         state.offline = false
         Self.lockZoom(in: webView)
+        QuietKeyboard.apply(to: webView)
     }
 
     /* The native layer of the no-zoom rule. The CSS and the viewport patch
