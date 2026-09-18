@@ -29,7 +29,6 @@ here on purpose; the list has grown twice and a number in prose goes stale:
 
 | | why it needed the native side |
 |---|---|
-| **Haptics** | Ticking a task off is the emotional centre of this app and on the web it is silent. Taps get three cases only — a success buzz on `.task-check`, a firmer knock on **Clear my head**, a selection tick on everything else; buzzing on all of them is what a cheap wrapper does. Swipes get the two the app had already written and never got: `navigator.vibrate` is polyfilled, so the mark at the arming threshold and the long-press pick-up finally land, and the commit is felt too — success for done, a thud for remove. |
 | **Reminders** | A task carries a day and often a clock time. iOS web push needs a server pushing it and a permission a home-screen icon rarely gets; the times are already on the device, so `Reminders.swift` reads the store the web app wrote and schedules local notifications from it. The body is the task's **first step**, not its title — the title is what you already knew. |
 | **Share sheet** | The thought that arrives already written, inside somebody else's app. Share from Safari or Mail and the text is queued without my.adhd ever coming to the front — so the home screen, and every badge on it, is never shown. A proof of concept; see below. |
 | **Siri / Shortcuts** | *"Hey Siri, dump a thought into my.adhd."* The argument `voice.js` makes about the bus, carried one step further back: holding the mic still costs unlocking the phone and finding the icon. |
@@ -106,10 +105,15 @@ To check it compiles without opening Xcode:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MyADHD.xcodeproj -scheme MyADHD -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-The Simulator itself has no runtimes installed on this machine. `xcodebuild
--downloadPlatform iOS` fetches one (several GB) if you want it; the device is
-the better test anyway, because haptics and Siri are the point and neither is
-real in a simulator.
+There is an iOS 26.5 simulator runtime on this machine now, and most of the
+shell can be checked in it. The device is still the better test: Siri and the
+keychain handover between the app and its widgets are only real there.
+
+**There are no haptics.** They were the first native feature — a buzz on a
+tick, a knock on Clear my head, the two swipe moments `app.js` had asked for —
+and they were removed on 2026-09-18 at the owner's call. The generators, the
+listeners and the `navigator.vibrate` polyfill are all gone rather than
+switched off; `git log` has them if the decision is ever reversed.
 
 ## Signing in needs one change in Supabase
 
@@ -202,8 +206,6 @@ myadhd.my_IOS/
     │                          then — once the page has painted, offline is the
     │                          service worker's problem and it handles it
     ├── BridgeScript.swift     the JavaScript pushed into the page
-    ├── Haptics.swift          warm generators, so the first tap is as sharp as
-    │                          the rest
     ├── Reminders.swift        localStorage → UNNotificationRequest
     ├── GoogleSignIn.swift     ASWebAuthenticationSession, and why
     ├── Inbox.swift            text arriving from a Shortcut or a myadhd:// link,
@@ -276,8 +278,7 @@ there is no `app.js` here to grep, and no build that fails. That is the price
 of the split, and it is why this list is worth keeping accurate: the two grounds in `AppConfig` (`theme.css`), the
 `#dump-input` id (`app.html`), the `myadhd.v1` store key — now
 `AppConfig.storeKey`, substituted into `BridgeScript` as `__STOREKEY__` and
-read by `Reminders.swift` — and the `.task-check`, `#btn-triage` and
-`#composer-mic` selectors the haptics hang off (`BridgeScript.swift`).
+read by `Reminders.swift`.
 
 Three more arrived with the widgets, and they are promises in a looser sense
 — nothing on the web side will break, but they will silently disagree with it:

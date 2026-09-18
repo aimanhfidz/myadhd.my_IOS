@@ -58,7 +58,9 @@ enum BridgeScript {
         version: '__VERSION__',
         /* 'light' | 'medium' | 'heavy' | 'success' | 'warning' | 'error',
            and anything else is the selection tick. */
-        haptic: function (kind) { post('haptic', { kind: String(kind || 'light') }); },
+        /* Kept as a name so a page that calls it never throws; it does
+           nothing. Haptics were removed from the shell on 2026-09-18. */
+        haptic: function () {},
         share:  function (text) { post('share',  { text: String(text || '') }); },
         _post: post
       };
@@ -116,36 +118,6 @@ enum BridgeScript {
         window.myadhdTheme.onChange(tell);
       }
 
-      /* ---- the buzz ----
-         On pointerdown, not click: a haptic that waits for the click has
-         already missed the moment it was meant to confirm. Capture phase,
-         because the app stops propagation on several of these itself.
-
-         Three cases and no more. Buzzing on every tap is what a cheap
-         wrapper does, and it stops meaning anything by the second screen. */
-      document.addEventListener('pointerdown', function (e) {
-        var t = e.target;
-        if (!t || !t.closest) return;
-        if (t.closest('.task-check')) { post('haptic', { kind: 'success' }); return; }
-        if (t.closest('#btn-triage')) { post('haptic', { kind: 'medium' });  return; }
-        /* Push-to-talk is the one control on this screen where the press and
-           the release are both instructions, so both are answered. A
-           selection tick is not enough to say "recording": it is the same
-           tick every other button gives, and the thing it would be
-           confirming takes a second to visibly start. */
-        if (t.closest('#composer-mic')) { post('haptic', { kind: 'medium' }); return; }
-        if (t.closest('button, [role="button"], a')) { post('haptic', { kind: 'selection' }); }
-      }, true);
-
-      /* The only release worth answering. micDown captures the pointer to
-         the button, so this lands here however far the thumb has rolled. */
-      document.addEventListener('pointerup', function (e) {
-        var t = e.target;
-        if (t && t.closest && t.closest('#composer-mic')) {
-          post('haptic', { kind: 'light' });
-        }
-      }, true);
-
       /* ---- say when the store changes ----
          The reminders are built out of localStorage, and until this existed
          the only moments the shell knew to rebuild them were a page load and
@@ -164,53 +136,6 @@ enum BridgeScript {
         };
       } catch (e) { /* leave the store alone rather than break saving */ }
 
-
-      /* ---- the buzzes the app already asked for ----
-         app.js calls navigator.vibrate?.(8) twice — when a swipe arms, and
-         when a long press lifts a row — and calls it optionally because it
-         knew some phones would not have it. Every iPhone is one of those
-         phones: no Safari and no web view has ever had the Vibration API,
-         so on the device this app is mostly used on, the two moments most
-         worth feeling were the two that were silent.
-
-         Polyfilling it rather than watching for the class is deliberate.
-         The call sites are already in the right places, they already carry
-         an intent in their duration, and anything added later gets this
-         for free without the shell knowing about it. */
-      if (!navigator.vibrate) {
-        navigator.vibrate = function (pattern) {
-          var ms = Array.isArray(pattern) ? pattern[0] : pattern;
-          ms = Number(ms) || 0;
-          if (ms <= 0) return true;                 // vibrate(0) cancels
-          post('haptic', { kind: ms <= 10 ? 'light' : ms <= 30 ? 'medium' : 'heavy' });
-          return true;
-        };
-      }
-
-      /* ---- and the one it has no way to ask for ----
-         Ticking a task off with the checkbox buzzes; swiping the same task
-         off used to do nothing, so the same outcome felt different
-         depending on how it was reached. leaveSwipe() is the commit, and
-         is-leaving is the only trace of it in the DOM — with is-left for
-         done and is-right for remove, still set from the last paint.
-
-         A flick commits without ever arming, so this cannot be folded into
-         the vibrate above: that one marks the threshold, this one marks
-         the deed. */
-      var buzzed = new WeakSet();
-      new MutationObserver(function (records) {
-        for (var i = 0; i < records.length; i++) {
-          var row = records[i].target;
-          if (!row.classList || !row.classList.contains('is-leaving')) continue;
-          if (buzzed.has(row)) continue;
-          buzzed.add(row);
-          post('haptic', { kind: row.classList.contains('is-left') ? 'success' : 'heavy' });
-        }
-      }).observe(document.body, {
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class'],   // style changes on every frame of a drag; class does not
-      });
 
       /* ---- the header, as an app rather than a website ----
          A website says its name at the top of every page, because a
@@ -682,7 +607,6 @@ enum BridgeScript {
           for (var i = 0; i < ps.length; i++) { ps[i].classList.toggle('is-on', i === at); ds[i].classList.toggle('is-on', i === at); }
           wk.querySelector('.wk-back').style.visibility = at === 0 ? 'hidden' : 'visible';
           wk.querySelector('.wk-next .btn-text').textContent = pages[at].cta;
-          try { post('haptic', { kind: 'selection' }); } catch (e) {}
         }
         function open()  { if (!wk) build(); wk.classList.add('is-open'); go(0); }
         function close() { if (wk) wk.classList.remove('is-open'); }
@@ -835,7 +759,6 @@ enum BridgeScript {
           var p = Math.max(0, Math.min(1, dx / W));
           paint(p);
           var arm = p >= DONE;
-          if (arm && !armed) { try { post('haptic', { kind: 'light' }); } catch (err) {} }
           armed = arm;
         }, { passive: true, capture: true });
 
@@ -901,7 +824,7 @@ enum BridgeScript {
           var bt = document.createElement('button');
           bt.type = 'button'; bt.innerHTML = ICON[v];
           bt.setAttribute('aria-label', LABEL[v]); bt.dataset.view = v;
-          bt.addEventListener('click', function () { setView(v); try { post('haptic', { kind: 'selection' }); } catch (e) {} });
+          bt.addEventListener('click', function () { setView(v); });
           pill.appendChild(bt);
         });
         tools.appendChild(pill);
@@ -1118,7 +1041,6 @@ enum BridgeScript {
             if (Math.abs(moved) < 60) { glide('translateX(0)', reset); return; }
             busy = true;
             var dir = moved < 0 ? 1 : -1;   // swipe left: forward in time
-            try { post('haptic', { kind: 'selection' }); } catch (err) {}
             glide('translateX(' + (-dir * W) + 'px)', function () {
               pick(add(picked(), dir * step));
               /* The re-render has replaced the grid by now; the new one
@@ -1202,7 +1124,6 @@ enum BridgeScript {
           slot.classList.add('is-pulling');
           slot.style.height = h + 'px';
           var arm = h >= ARM;
-          if (arm && !armed) { try { post('haptic', { kind: 'light' }); } catch (e) {} }
           armed = arm;
           slot.classList.toggle('is-armed', armed);
         }
