@@ -387,6 +387,13 @@ enum BridgeScript {
           '#screen-notes:has(#notes-list > *) #btn-note-new::before{content:"";width:22px;height:2.5px;background:currentColor;border-radius:2px;position:absolute}' +
           '#screen-notes:has(#notes-list > *) #btn-note-new::after{content:"";width:2.5px;height:22px;background:currentColor;border-radius:2px;position:absolute}' +
           '#screen-notes:has(#notes-list > *) .notes-wrap{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 160px)}' +
+          /* ---- the editor comes up, not on ----
+             .screen toggles display, so the editor appeared in one frame.
+             Restarting a keyframe each time it is shown gives it a rise
+             from the bottom edge; the rail is inside the screen and rides
+             up with it. */
+          '#screen-note:not(.is-hidden){animation:myadhd-sheet-up .34s cubic-bezier(.2,.8,.2,1) both}' +
+          '@keyframes myadhd-sheet-up{from{transform:translateY(100%)}to{transform:none}}' +
           '#screen-note #note-tools{position:fixed;left:auto;right:12px;bottom:auto;top:46%;transform:translateY(-50%);' +
             'flex-direction:column;width:54px;padding:10px 0;gap:4px;border-radius:999px;z-index:30;' +
             'background:color-mix(in srgb,var(--surface) 84%,transparent);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);' +
@@ -540,6 +547,12 @@ enum BridgeScript {
           '#matrix .quad--delegate .task-check{border-color:var(--q-delegate)}' +
           '#matrix .quad--drop .task-check{border-color:var(--q-drop)}' +
           '#matrix .quad .task-meta{display:none}' +
+          /* A row in a quadrant is a line in a list, not the task's page.
+             Tapping one opened the first step, the break-it-down button
+             and Edit/Remove inside a 165px card, which is the wrong place
+             for any of it. The detail stays shut here; the list view has
+             the room and keeps the behaviour. */
+          '#matrix .quad .task .task-detail{display:none !important}' +
           '#matrix .quad .task-title{font-size:12.5px;font-weight:500;line-height:1.25;-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}' +
 
           /* ---- pull to refresh, with the header staying put ----
@@ -713,8 +726,10 @@ enum BridgeScript {
         var PREV = {
           'screen-settings': 'screen-home', 'screen-profile': 'screen-settings',
           'screen-feedback': 'screen-settings', 'screen-plans': 'screen-settings',
-          'screen-note': 'screen-notes',
-          'screen-now': 'screen-home', 'screen-calendar': 'screen-home', 'screen-notes': 'screen-home'
+          'screen-note': 'screen-notes'
+          /* Not the tab screens. Calendar, Lists and Notes are siblings of
+             home, not children of it, and a swipe that jumped to home from
+             any of them was a tab bar with a hidden fifth way to use it. */
         };
 
         var x0 = null, y0 = null, dead = false, armed = false, live = false;
@@ -742,9 +757,6 @@ enum BridgeScript {
           if (bar) { var c = bar.querySelector('button'); if (c) { c.click(); return true; } }
           var legal = firstVisible('.myadhd-native-back');
           if (legal) { legal.click(); return true; }
-          if (screen && screen.id !== 'screen-home') {
-            var home = document.getElementById('tab-home'); if (home) { home.click(); return true; }
-          }
           return false;
         }
 
@@ -1068,7 +1080,13 @@ enum BridgeScript {
         var GLIDE = 220, EASE = 'cubic-bezier(.2,.8,.2,1)';
         function swipeable(pane, step) {
           var x0 = null, y0 = null, mode = null, dx = 0, busy = false;
-          pane.style.willChange = 'transform';
+
+          /* What slides is the grid and the anytime row — the strip and the
+             column heads are the frame the days move inside, and they
+             stay put with the picked day simply changing under the thumb.
+             Looked up each time because a re-render replaces them. */
+          function moving() { return pane.querySelectorAll('.myadhd-grid, .myadhd-anytime'); }
+          function each(fn) { var m = moving(); for (var i = 0; i < m.length; i++) fn(m[i]); }
 
           pane.addEventListener('touchstart', function (e) {
             if (busy || e.touches.length !== 1 || e.touches[0].clientX <= 22) { x0 = null; return; }
@@ -1083,34 +1101,31 @@ enum BridgeScript {
               mode = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
             }
             if (mode !== 'h') return;
-            pane.style.transition = 'none';
-            pane.style.transform = 'translateX(' + dx + 'px)';
+            each(function (el) { el.style.transition = 'none'; el.style.transform = 'translateX(' + dx + 'px)'; });
           }, { passive: true });
 
           function glide(to, then) {
-            pane.style.transition = 'transform ' + GLIDE + 'ms ' + EASE;
-            pane.style.transform = to;
-            var done = false;
-            function fin() { if (done) return; done = true; pane.removeEventListener('transitionend', fin); then(); }
-            pane.addEventListener('transitionend', fin);
-            setTimeout(fin, GLIDE + 40);
+            each(function (el) { el.style.transition = 'transform ' + GLIDE + 'ms ' + EASE; el.style.transform = to; });
+            setTimeout(then, GLIDE + 30);
           }
+          function reset() { each(function (el) { el.style.transition = ''; el.style.transform = ''; }); }
 
           function end() {
             if (x0 === null) return;
             var wasH = mode === 'h', moved = dx; x0 = null; mode = null;
             if (!wasH) return;
             var W = pane.offsetWidth || window.innerWidth;
-            if (Math.abs(moved) < 60) { glide('translateX(0)', function () { pane.style.transition = ''; pane.style.transform = ''; }); return; }
+            if (Math.abs(moved) < 60) { glide('translateX(0)', reset); return; }
             busy = true;
             var dir = moved < 0 ? 1 : -1;   // swipe left: forward in time
             try { post('haptic', { kind: 'selection' }); } catch (err) {}
             glide('translateX(' + (-dir * W) + 'px)', function () {
-              pane.style.transition = 'none';
-              pane.style.transform = 'translateX(' + (dir * W) + 'px)';
               pick(add(picked(), dir * step));
+              /* The re-render has replaced the grid by now; the new one
+                 starts off-screen on the far side and glides in. */
               requestAnimationFrame(function () { requestAnimationFrame(function () {
-                glide('translateX(0)', function () { pane.style.transition = ''; pane.style.transform = ''; busy = false; });
+                each(function (el) { el.style.transition = 'none'; el.style.transform = 'translateX(' + (dir * W) + 'px)'; });
+                requestAnimationFrame(function () { glide('translateX(0)', function () { reset(); busy = false; }); });
               }); });
             });
           }
