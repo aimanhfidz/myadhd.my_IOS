@@ -373,6 +373,24 @@ enum BridgeScript {
           '#screen-note .note-tool{width:44px;height:44px;border-radius:999px}' +
           '#screen-note .note-tool svg{width:22px;height:22px}' +
           '#screen-note .note-canvas{padding-right:22px}' +
+          /* ---- the editor's two sheets, as bottom sheets ----
+             They were centred by left:50% and translateX(-50%), and the
+             translate was losing to the rise animation's fill, so the
+             sheet's LEFT edge sat at the middle of the screen and half of
+             it was off the right. Anchored to the bottom edge instead —
+             no transform to fight over, and Ink's shape: full width,
+             rounded on top, sitting on the safe area. */
+          '#screen-note .note-sheet{left:0;right:0;bottom:0;top:auto;width:auto;max-width:none;transform:none;' +
+            'border-radius:26px 26px 0 0;border-width:1.5px 0 0;padding:14px 20px calc(env(safe-area-inset-bottom,0px) + 22px);' +
+            'box-shadow:0 -12px 40px rgba(16,16,24,.18);animation:myadhd-rise .22s cubic-bezier(.2,.8,.2,1) both}' +
+          '#screen-note .note-sheet::before{content:"";display:block;width:36px;height:5px;border-radius:999px;background:var(--line-strong);margin:-4px auto 12px}' +
+          '@keyframes myadhd-rise{from{transform:translateY(28px);opacity:0}to{transform:none;opacity:1}}' +
+          /* WebKit gives date and time inputs an intrinsic width and they
+             overflowed the sheet on the right; the select beside them did
+             not. Pin every field in the sheet to its column. */
+          '#screen-note .note-sheet input,#screen-note .note-sheet select{width:100%;max-width:100%;min-width:0;box-sizing:border-box;-webkit-appearance:none;appearance:none}' +
+          '#screen-note .note-sheet-title{font-size:16px}' +
+          '#screen-note .note-sheet-x{width:36px;height:36px;border-radius:999px;background:var(--wash);color:var(--ink)}' +
 
           /* ---- the calendar: list, day, week, and the month it already had ---- */
           '.myadhd-calview{display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--wash);border:1.5px solid var(--line)}' +
