@@ -149,8 +149,8 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         let body = envelope["body"] as? [String: Any] ?? [:]
 
         switch name {
-        case "haptic":
-            Haptics.play(body["kind"] as? String ?? "light")
+        /* "haptic" is no longer a case. The app is silent to the hand by
+           the owner's decision; a page that still asks gets nothing. */
         case "theme":
             state.remember(theme: body["theme"] as? String ?? "light")
         case "share":
@@ -173,7 +173,6 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
     private func pageReady() {
         state.painted = true
         state.offline = false
-        Haptics.warm()
 
         if let text = pendingDump {
             pendingDump = nil
