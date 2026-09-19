@@ -130,7 +130,7 @@ enum Reminders {
                   let title = task["title"] as? String,
                   let day = task["when"] as? String,
                   let stamp = components(day: day, at: task["at"] as? String),
-                  let asked = Calendar.current.date(from: stamp.parts) else { continue }
+                  let asked = DayKey.calendar.date(from: stamp.parts) else { continue }
 
             var fire = asked
             var parts = stamp.parts
@@ -141,12 +141,17 @@ enum Reminders {
                    chance — and only if there is still a civil hour to take
                    it in. */
                 guard !stamp.timed,
-                      Calendar.current.isDateInToday(asked),
+                      DayKey.calendar.isDateInToday(asked),
                       let rescued = rescue(from: now) else { continue }
                 fire = rescued
-                parts = Calendar.current.dateComponents(
+                parts = DayKey.calendar.dateComponents(
                     [.year, .month, .day, .hour, .minute], from: rescued)
             }
+
+            /* The trigger reads these components in whatever calendar they
+               name, and in the device's calendar when they name none. They
+               are Gregorian — see DayKey.calendar — so they say so. */
+            parts.calendar = DayKey.calendar
 
             let step = (task["firstStep"] as? String) ?? ""
             out.append(Item(id: id, title: title, step: step, fire: fire, parts: parts))
@@ -184,7 +189,7 @@ enum Reminders {
 
     /// An hour from now, unless that lands in the quiet part of the evening.
     private static func rescue(from now: Date) -> Date? {
-        let calendar = Calendar.current
+        let calendar = DayKey.calendar
         let when = now.addingTimeInterval(rescueDelay)
         guard let cutoff = calendar.date(bySettingHour: quietHour, minute: 0, second: 0, of: now),
               when <= cutoff else { return nil }

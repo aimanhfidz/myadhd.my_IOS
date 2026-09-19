@@ -1,6 +1,7 @@
 # my.adhd for iOS
 
-The web app, in a case that can buzz, ring, and be talked to by Siri.
+The web app, in a case that can ring, be talked to by Siri, and sit on the
+home screen as a widget.
 
 > **The web app ships; this shell does not.** This repo is a case around the
 > deployed page — it still builds and still works, but it is not on a release
@@ -12,14 +13,6 @@ The web app, in a case that can buzz, ring, and be talked to by Siri.
 > — *no file outside `ios/` is edited to make an iOS feature work* — a fact
 > about the filesystem instead of a rule somebody had to keep: those files are
 > simply not in this checkout. `CLAUDE.md` in here is the standing rules.
-
-> **The web app is held behind `/soon`, and this shell gets past it.**
-> `app.html` sends everyone to a holding page before first paint, except
-> `localhost` and a browser carrying the dev key. A `WKWebView` is neither, so
-> the shell used to land on the holding page every launch. `BridgeScript`
-> now writes that key at `.atDocumentStart`, which runs before `<head>` is
-> parsed — see `AppConfig.holdKey` for what to delete when the curtain comes
-> down.
 
 **This project does not duplicate a line of the web app.** It opens
 `https://myadhd.my/app` in a full-screen `WKWebView` and adds what a page in a
@@ -36,8 +29,16 @@ here on purpose; the list has grown twice and a number in prose goes stale:
 
 Nothing in the web repo had to change for any of it. Everything the page
 needs to know is injected from `BridgeScript.swift` at load, so the shell
-works against whatever is deployed at myadhd.my — including a version that
-has never heard of it.
+works against whatever is deployed at myadhd.my. The one thing the page does
+know is that it is inside the shell — it reads the user agent, not anything
+injected — and the one thing it does with that is show the matrix. See the
+promises list below; that one is the largest promise in the repo now.
+
+**The shell is not pinned to a web-app version.** No cache name
+(`myadhd-vNN`), no `?v=` and no version number from the web repo appears
+here. What it depends on is structural — ids, class names, a dozen page
+globals, the store key and the task field names — and every one of those is
+in the promises list.
 
 ## The web app is not this project's to change
 
@@ -202,9 +203,10 @@ myadhd.my_IOS/
     ├── WebScreen.swift        the web view and every rule about where a tap may
     │                          go — ours stays, everyone else's gets a Safari
     │                          sheet, /auth/v1/authorize gets GoogleSignIn
-    ├── OfflineView.swift      the first-launch-with-no-signal screen, and only
-    │                          then — once the page has painted, offline is the
-    │                          service worker's problem and it handles it
+    ├── OfflineView.swift      the no-signal screen, on every cold launch with no
+    │                          connection — the page's service worker never runs
+    │                          in this web view (its header says why), so there
+    │                          is no offline install to fall back on
     ├── BridgeScript.swift     the JavaScript pushed into the page
     ├── Reminders.swift        localStorage → UNNotificationRequest
     ├── GoogleSignIn.swift     ASWebAuthenticationSession, and why
@@ -280,17 +282,29 @@ of the split, and it is why this list is worth keeping accurate: the two grounds
 `AppConfig.storeKey`, substituted into `BridgeScript` as `__STOREKEY__` and
 read by `Reminders.swift`.
 
-Three more arrived with the widgets, and they are promises in a looser sense
-— nothing on the web side will break, but they will silently disagree with it:
+More arrived with the widgets, and one with the matrix. They are promises in
+a looser sense — nothing on the web side will break, but it will silently
+disagree with this:
+
+- **The user-agent suffix, `MyADHD-iOS/<version>`** (`AppConfig.userAgentSuffix`,
+  set on the web view's configuration in `WebScreen.swift`). `app.js` tests
+  `/MyADHD-iOS\//` on `navigator.userAgent` to decide it is inside the shell
+  (`IN_SHELL`), and the matrix — the four quadrants, the toggle in the lists
+  header, and the "?" walkthrough `BridgeScript` builds on top of them —
+  exists only when that test passes. It came out of the web app on
+  2026-09-18 and came back the next day for the shell alone. Rename the
+  prefix and the matrix disappears from the app with no error anywhere.
 
 - **The task shape `TaskBridge` reads.** It picks `id`, `title`, `minutes`,
   `when`, `at`, `category`, `energy`, `urgency`, `importance`, `firstStep`,
-  `done` and `skipped` out of `myadhd.v1` by name. `importance` is decoded as
-  optional on purpose, so a store written before it existed still works. A
-  renamed field elsewhere would leave the widget drawing a blank day rather
-  than failing, which is the worst way for this to go wrong — a version
-  number on the web store would let it refuse instead, and is the one change
-  on the site that would make this feature safer.
+  `done`, `doneAt` and `skipped` out of `myadhd.v1` by name, and the
+  top-level `doneCounts` map beside `tasks`. `importance` is decoded as
+  optional on purpose, so a store written before it existed still works;
+  nothing draws it yet. A renamed field elsewhere would leave the widget
+  drawing a blank day rather than failing, which is the worst way for this
+  to go wrong — a version number on the web store would let it refuse
+  instead, and is the one change on the site that would make this feature
+  safer.
 - **`CategoryTint` in `Shared/TimelineBand.swift`.** Eight hues for the eight
   categories, sampled between `--blue` and `--violet`. `theme.css` has no
   per-category colour at all, so this is a shell invention; if the web app
@@ -497,36 +511,31 @@ What that costs, plainly:
 - **An op that lands nowhere is swept after 48 hours and the tile un-ticks.**
   That is the honest outcome — better a row that comes back than one that
   pretends.
-- **The drain runs at `pageReady()` and at `returning()`, and nowhere else.**
-  Not on the 1.5s store debounce, which `markDone`'s own `save()` triggers —
+- **The drain runs at `pageReady()`, at `returning()`, and on the page's
+  `refresh` message** — a pull on a tab screen, which is the one gesture
+  meant to bring every surface up to date at once. Nowhere else: not on the
+  1.5s store debounce, which `markDone`'s own `save()` triggers —
   that is re-entrancy for no gain. Not on `leaving()`, where the background
   window is already tight and nobody would see the repaint. And not on a
   `returning()` that has queued share text, because `dump()` reloads the page
   and `pageReady()` will catch it after the load.
 
-### The Done graph is thin on day one, and that needs a decision about the website
+### The Done graph reads the page's own ledger
 
 `pruneDone()` in `app.js` deletes any finished task older than `DONE_TTL` —
-seven days. So the store can never hand over more than a week, and everything
-past that is accrued natively by `MyADHD/DoneLedger.swift`, one day at a time,
-from the day this shipped. The header says **"Since Sat 11 Jul."** rather than
-drawing half a year of empty squares and letting them read as half a year of
-doing nothing.
+seven days — so the store's `tasks` can never hand over more than a week.
+Since 2026-09-18 it counts before it deletes: `state.doneCounts[dayKey]`
+goes up by one for each task it prunes, bounded at 400 days, and it syncs
+through `cloud.js` like the rest of the store. `TaskBridge` reads that map
+out of `myadhd.v1` beside `tasks`, and `MyADHD/DoneLedger.swift` merges it
+with the week of stamped tasks still in the store (and keeps its own copy
+bounded at the same 400, so a phone that has not opened the app in a while
+still has a history).
 
-It cannot be backfilled, and a fortnight away from the app leaves a real hole,
-because the days that would have filled it were pruned before anything looked.
-
-Two changes on the **web** side would fix it, and neither has been made,
-because changing the website is a decision about the website:
-
-1. Raise `DONE_TTL`. Cheapest, and it grows `state.tasks` without bound, which
-   is precisely what `pruneDone`'s own comment says it exists to stop.
-2. Have `pruneDone()` increment a `state.doneCounts[dayKey]` before it
-   deletes. Bounded at 365 small ints, survives forever, syncs through
-   `cloud.js` for free, about four lines. **This is the better one.**
-
-Until one of them happens the graph is honest but short, and that is the right
-way round.
+What it cannot do is reach back before the counting started. A phone whose
+store predates 2026-09-18 has a graph that begins there, and the header says
+**"Since Fri 18 Sep."** rather than drawing half a year of empty squares and
+letting them read as half a year of doing nothing.
 
 ### The one thing still to prove
 

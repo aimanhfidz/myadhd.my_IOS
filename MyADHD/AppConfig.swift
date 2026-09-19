@@ -3,8 +3,8 @@
 
    This project is a case around the web app, not a copy of it. Nothing
    here reimplements a feature: it opens https://myadhd.my/app, keeps the
-   parts of iOS a browser tab cannot reach (haptics, reminders, the share
-   sheet, a Shortcut), and gets out of the way.
+   parts of iOS a browser tab cannot reach (reminders, the share sheet, a
+   Shortcut, the widgets and the wallpaper), and gets out of the way.
 
    Which means every value in this file is a promise about the web app.
    If one of them drifts — the grounds in theme.css, the id of the dump
@@ -30,8 +30,9 @@ enum AppConfig {
        into a website that happens to share its name. The shell hides the
        buttons it knows about; this is what holds when a page adds one it
        does not. Compared with and without a .html suffix, because Vercel
-       serves both with cleanUrls on. */
-    static let inAppPaths: Set<String> = ["/app", "/soon", "/privacy", "/terms"]
+       serves both with cleanUrls on. The prefixes match a path segment:
+       /auth and /auth/anything, never /author. */
+    static let inAppPaths: Set<String> = ["/app", "/privacy", "/terms"]
     static let inAppPathPrefixes: [String] = ["/auth"]
 
     static let ownHosts: Set<String> = ["myadhd.my", "www.myadhd.my"]
@@ -57,34 +58,6 @@ enum AppConfig {
     /// a third copy was one target away, so it lives here now.
     static let storeKey = "myadhd.v1"
 
-    /* The curtain in front of the app, and the shell's way through it.
-
-       app.html carries an inline block in its <head> that sends everyone
-       to /soon before first paint. It lets two things past: a localhost
-       hostname, and a browser that has already been handed the key —
-       localStorage['myadhd.dev'] === '1', which ?dev=1 sets.
-
-       A WKWebView is neither. It is not localhost, it has never visited
-       with ?dev=1, and it loads a page whose very first script redirects
-       it — so without this the shell shows "The app is closed while we
-       rebuild it" and every widget stays on its empty state, because
-       there is no myadhd.v1 on /soon to read.
-
-       BridgeScript writes the key at .atDocumentStart, which runs after
-       the document element exists and before any of the page's own
-       markup is parsed. That is the only window where this works: the
-       gate is inline in <head> rather than in a file, deliberately, so
-       that it cannot fail open when the network does.
-
-       This is not a lock being picked. The test is in public JavaScript
-       and app.html says so in its own comment — it is a curtain, and the
-       shell is on the inside of it. An installed app showing its own
-       "we are closed" page is the curtain catching the wrong person.
-
-       DELETE THIS, and the block in BridgeScript that reads it, when
-       /soon comes down. app.html's comment lists the rest of that job. */
-    static let holdKey = "myadhd.dev"
-
     /// The iCloud link to the prebuilt wallpaper shortcut, which halves
     /// the setup from about eight taps to four. Nil until one is made:
     /// build it once on a device, Share → Copy iCloud Link, paste it here.
@@ -103,8 +76,23 @@ enum AppConfig {
     static let lightGround = UIColor(red: 1, green: 1, blue: 1, alpha: 1)
     static let darkGround  = UIColor(red: 16 / 255, green: 16 / 255, blue: 24 / 255, alpha: 1)
 
-    /// Appended to the default user agent, not swapped for it — the web app
-    /// still needs to look like Safari to everything that sniffs it.
+    /// --violet from theme.css, the logo capsule. The one colour the shell's
+    /// own chrome uses: the button on the no-signal screen and the tint of
+    /// a Safari sheet's controls. Not a ground — those are above.
+    static let accent = UIColor(red: 123 / 255, green: 63 / 255, blue: 228 / 255, alpha: 1)
+
+    /* The shell's name in the user agent. WKWebView puts this in the
+       application-name slot of the default UA (where Safari puts
+       "Mobile/15E148"), so the rest of the string still reads as Safari to
+       everything that sniffs it.
+
+       This is a promise about the web app, and the largest one in the file:
+       app.js tests /MyADHD-iOS\// on navigator.userAgent to decide it is
+       inside this shell (IN_SHELL), and the matrix — the four quadrants, the
+       toggle in the lists header, the "?" walkthrough BridgeScript builds on
+       it — exists only when that test passes. It came out of the web app on
+       2026-09-18 and came back the next day for the shell alone. Rename the
+       prefix and the matrix silently disappears from the app. */
     static var userAgentSuffix: String { "MyADHD-iOS/\(version)" }
 
     static var version: String {

@@ -322,9 +322,12 @@ struct TodayTimelineView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// Today's timed tasks within the six hours around now. `timed`, not
+    /// `tasks`: the snapshot also carries tomorrow, and tomorrow's nine
+    /// o'clock drawn on this morning's band is a meeting that is not there.
     private func nearby(_ snap: TaskSnapshot) -> [SnapTask] {
         let now = TimelineBand.minutesOfDay(entry.date)
-        return snap.tasks.filter { t in
+        return snap.timed.filter { t in
             guard let s = TimelineBand.minutes(of: t.at) else { return false }
             return s + t.minutes >= now - 60 && s <= now + 5 * 60
         }

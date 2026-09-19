@@ -48,7 +48,13 @@ enum OpDrain {
         let pending = OpQueue.peek()
         guard !pending.isEmpty else { done(); return }
 
-        let ids = pending.filter { $0.op.kind == .done }.map(\.op.id)
+        /* Only the ticks go to the page, and only the ticks are dropped
+           afterwards: `applied` counts what the page took from `ids`, so
+           the slice has to be taken from the same list, not from
+           `pending` — which is the same list today, and will not be the
+           day a second kind of op exists. */
+        let ticks = pending.filter { $0.op.kind == .done }
+        let ids = ticks.map(\.op.id)
         guard !ids.isEmpty,
               let payload = try? JSONSerialization.data(withJSONObject: ids),
               let list = String(data: payload, encoding: .utf8)
@@ -61,7 +67,7 @@ enum OpDrain {
                 done()
                 return
             }
-            OpQueue.drop(pending.prefix(applied).map(\.account))
+            OpQueue.drop(ticks.prefix(applied).map(\.account))
             done()
         }
     }
@@ -75,7 +81,14 @@ enum OpDrain {
        so nothing can save over us in between — JavaScript is single
        threaded, so there is no window. setItem is neutered first so a save
        already queued on a timer cannot fire during the few milliseconds
-       between asking for a reload and the navigation committing. */
+       between asking for a reload and the navigation committing.
+
+       The real setItem is captured BEFORE it is neutered, and the write
+       goes through the captured one. localStorage has no setItem of its
+       own — it inherits Storage.prototype's — so a call made after the
+       prototype has been replaced resolves to the no-op, writes nothing,
+       and the reload throws the edit away while the op is dropped as
+       applied. That was the shape of this for a while. */
     private static func script(ids: String) -> String {
         """
         (function (ids) {
@@ -100,8 +113,9 @@ enum OpDrain {
               }
             });
             if (!hit) { return ids.length; }
+            var write = Storage.prototype.setItem;
             Storage.prototype.setItem = function () {};
-            localStorage.setItem.call(localStorage, '\(AppConfig.storeKey)', JSON.stringify(s));
+            write.call(localStorage, '\(AppConfig.storeKey)', JSON.stringify(s));
             location.reload();
             return ids.length;
           } catch (e) { return 0; }

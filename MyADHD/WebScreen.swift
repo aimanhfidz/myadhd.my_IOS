@@ -307,15 +307,27 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
         if path.hasSuffix(".html") { path.removeLast(5) }
         if path.count > 1, path.hasSuffix("/") { path.removeLast() }
         if AppConfig.inAppPaths.contains(path) { return true }
-        return AppConfig.inAppPathPrefixes.contains { path.hasPrefix($0) }
+        /* A path segment, not a string prefix: /auth and /auth/callback,
+           not /author or /auth.js. */
+        return AppConfig.inAppPathPrefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
-    /// The backstop for a window.open the policy handler let through.
+    /// The backstop for a window.open the policy handler let through. The
+    /// same three-way call as the target="_blank" branch above: ours and in
+    /// the app continues here, ours and not stays put, everyone else's gets
+    /// the Safari sheet. Without the check this sent /app to Safari — the
+    /// app the person was already inside, opened again in a sheet over it.
     func webView(_ webView: WKWebView,
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let url = navigationAction.request.url { openOutside(url) }
+        if let url = navigationAction.request.url {
+            if isOurs(url) {
+                if Self.isInApp(url) { webView.load(URLRequest(url: url)) }
+            } else {
+                openOutside(url)
+            }
+        }
         return nil
     }
 
@@ -395,7 +407,12 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
 
         /* Only when there is nothing on screen. A dropped signal halfway
            through a session should not throw away the page the user is
-           already reading — the service worker will serve it from cache. */
+           already reading: the lists are in localStorage and the page is
+           already painted, so the only thing that has stopped working is
+           triage. (Not the service worker's doing — WKWebView runs service
+           workers only for app-bound domains, which this shell does not
+           declare, so the page is never precached here and a cold launch
+           with no signal lands on OfflineView. See its header.) */
         guard web.url == nil || !state.painted else { return }
         state.offline = true
         state.painted = true
@@ -447,7 +464,7 @@ final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptM
             return
         }
         let safari = SFSafariViewController(url: url)
-        safari.preferredControlTintColor = AppConfig.darkGround
+        safari.preferredControlTintColor = AppConfig.accent
         present(safari)
     }
 

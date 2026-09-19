@@ -20,31 +20,18 @@ enum BridgeScript {
     /* ---- at document start ----
        Defined before any of the app's own scripts run, so a page that wants
        to check whether it is inside the shell can do so at the top of its
-       first line. Nothing deployed does yet; this is the hook for when it
-       does — hiding the "add to home screen" prompt, mainly, which is a
-       nonsense to show inside an installed app. */
+       first line. The deployed page does not read this object: it decides
+       it is in the shell from the user agent instead (IN_SHELL in app.js,
+       matching AppConfig.userAgentSuffix), which needs nothing injected and
+       so cannot race the page's own scripts. This stays as the hook for
+       anything that wants to ask the shell rather than sniff it. */
     static var atStart: String {
         template
             .replacingOccurrences(of: "__VERSION__", with: AppConfig.version)
-            .replacingOccurrences(of: "__HOLDKEY__", with: AppConfig.holdKey)
     }
 
     private static let template = #"""
     (function () {
-      /* ---- past the curtain, before the page can draw it ----
-         This runs at .atDocumentStart: the document element exists, the
-         <head> has not been parsed, and app.html's hold has therefore not
-         had its chance to redirect yet. Writing the key here is the whole
-         fix — by the time the inline block reads it, it is already there.
-
-         Outside the return guard above on purpose. That guard exists so
-         the bridge is only built once, and this has to run on every
-         document, including one that has somehow already got a bridge.
-
-         Temporary. See AppConfig.holdKey for what to delete when the app
-         opens to everyone again. */
-      try { localStorage.setItem('__HOLDKEY__', '1'); } catch (e) { /* private mode, or no storage yet */ }
-
       if (window.MYADHD_NATIVE) return;
 
       function post(name, body) {
@@ -56,8 +43,6 @@ enum BridgeScript {
       window.MYADHD_NATIVE = {
         platform: 'ios',
         version: '__VERSION__',
-        /* 'light' | 'medium' | 'heavy' | 'success' | 'warning' | 'error',
-           and anything else is the selection tick. */
         /* Kept as a name so a page that calls it never throws; it does
            nothing. Haptics were removed from the shell on 2026-09-18. */
         haptic: function () {},
@@ -203,14 +188,14 @@ enum BridgeScript {
           '#screen-now .brand--sm,#screen-notes .brand--sm{margin-bottom:6px}' +
           '#screen-now .cat-bar{margin-bottom:12px}' +
 
-          /* ---- home: the stats and "Worth a look", gone ----
-             Five numbers about the list, and four links to the website —
-             the screener, the tools, the blog, the about page. The numbers
-             are on the tab-bar badge and every bucket's header; the links
-             are the marketing site, and the shell does not go there (see
-             AppConfig.inAppPaths). What is left on home is the box and
-             the next three things, which is what home is for. */
-          '#screen-home .stat-row,#home-discover{display:none}' +
+          /* ---- home: the stats, gone ----
+             Five numbers about the list; they are on the tab-bar badge and
+             every bucket's header already. (The "Worth a look" shelf of
+             links to the website used to be hidden here too. The web took
+             it out on 2026-09-18, so there is nothing left to hide.) What
+             is left on home is the box and the next three things, which is
+             what home is for. */
+          '#screen-home .stat-row{display:none}' +
 
           /* ---- the legal pages, as pages in the app ----
              privacy.html and terms.html open inside the shell. Their
@@ -352,9 +337,12 @@ enum BridgeScript {
           '.myadhd-calview button.is-on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(16,16,24,.10)}' +
           '.myadhd-cal-pane{display:none;flex-direction:column;min-height:0}' +
           '.myadhd-cal-pane.is-on{display:flex}' +
-          '#screen-calendar.myadhd-view-list #cal-months,#screen-calendar.myadhd-view-list #cal-tip,#screen-calendar.myadhd-view-list #cal-agenda,' +
-          '#screen-calendar.myadhd-view-day #cal-months,#screen-calendar.myadhd-view-day #cal-tip,#screen-calendar.myadhd-view-day #cal-agenda,#screen-calendar.myadhd-view-day #cal-undated,' +
-          '#screen-calendar.myadhd-view-week #cal-months,#screen-calendar.myadhd-view-week #cal-tip,#screen-calendar.myadhd-view-week #cal-agenda,#screen-calendar.myadhd-view-week #cal-undated{display:none}' +
+          /* The page's own month grid, agenda, "Back to today" and the
+             undated line all go when one of the three shell views is up;
+             the panes are drawn in their place. */
+          '#screen-calendar.myadhd-view-list #cal-months,#screen-calendar.myadhd-view-list #cal-today,#screen-calendar.myadhd-view-list #cal-agenda,' +
+          '#screen-calendar.myadhd-view-day #cal-months,#screen-calendar.myadhd-view-day #cal-today,#screen-calendar.myadhd-view-day #cal-agenda,#screen-calendar.myadhd-view-day #cal-undated,' +
+          '#screen-calendar.myadhd-view-week #cal-months,#screen-calendar.myadhd-view-week #cal-today,#screen-calendar.myadhd-view-week #cal-agenda,#screen-calendar.myadhd-view-week #cal-undated{display:none}' +
           /* the week strip: Mon to Sun of the picked week */
           '.myadhd-wk{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:2px 0 12px}' +
           '.myadhd-wk button{border:0;background:transparent;border-radius:14px;padding:8px 0 7px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink)}' +
@@ -400,8 +388,6 @@ enum BridgeScript {
           '.myadhd-anytime span{font-size:12px;padding:5px 10px;border-radius:999px;background:var(--wash);border:1px solid var(--line)}' +
           '.myadhd-anytime i{font-style:normal;font-size:11px;color:var(--muted);align-self:center}' +
           '.myadhd-cal-list .cal-group{margin-bottom:18px}' +
-          '#matrix.matrix{grid-template-rows:1fr 1fr;min-height:0}' +
-          '#matrix .quad{min-height:0;overflow-y:auto;overscroll-behavior:contain}' +
 
           /* ---- the matrix, as four cards rather than a list ----
              The site stacks the quadrants below 560px, and its own CSS
@@ -419,9 +405,19 @@ enum BridgeScript {
              of values.
 
              Everything is scoped under #matrix, which outranks every
-             class rule in styles.css, so this wins without !important. */
-          '#matrix.matrix{grid-template-columns:1fr 1fr;grid-auto-rows:1fr;align-items:stretch;gap:12px}' +
-          '#matrix .quad{position:relative;min-height:204px;border:0;border-left:0;border-radius:24px;padding:18px 16px 16px;gap:8px}' +
+             class rule in styles.css, so this wins without !important.
+
+             Height: two equal rows. When fitMatrix() below has pinned the
+             grid to the screen it also sets .myadhd-fit, and the cards
+             lose their floor so the rows can share whatever height there
+             is and scroll inside themselves. Unpinned — a viewport too
+             short to be worth it — the floor keeps an empty card the
+             size of a card. Both rules at once was the earlier bug: the
+             204px floor won on source order, the rows overflowed the
+             pinned height, and the bottom of Drop went under the tab bar. */
+          '#matrix.matrix{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;align-items:stretch;gap:12px;min-height:0}' +
+          '#matrix .quad{position:relative;min-height:204px;overflow-y:auto;overscroll-behavior:contain;border:0;border-left:0;border-radius:24px;padding:18px 16px 16px;gap:8px}' +
+          '#matrix.myadhd-fit .quad{min-height:0}' +
           /* The four quadrant hues, from the brand guidelines: red is
              --danger, purple is --violet, orange is --orange. There is no
              green in the guidelines at all, so Drop's is chosen to sit
@@ -459,11 +455,10 @@ enum BridgeScript {
           '#matrix .quad--drop .quad-empty{color:var(--q-drop)}' +
           /* Rows inside a quadrant: title and tick only. Two columns on a
              phone leave ~165px a card, and three lines of chips there is
-             the reason the site gave up and stacked them. */
-          '#matrix .quad .list-items{gap:8px}' +
-          /* Ink's rows: no card behind each task, a small ring in the
-             quadrant's own hue, and the title at reading size. A white
-             pill per row inside a tinted card was a card inside a card. */
+             the reason the site gave up and stacked them. Ink's rows: no
+             card behind each task, a small ring in the quadrant's own hue,
+             and the title at reading size. A white pill per row inside a
+             tinted card was a card inside a card. */
           '#matrix .quad .list-items{gap:1px}' +
           '#matrix .quad .task{padding:5px 0 5px 1px;gap:9px;border:0;border-radius:8px;background:transparent;align-items:center}' +
           '#matrix .quad .task-check{width:18px;height:18px;margin-top:0;border-width:1.5px}' +
@@ -549,7 +544,10 @@ enum BridgeScript {
         help.className = 'icon-btn myadhd-native-help';
         help.setAttribute('aria-label', 'How the matrix works');
         help.textContent = '?';
-        tools.insertBefore(help, view);
+        /* Before the toggle if the toggle is in this bar, at the end if the
+           page has moved it — insertBefore throws on a child of somewhere
+           else, and a throw here would take the rest of the bridge with it. */
+        if (view.parentNode === tools) tools.insertBefore(help, view); else tools.appendChild(help);
 
         var Q = { do: 'var(--q-do)', plan: 'var(--q-plan)', delegate: 'var(--q-delegate)', drop: 'var(--q-drop)' };
         var T = [
@@ -641,7 +639,7 @@ enum BridgeScript {
          Starts only in the outer 22px, so it cannot be mistaken for the
          swipe that ticks a task off; a mostly vertical move kills it so a
          scroll that began near the edge stays a scroll. */
-      (function () {
+      try { (function () {
         var app = document.getElementById('app');
         var EDGE = 22, DONE = 0.33, PARALLAX = 0.3, DIM = 0.16;
         /* Where "back" lands from each screen. Anything not here — the
@@ -656,7 +654,7 @@ enum BridgeScript {
              any of them was a tab bar with a hidden fifth way to use it. */
         };
 
-        var x0 = null, y0 = null, dead = false, armed = false, live = false;
+        var x0 = null, y0 = null, dead = false, armed = false, live = false, tried = false;
         var W = 0, layer = null, ghost = null, dim = null, current = null;
 
         function visible(el) { return !!(el && el.offsetParent !== null); }
@@ -727,6 +725,7 @@ enum BridgeScript {
           var done = false;
           function cleanup() {
             if (done) return; done = true;
+            app.removeEventListener('transitionend', onEnd);
             if (finish) press();
             /* The page has switched to the very screen the ghost was
                showing, so dropping the ghost and the transform in the same
@@ -736,7 +735,11 @@ enum BridgeScript {
             if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
             layer = ghost = dim = current = null; live = false;
           }
-          app.addEventListener('transitionend', cleanup, { once: true });
+          /* #app's own transform, not a descendant's: transitionend
+             bubbles, and a task row or a button finishing its 180ms
+             colour fade mid-slide would otherwise end the gesture early. */
+          function onEnd(e) { if (e.target === app) cleanup(); }
+          app.addEventListener('transitionend', onEnd);
           setTimeout(cleanup, 320);
         }
 
@@ -744,7 +747,7 @@ enum BridgeScript {
           if (live || e.touches.length !== 1) { x0 = null; return; }
           var t = e.touches[0];
           if (t.clientX > EDGE) { x0 = null; return; }
-          x0 = t.clientX; y0 = t.clientY; armed = false; dead = false;
+          x0 = t.clientX; y0 = t.clientY; armed = false; dead = false; tried = false;
         }, { passive: true, capture: true });
 
         document.addEventListener('touchmove', function (e) {
@@ -753,8 +756,13 @@ enum BridgeScript {
           if (!live) {
             if (dy > 40 && dx < 30) { dead = true; return; }
             if (dx < 12) return;
-            live = begin();
-            if (!live) { dead = !(dx >= 70); if (dx >= 70) { armed = true; } return; }
+            /* begin() clones #app, so it is asked once per touch. */
+            if (!tried) { tried = true; live = begin(); }
+            /* No slide for this screen: a plain press on release, once
+               the finger has come 70px. Arm and wait — do not kill the
+               gesture on the first move, which arrives at 12-35px and
+               used to mark it dead before it could ever get there. */
+            if (!live) { armed = dx >= 70; return; }
           }
           var p = Math.max(0, Math.min(1, dx / W));
           paint(p);
@@ -771,7 +779,7 @@ enum BridgeScript {
         }
         document.addEventListener('touchend', end, { passive: true, capture: true });
         document.addEventListener('touchcancel', end, { passive: true, capture: true });
-      })();
+      })(); } catch (e) { /* the swipe is a nicety; the bridge below is not */ }
 
       /* ---- the calendar's other three views ----
          The page draws a month and an agenda for the picked day, and
@@ -785,7 +793,7 @@ enum BridgeScript {
          agenda, which it does on every change. The chosen view is
          remembered under its own key: it is the shell's preference, not
          the page's data. */
-      (function () {
+      try { (function () {
         var screen = document.getElementById('screen-calendar');
         var header = screen && screen.querySelector('header.brand');
         /* The calendar's header is the one with no .brand-tools — its
@@ -801,7 +809,14 @@ enum BridgeScript {
         var anchor = document.getElementById('cal-months');
         var agenda = document.getElementById('cal-agenda');
         if (!screen || !tools || !wrap || !anchor || !agenda) return;
-        if (typeof tasksOn !== 'function' || typeof agendaGroup !== 'function' || typeof dayKey !== 'function') return;
+        /* Every page global this module reaches for, checked up front. A
+           rename on the web side then costs the three views, quietly,
+           rather than throwing partway through and taking the rest of the
+           bridge with it. */
+        if (typeof tasksOn !== 'function' || typeof agendaGroup !== 'function' || typeof dayKey !== 'function' ||
+            typeof addDays !== 'function' || typeof keyToDate !== 'function' || typeof dayLabel !== 'function' ||
+            typeof timeLabel !== 'function' || typeof overdueTasks !== 'function' || typeof renderCalendar !== 'function' ||
+            typeof DAY_NAMES === 'undefined' || typeof state === 'undefined' || typeof calPicked === 'undefined') return;
 
         var KEY = 'myadhd.ios.calView', HH = 56, HHW = 40;
         var VIEWS = ['list', 'day', 'week', 'month'];
@@ -847,7 +862,14 @@ enum BridgeScript {
         }
         function mins(at) { if (!at) return null; var p = at.split(':').map(Number); return p[0] * 60 + p[1]; }
         function pick(key) {
-          try { calPicked = key; if (typeof renderCalendar === 'function') renderCalendar(); } catch (e) {}
+          try {
+            calPicked = key;
+            /* The month grid follows the picked day the way the page's
+               own taps move it: a swipe across a month boundary in Day or
+               Week used to leave Month showing the old month. */
+            if (typeof calCursor !== 'undefined') calCursor = keyToDate(key.slice(0, 8) + '01');
+            renderCalendar();
+          } catch (e) {}
         }
 
         function weekStrip(base) {
@@ -1064,7 +1086,7 @@ enum BridgeScript {
         new MutationObserver(function () { requestAnimationFrame(render); }).observe(screen, { attributes: true, attributeFilter: ['class'] });
         setInterval(function () { if (view === 'day' || view === 'week') render(); }, 60000);
         setView(view);
-      })();
+      })(); } catch (e) { /* the page's own month and agenda are untouched */ }
 
       /* ---- pull to refresh ----
          Driven from the shell: a native pan recogniser calls
@@ -1074,7 +1096,7 @@ enum BridgeScript {
          quiet. Everything visible still happens here — the strip under
          the header, the mark, the refresh — and it only happens when the
          page is resting at the top and a tab screen is showing. */
-      (function () {
+      try { (function () {
         var app = document.getElementById('app');
         if (!app) return;
         var slot = null, pulling = false, loading = false, armed = false, ignore = false;
@@ -1150,7 +1172,7 @@ enum BridgeScript {
         }
 
         window.__myadhdPull = { move: move, end: end };
-      })();
+      })(); } catch (e) { /* WebScreen guards on window.__myadhdPull before calling it */ }
 
       /* ---- the legal pages get a way back ---- */
       try {
@@ -1168,22 +1190,41 @@ enum BridgeScript {
       /* ---- fitMatrix: the 2x2 as tall as the screen allows ----
          Runs whenever the lists screen or the matrix changes state, and on
          resize. The matrix is rebuilt by innerHTML on every paint but the
-         #matrix container itself survives, so a height set on it holds. */
-      (function () {
+         #matrix container itself survives, so a height set on it holds.
+
+         The measurement is taken as if the page were scrolled to the top:
+         #app is the scroller, so getBoundingClientRect().top alone is
+         smaller by however far the page has scrolled, and a repaint after
+         a tick — which fires this — would then pin the grid taller than
+         the screen by that much. The height changes the scroll extent,
+         which changes the next measurement, and it walked.
+
+         .myadhd-fit says the height is pinned; the cards drop their
+         min-height under it so the two rows can share the space (see the
+         matrix CSS above). Toggled only on change — the observer below
+         watches class, and a write of the same value is still a mutation. */
+      try { (function () {
         var matrix = document.getElementById('matrix');
         var screen = document.getElementById('screen-now');
         var tabbar = document.getElementById('tabbar');
+        var app = document.getElementById('app');
         if (!matrix || !screen) return;
+
+        function mark(on) {
+          if (matrix.classList.contains('myadhd-fit') !== on) matrix.classList.toggle('myadhd-fit', on);
+        }
 
         function fit() {
           if (matrix.classList.contains('is-hidden') || screen.classList.contains('is-hidden')) {
-            matrix.style.height = ''; return;
+            matrix.style.height = ''; mark(false); return;
           }
-          var top = matrix.getBoundingClientRect().top;
+          var top = matrix.getBoundingClientRect().top + (app ? app.scrollTop : 0);
           var bar = tabbar && !tabbar.classList.contains('is-hidden')
             ? (window.innerHeight - tabbar.getBoundingClientRect().top) : 0;
           var h = window.innerHeight - top - bar - 10;
-          matrix.style.height = h > 240 ? h + 'px' : '';
+          var pin = h > 240;
+          matrix.style.height = pin ? h + 'px' : '';
+          mark(pin);
         }
 
         var kick = function () { requestAnimationFrame(fit); };
@@ -1191,7 +1232,7 @@ enum BridgeScript {
         new MutationObserver(kick).observe(screen, { attributes: true, attributeFilter: ['class'] });
         new MutationObserver(kick).observe(matrix, { attributes: true, attributeFilter: ['class'], childList: true });
         kick();
-      })();
+      })(); } catch (e) { /* the page's own stacked matrix still works */ }
 
       post('ready', {});
     })();

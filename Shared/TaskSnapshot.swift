@@ -66,15 +66,28 @@ struct SnapTask: Codable, Identifiable, Equatable {
 /* "YYYY-MM-DD" in the device's own zone, which is what app.js writes and
    what every `when` here is. Local days, never ISO8601 with a Z on it —
    a task dated today in Kuala Lumpur is dated yesterday in UTC for most of
-   the working day, and that is the whole bug this format avoids. */
+   the working day, and that is the whole bug this format avoids.
+
+   Gregorian, always. app.js writes getFullYear()/getMonth()/getDate(),
+   which is the proleptic Gregorian calendar whatever the phone is set to.
+   Calendar.current is not: a device on the Japanese, Buddhist or Hijri
+   calendar reports year 8, 2569 or 1448, and a key built from that never
+   matches a key the page wrote — every tile goes blank and every reminder
+   is scheduled centuries off. The zone is still the device's own. */
 enum DayKey {
 
-    static func of(_ date: Date, _ calendar: Calendar = .current) -> String {
+    static let calendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = .current
+        return c
+    }()
+
+    static func of(_ date: Date, _ calendar: Calendar = DayKey.calendar) -> String {
         let p = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", p.year ?? 0, p.month ?? 0, p.day ?? 0)
     }
 
-    static func date(_ key: String, _ calendar: Calendar = .current) -> Date? {
+    static func date(_ key: String, _ calendar: Calendar = DayKey.calendar) -> Date? {
         let parts = key.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
         var c = DateComponents()
@@ -82,7 +95,7 @@ enum DayKey {
         return calendar.date(from: c)
     }
 
-    static func adding(_ days: Int, to key: String, _ calendar: Calendar = .current) -> String {
+    static func adding(_ days: Int, to key: String, _ calendar: Calendar = DayKey.calendar) -> String {
         guard let d = date(key, calendar),
               let moved = calendar.date(byAdding: .day, value: days, to: d)
         else { return key }
@@ -90,7 +103,7 @@ enum DayKey {
     }
 
     /// Whole days from `a` to `b`, or nil if either is not a day key.
-    static func between(_ a: String, _ b: String, _ calendar: Calendar = .current) -> Int? {
+    static func between(_ a: String, _ b: String, _ calendar: Calendar = DayKey.calendar) -> Int? {
         guard let da = date(a, calendar), let db = date(b, calendar) else { return nil }
         return calendar.dateComponents([.day], from: da, to: db).day
     }
@@ -111,14 +124,14 @@ enum DayKey {
 
     /// "Today", "Tomorrow", "Mon 9 Mar" — relative where that reads faster.
     /// dayLabel() in app.js, including the year only when it is not this one.
-    static func dayLabel(_ key: String, today: String, _ calendar: Calendar = .current) -> String {
+    static func dayLabel(_ key: String, today: String, _ calendar: Calendar = DayKey.calendar) -> String {
         if key == today { return "Today" }
         if key == adding(1, to: today, calendar) { return "Tomorrow" }
         if key == adding(-1, to: today, calendar) { return "Yesterday" }
         guard let d = date(key, calendar) else { return key }
         let p = calendar.dateComponents([.year, .month, .day, .weekday], from: d)
-        let name = String(dayNames[(p.weekday ?? 1) - 1].prefix(3))
-        let month = String(monthNames[(p.month ?? 1) - 1].prefix(3))
+        let name = String(dayNames[max(0, min(6, (p.weekday ?? 1) - 1))].prefix(3))
+        let month = String(monthNames[max(0, min(11, (p.month ?? 1) - 1))].prefix(3))
         let thisYear = date(today, calendar).map { calendar.component(.year, from: $0) }
         let year = p.year == thisYear ? "" : " \(p.year ?? 0)"
         return "\(name) \(p.day ?? 0) \(month)\(year)"
@@ -135,7 +148,7 @@ enum DayKey {
 
     /// "18 Sep, Friday" — the date line the Today Timeline tile already
     /// uses, so the two agree.
-    static func longLabel(_ key: String, _ calendar: Calendar = .current) -> String {
+    static func longLabel(_ key: String, _ calendar: Calendar = DayKey.calendar) -> String {
         guard let d = date(key, calendar) else { return key }
         let f = DateFormatter()
         f.calendar = calendar
@@ -236,9 +249,18 @@ struct TaskSnapshot: Codable, Equatable {
     // MARK: the next thing
 
     /* The whole product in one line. Five bands, in the order the day
-       presses on you, and it is paintToday()'s rule from app.js rather
-       than a second opinion about it: anything late, then anything dated
-       today in clock order, then whatever is simply open.
+       presses on you, and for the top of the list it is paintToday()'s
+       rule from app.js rather than a second opinion about it: anything
+       late, then anything dated today in clock order, then whatever is
+       simply open.
+
+       The tail differs, knowingly. paintToday() sorts its open tasks by
+       dueAt(), where an undated task is Infinity — so the web puts
+       tomorrow's dated things ahead of undated ones. Band 3 here is the
+       undated and band 4 is tomorrow, the other way round: on a tile with
+       nothing today, "the thing with no day" is a better NEXT than "the
+       thing that is not until tomorrow", which the tile would otherwise
+       claim was now. It only shows when today is empty.
 
        A time that has already gone is deliberately NOT demoted. Nine
        o'clock at half past ten is the thing you have not done yet, and

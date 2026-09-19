@@ -45,9 +45,4 @@ final class ShellState: ObservableObject {
     var ground: Color {
         Color(theme == "dark" ? AppConfig.darkGround : AppConfig.lightGround)
     }
-
-    /// The status bar has to be readable against whichever ground is up.
-    var statusBarScheme: ColorScheme {
-        theme == "dark" ? .dark : .light
-    }
 }

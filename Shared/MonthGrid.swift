@@ -34,7 +34,7 @@ struct MonthGrid: View {
     /// past). What the medium tile needs when the grid has half a tile.
     var compact: Bool = false
 
-    private let calendar = Calendar.current
+    private let calendar = DayKey.calendar
 
     @Environment(\.colorScheme) private var scheme
 

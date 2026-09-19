@@ -38,7 +38,13 @@ struct WallpaperIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<IntentFile> {
-        guard let snapshot = TaskStore.read() else { throw WallpaperError.noData }
+        /* The same read as every tile: the snapshot the app last wrote,
+           with anything ticked on a widget since laid over it. Without the
+           overlay a task ticked at ten last night is still "NEXT" on the
+           seven o'clock lock screen, because the app has not been opened
+           to drain the tick yet. */
+        guard let snapshot = TaskStore.read()?.applying(OpQueue.peek().map(\.op))
+        else { throw WallpaperError.noData }
         let url = try Wallpaper.render(snapshot)
         return .result(value: IntentFile(fileURL: url, filename: "myadhd-lock.png", type: .png))
     }

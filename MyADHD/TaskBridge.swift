@@ -92,7 +92,7 @@ enum TaskBridge {
 
     private static func build(from raw: [[String: Any]], root: [String: Any]) -> TaskSnapshot {
         let today = dayKey(Date())
-        let horizon = dayKey(Calendar.current.date(byAdding: .day, value: daysAhead, to: Date()) ?? Date())
+        let horizon = dayKey(DayKey.calendar.date(byAdding: .day, value: daysAhead, to: Date()) ?? Date())
 
         var kept: [SnapTask] = []
 
