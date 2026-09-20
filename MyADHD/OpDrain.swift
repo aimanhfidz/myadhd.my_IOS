@@ -1,32 +1,37 @@
 /* ============================================================
    my.adhd for iOS — landing the widget's ticks in the real store
 
-   The other half of Shared/OpQueue.swift. A widget cannot reach the web
-   view, so a tick taken on a tile is a note in the keychain until the app
-   is next in front of somebody. This is where it lands.
+   The other half of Shared/OpQueue.swift. A widget cannot reach the app's
+   memory, so a tick taken on a tile is a note in the keychain until the
+   app is next in front of somebody. This is where it lands.
 
-   It lands by calling the page's own markDone(), not by editing
-   localStorage behind its back. app.js is a classic script with no module
-   wrapper, so every top-level function is on `window` and markDone is
-   reachable from an injected call — which is one of the two
-   routes CLAUDE.md allows, and requires nothing on the web side to change.
+   There are two routes in this file and they are not equals.
 
-   Going through markDone rather than the store is not a shortcut, it is
-   the point. markDone stamps doneAt (which pruneDone ages on and the Done
-   graph counts), calls save() — which is cloud.stamp() for conflict
-   resolution, persistOnly(), syncSoon() for Google Calendar and
-   cloud.soon() — and offers the same Undo the app offers. Reimplementing
-   that against localStorage would get four of those five wrong, and the
-   live page would overwrite the fifth on its next save.
+   THE NATIVE ROUTE, below, is the one that counts. It hands each queued
+   id to `AppStore.markDone`, which is the same call the row's own
+   checkbox makes — so a tick taken on the home screen and a tick taken
+   in the app are the same event, written by the same writer, with the
+   same follow-on effects. That is not a shortcut, it is the point:
+   markDone stamps `doneAt` (which `pruneDone()` ages on and the Done
+   graph counts) and then calls `save()`, which is the cloud stamp, the
+   write, the Google Calendar debounce and the Supabase debounce. Editing
+   the document from here instead would get four of those five wrong.
 
-   Two things are load-bearing and easy to undo by accident:
+   THE WEB ROUTE at the bottom is the shell's, and it is deleted at the
+   cutover together with WebScreen and BridgeScript. Nothing new should
+   be added to it. It is kept only so the app still builds and still
+   works while the native screens are being written beside it.
 
-   - markDone's `after` parameter defaults to goToNext, which would yank
-     the user to another screen for something they did an hour ago on the
-     home screen. It is passed an empty function on purpose.
+   Two things are load-bearing in both routes and easy to undo by
+   accident:
 
-   - Nothing is deleted from the queue until the page says it took it.
-     No page, no answer, an error — the ops stay and are tried again.
+   - Nothing is deleted from the queue until the store says it took it.
+     No store, no answer, an error — the ops stay and are tried again.
+
+   - `applied` counts what was taken from `ticks`, so the slice that gets
+     dropped has to come from the same list, not from `pending` — which
+     is the same list today, and will not be the day a second kind of op
+     exists.
    ============================================================ */
 
 import Foundation
@@ -37,7 +42,53 @@ enum OpDrain {
     /// Ops older than this are not going to land: the task they name has
     /// very likely been pruned, and re-ticking something finished on
     /// Tuesday is worse than forgetting it.
-    private static let staleAfter: TimeInterval = 48 * 60 * 60
+    static let staleAfter: TimeInterval = 48 * 60 * 60
+
+    // MARK: - the native route
+
+    /// Applies what the widget queued straight to the store, and says how
+    /// many landed.
+    ///
+    /// Ticks only, and only the accounts that actually applied are
+    /// dropped. An op naming a task that is no longer on the store — it
+    /// was removed, or `pruneDone()` aged it out while the tile still
+    /// showed it — did not apply and is left in the queue, where the
+    /// 48-hour sweep above takes it. That is the honest outcome: the tile
+    /// un-ticks at the next refresh rather than the app pretending it
+    /// wrote something.
+    ///
+    /// An op for a task that is already done applies and is dropped —
+    /// `markDone` is idempotent on the store and the row is in the state
+    /// the tile said it was.
+    ///
+    /// Synchronous on purpose. `StoreBridge` runs this BEFORE it pushes
+    /// the snapshot out on `didBecomeActive`, so a widget tick and the
+    /// snapshot that agrees with it land in one pass; a callback here
+    /// would put the two in different turns of the run loop and the tile
+    /// would un-tick for a frame.
+    @MainActor
+    @discardableResult
+    static func drain(into store: AppStore) -> Int {
+        OpQueue.sweep(olderThan: staleAfter)
+
+        let ticks = OpQueue.peek().filter { $0.op.kind == .done }
+        guard !ticks.isEmpty else { return 0 }
+
+        var landed: [String] = []
+        for tick in ticks {
+            /* One save() per tick, which is what the web does too — every
+               markDone is its own save. The file write coalesces them and
+               StoreBridge's debounce coalesces the snapshot, so three
+               ticks taken on a tile cost one of each. */
+            guard store.markDone(tick.op.id) else { continue }
+            landed.append(tick.account)
+        }
+
+        OpQueue.drop(landed)
+        return landed.count
+    }
+
+    // MARK: - the web route (deleted at the cutover, with WebScreen)
 
     /// Applies what the widget queued and then calls back, whatever
     /// happened. There is no reload to arrange here: markDone repaints the
@@ -49,10 +100,16 @@ enum OpDrain {
         guard !pending.isEmpty else { done(); return }
 
         /* Only the ticks go to the page, and only the ticks are dropped
-           afterwards: `applied` counts what the page took from `ids`, so
-           the slice has to be taken from the same list, not from
-           `pending` — which is the same list today, and will not be the
-           day a second kind of op exists. */
+           afterwards — see the note in the header about `applied` and
+           which list the slice comes from.
+
+           It lands by calling the page's own markDone(), not by editing
+           localStorage behind its back. app.js is a classic script with no
+           module wrapper, so every top-level function is on `window`.
+           markDone's `after` parameter defaults to goToNext, which would
+           yank the user to another screen for something they did an hour
+           ago on the home screen; it is passed an empty function on
+           purpose. */
         let ticks = pending.filter { $0.op.kind == .done }
         let ids = ticks.map(\.op.id)
         guard !ids.isEmpty,

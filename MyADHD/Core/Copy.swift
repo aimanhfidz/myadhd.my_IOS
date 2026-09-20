@@ -1,0 +1,397 @@
+/* ============================================================
+   Copy — every user-facing string the core loop draws
+
+   Copy is the product. Nothing here is a paraphrase: each constant
+   was grepped out of app.js or app.html and pasted, em-dashes,
+   ellipses, capitalisation and full stops included. The trailing
+   comment on each one names the file and line it came from.
+
+   Checks/copy.sh greps every literal in this file back against
+   app.js, app.html and MyADHD/BridgeScript.swift and fails naming
+   any that is not found, so a paraphrase cannot land quietly.
+   Because of that:
+
+   - No comment in this file contains a double-quote character. The
+     extractor in copy.sh pulls every quoted run out of the source
+     and a quote in prose would hand it a fragment of a sentence.
+   - Where the web builds a line out of parts, this file reproduces
+     the construction as a function rather than flattening it, so
+     each literal fragment still greps.
+   ============================================================ */
+
+import Foundation
+
+enum Copy {
+
+    /// The separator between the parts of a meta line. app.js writes it
+    /// inline in half a dozen template strings; one constant here so the
+    /// spacing cannot drift between them.
+    static let metaSeparator = " · "   // app.js:1258-1260, 748, 4221
+
+    // MARK: - Tab bar (app.html:1058-1076; app.js:426-473)
+
+    enum Tabs {
+        static let navAria = "Sections"            // app.html:1058
+        static let home = "Home"                   // app.html:1059
+        static let calendar = "Calendar"           // app.html:1062
+        static let add = "Add to your lists"       // app.html:1066
+        static let lists = "My lists"              // app.html:1069
+        static let notes = "Notes"                 // app.html:1073
+
+        /// Both marks cap their number the same way.
+        static let badgeCap = "99+"                // app.js:456, 470
+
+        /// The lists mark: a plain dot while nothing is late, and a count
+        /// the moment something is — how many you have missed is worth a
+        /// number where merely having tasks is not. Empty string means the
+        /// dot, exactly as app.js:454 leaves textContent empty.
+        static func listsMark(late: Int) -> String {
+            guard late > 0 else { return "" }
+            return late > 99 ? badgeCap : String(late)
+        }                                          // app.js:456
+
+        /// The calendar badge always carries its count.
+        static func calendarBadge(dated: Int) -> String {
+            dated > 99 ? badgeCap : String(dated)
+        }                                              // app.js:470
+    }
+
+    /// The native titles the shell already puts on the four tab screens,
+    /// in place of the wordmark. Kept so the rebuild lands on the same
+    /// words the current build shows.
+    enum ScreenTitle {
+        static let home = "Home"          // BridgeScript.swift:143
+        static let calendar = "Calendar"  // BridgeScript.swift:144
+        static let lists = "Lists"        // BridgeScript.swift:145
+        static let notes = "Notes"        // BridgeScript.swift:146
+    }
+
+    // MARK: - Theme toggle (app.html:216; theme.js paint)
+
+    enum Theme {
+        static let toDark = "Switch to dark mode"    // app.html:216, theme.js:29
+        static let toLight = "Switch to light mode"  // theme.js:29
+    }
+
+    // MARK: - Home (app.html:199-291; app.js:4131-4247)
+
+    enum Home {
+        static let brandAria = "my.adhd home"   // app.html:201
+        static let settingsAria = "Settings"    // app.html:213
+
+        // the cold start (app.html:241-256)
+        static let welcomeAlt = "Morpheus, from The Matrix: what if I told you my ADHD thoughts have a group chat and everyone's typing."   // app.html:244
+        static let headline = "What's on your mind?"   // app.html:247
+        static let startHint = "Everything gets sorted into lists. Nothing is thrown away."   // app.html:248-249
+        static let startButton = "Clear my head"       // app.html:252
+
+        // the Today card (app.html:266-275; app.js:4189-4201)
+        static let todayToday = "Next up"       // app.js:4193 fallback, app.html:270
+        static let todayNow = "Today"           // app.js:4193
+        static let more = "All lists"           // app.html:271
+        static let empty = "Head's clear. Nothing waiting."   // app.html:274
+
+        /// The heading carries the bad news, because it is the line that
+        /// gets read whether or not the rows below it do.
+        static func todayTitle(late: Int, today: Int) -> String {
+            if late > 0 { return late == 1 ? "1 late" : "\(late) late" }   // app.js:4191
+            return today > 0 ? todayNow : todayToday                        // app.js:4193
+        }
+
+        /// RAW minutes, not minutesLabel: a 90-minute task reads 90 min
+        /// here and 1.5 hr on the lists, and that difference is app.js's.
+        static func rowMeta(when: String?, minutes: Int) -> String {
+            [when, "\(minutes) min"]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: metaSeparator)
+        }                                        // app.js:4221
+
+        // the five numbers (app.html:280-287)
+        static let statOpen = "on your lists"       // app.html:281
+        static let statDone = "done"                // app.html:282
+        static let statLists = "lists"              // app.html:283
+        static let statDated = "on the calendar"    // app.html:284
+        static let statOverdue = "overdue"          // app.html:286
+    }
+
+    // MARK: - Loading (app.html:292-301; app.js:508-534)
+
+    enum Loading {
+        /// Advanced every 1900 ms, wrapping. The first is also what
+        /// app.html ships in the markup.
+        static let lines = [
+            "Untangling that…",                     // app.js:509
+            "Sorting the noise from the signal…",   // app.js:510
+            "Finding the one that matters…",        // app.js:511
+            "Sizing everything up…",                // app.js:512
+        ]
+    }
+
+    // MARK: - Composer (app.html:1084-1127; app.js:1875-2246)
+
+    enum Composer {
+        static let cancel = "Cancel"                            // app.html:1090
+        static let title = "New dump"                           // app.html:1091
+        static let post = "Sort it"                             // app.html:1092
+        static let placeholder = "just tell me, i'll sort it out."   // app.html:1100
+        static let datesLabel = "Heading for the calendar"      // app.html:1102
+        static let micSR = "Hold to talk"                       // app.html:1122
+
+        /// profile.name || you
+        static let youFallback = "you"                          // app.js:1908, app.html:1098
+
+        /// The overflow chip on the typing date preview.
+        static func moreChips(_ n: Int) -> String { "+\(n) more" }   // app.js:5054
+    }
+
+    // MARK: - Hold-to-talk (app.js:5280-5481)
+
+    enum Mic {
+        static let rest = "hold to talk"                        // app.js:5298
+        static let opening = "opening the mic…"                 // app.js:5348
+        static let listening = "listening… let go when done"    // app.js:5356
+        static let warn = "nearly at the limit — wrap it up"    // app.js:5375
+        static let tooQuick = "hold it down while you talk"     // app.js:5405
+        static let writing = "writing it down…"                 // app.js:5415
+        static let neverOpened = "the mic never opened"         // app.js:5438
+        static let nothingHeard = "didn't catch anything that time"   // app.js:5441
+
+        static let cappedToast = "That was the limit — got what you said so far."   // app.js:5382
+        static let deniedToast = "no mic access — allow it in your browser settings"   // app.js:5388
+        static let failedToast = "couldn't start the mic, try again"   // app.js:5389
+        static let noPermissionToast = "Your browser did not let us open the mic — check its site permissions."   // app.js:5439
+        static let roughToast = "Couldn't reach the transcriber — that's the rough version."   // app.js:5452
+    }
+
+    // MARK: - Triage (app.js:559-634)
+
+    enum Triage {
+        static let nothingToSort = "Give me something to work with."     // app.js:563
+        static let offline = "Offline mode — sorted these myself."       // app.js:577
+        static let nothingFound = "Couldn't find any tasks in there."    // app.js:583
+
+        /// Dedupe is against OPEN titles only, and never within one dump.
+        static func result(added: Int, dupes: Int) -> String? {
+            if dupes == 1 { return "Added — one was already on a list." }   // app.js:610
+            if dupes > 1 { return "Added — \(dupes) were already on a list." }   // app.js:611
+            if added > 0 { return "Added \(added) to your lists." }         // app.js:613
+            return nil
+        }
+    }
+
+    // MARK: - Lists screen (app.html:306-398; app.js:1221-1657)
+
+    enum Lists {
+        static let eyebrowPlain = "Sorted into lists."      // app.js:1244, app.html:336
+        static func eyebrow(name: String) -> String { "Sorted, \(name)." }   // app.js:1243
+
+        /// N things · N lists · about 1.5 hr all in
+        ///
+        /// The words are hoisted out of the interpolations on purpose:
+        /// Checks/copy.sh splits a literal on its interpolations, and a
+        /// nested string literal inside one would hand it half a sentence.
+        static func summary(open: Int, lists: Int, totalMinutes: Int) -> String {
+            let thingWord = open == 1 ? "thing" : "things"
+            let listWord = lists == 1 ? "list" : "lists"
+            let spent = WebDates.minutesLabel(totalMinutes)
+            return "\(open) \(thingWord)"
+                + metaSeparator
+                + "\(lists) \(listWord)"
+                + metaSeparator
+                + "about \(spent) all in"
+        }                                                   // app.js:1258-1261
+
+        // the view toggle names the view you are NOT in (app.js:1301-1309)
+        static let viewToMatrix = "Matrix"                  // app.js:1303, app.html:326
+        static let viewToList = "List"                      // app.js:1303
+        static let viewAriaToMatrix = "Show the matrix"     // app.js:1306
+        static let viewAriaToList = "Show the lists"        // app.js:1307
+
+        static let catBarAria = "Filter by list"            // app.html:363
+        static let catAll = "All"                           // app.js:1396
+
+        // the empty state (app.html:393-396)
+        static let clearedStrong = "Head's clear."                 // app.html:394
+        static let clearedRest = "Nothing left in the queue."      // app.html:394
+        static let dumpAgain = "Dump again"                        // app.html:395
+    }
+
+    // MARK: - The offline note and re-sorting (app.html:339-341; app.js:1659-1748)
+
+    enum OfflineNote {
+        /// N was / N were sorted offline — …
+        static func word(_ n: Int) -> String { n == 1 ? "was" : "were" }   // app.js:1253
+        static let body = "sorted offline — the times and lists are rough guesses, not the real analysis."   // app.html:340
+
+        static let resort = "Sort these properly"       // app.html:341, app.js:1698
+        static let resorting = "Sorting…"               // app.js:1666
+        static let resorted = "Sorted properly."        // app.js:1683
+
+        /// Kept the offline reading and stopped calling it provisional.
+        static func settled(_ n: Int) -> String {
+            n == 1
+                ? "Kept as it was — the sorter had nothing to add."      // app.js:1711
+                : "Kept as they were — the sorter had nothing to add."   // app.js:1712
+        }
+
+        // resortProblem() says which way it failed (app.js:1742-1748)
+        static let problemOffline = "Still offline — no connection."          // app.js:1744
+        static func problemStatus(_ status: String) -> String {
+            "The sorter answered \(status). Try again in a moment."
+        }                                                                     // app.js:1746
+        static let problemUnreachable = "Cannot reach the backend from here." // app.js:1747
+        static let problemEmpty = "The sorter sent nothing back. Try again."  // app.js:1748
+    }
+
+    // MARK: - The signup offer (app.html:349-357)
+
+    enum Signup {
+        static let dismissAria = "No thanks"                            // app.html:350
+        static let title = "Keep these on your other devices?"          // app.html:351
+        static let body = "Right now this list lives in this browser only — clear your history and it is gone, and your phone and laptop each keep their own separate copy. Signing in gives you one list everywhere, and puts your dated tasks in Google Calendar without asking again."   // app.html:352-355
+        static let button = "Sign in with Google"                       // app.html:356
+    }
+
+    // MARK: - A task row (app.js:1427-1552, 1752-1872)
+
+    enum TaskRow {
+        static func checkAria(title: String) -> String { "Mark \"\(title)\" done" }   // app.js:1437
+        static func energyChip(_ energy: String) -> String { "\(energy) energy" }     // app.js:1457
+        static let urgentChip = "urgent"                        // app.js:1473
+
+        static let firstStepLabel = "Start here — 2 minutes"    // app.js:1487
+        static let stepsLabel = "Broken down"                   // app.js:1497
+
+        static let breakDown = "Too big — break it down"        // app.js:1504, 1869
+        static let breakingDown = "Breaking it down…"           // app.js:1848
+        static let brokenDown = "Broken down ✓"                 // app.js:1865
+        static let breakDownFailed = "Needs the AI backend for this one."   // app.js:1870
+
+        static let edit = "Edit"                                // app.js:1520
+        static let remove = "Remove"                            // app.js:1526
+        static let editAria = "Edit this task"                  // app.js:1762
+        static let reworded = "Reworded."                       // app.js:1777
+        static let removed = "Removed."                         // app.js:1805
+        static let done = "Done."                               // app.js:1832
+        static let undo = "Undo"                                // app.js:1591, 1806, 1833
+    }
+
+    // MARK: - Bucket headings (app.js:1128-1133)
+
+    /// Four headings, in the order the day presses on you. Only the ones
+    /// with something under them are drawn.
+    enum Buckets {
+        static let order = ["late", "today", "soon", "someday"]
+
+        static func label(_ key: String) -> String {
+            switch key {
+            case "late":    return "Late"          // app.js:1129
+            case "today":   return "Today"         // app.js:1130
+            case "soon":    return "Coming up"     // app.js:1131
+            case "someday": return "No date yet"   // app.js:1132
+            default:        return key
+            }
+        }
+    }
+
+    // MARK: - Quadrant headings (app.js:1169-1174, 1361, 1371, 2856-2857)
+
+    /// All four are always drawn: a 2x2 with a hole in it stops being a
+    /// 2x2, and an empty Do now is worth seeing.
+    enum Quadrants {
+        static let order = ["do", "plan", "delegate", "drop"]
+
+        static func label(_ key: String) -> String {
+            switch key {
+            case "do":       return "Do now"      // app.js:1170
+            case "plan":     return "Plan"        // app.js:1171
+            case "delegate": return "Delegate"    // app.js:1172
+            case "drop":     return "Drop"        // app.js:1173
+            default:         return key
+            }
+        }
+
+        static func sub(_ key: String) -> String {
+            switch key {
+            case "do":       return "Important & urgent"        // app.js:1170
+            case "plan":     return "Important, not urgent"     // app.js:1171
+            case "delegate": return "Urgent, not important"     // app.js:1172
+            case "drop":     return "Neither"                   // app.js:1173
+            default:         return ""
+            }
+        }
+
+        static let empty = "Nothing here."                      // app.js:1371
+        static func addAria(label: String) -> String { "Add something to \(label)" }   // app.js:1361
+        static func movedTo(label: String) -> String { "Moved to \(label)." }          // app.js:2857
+    }
+
+    // MARK: - Category names (app.js:1076-1089)
+
+    /// Display names for the categories the model returns. Anything
+    /// unexpected falls through to a title-cased version of whatever
+    /// came back.
+    enum Categories {
+        static func label(_ c: String) -> String {
+            switch c {
+            case "work":    return "Work"              // app.js:1077
+            case "admin":   return "Admin"             // app.js:1078
+            case "money":   return "Money"             // app.js:1079
+            case "health":  return "Health"            // app.js:1080
+            case "home":    return "Home"              // app.js:1081
+            case "social":  return "Social"            // app.js:1082
+            case "errand":  return "Errands"           // app.js:1083
+            case "general": return "Everything else"   // app.js:1084
+            default:
+                guard let first = c.first else { return c }
+                return String(first).uppercased() + String(c.dropFirst())
+            }                                          // app.js:1088
+        }
+    }
+
+    // MARK: - The done pile (app.html:374-379; app.js:1563-1606)
+
+    enum DonePile {
+        static func count(_ n: Int) -> String {
+            n == 1 ? "1 done" : "\(n) done"
+        }                                              // app.js:1570
+
+        static let undo = "Undo"                       // app.js:1591
+
+        /// Only the most recent DONE_SHOWN are listed; the rest get a line.
+        static let shown = 20                          // app.js:315
+
+        static func hiddenNote(_ hidden: Int) -> String {
+            let word = hidden == 1 ? "one is" : "ones are"
+            return "\(hidden) older \(word) not shown. Finished tasks clear themselves after a week."
+        }                                              // app.js:1606
+    }
+
+    // MARK: - The danger zone (app.html:381-391; app.js:1616-1657)
+
+    /// Two confirmations, because there is no undo and no backup. The
+    /// armed state also times out after 20 s.
+    enum DangerZone {
+        static let clearAll = "Clear everything"       // app.html:382
+        static let cancel = "Cancel"                   // app.html:387
+
+        static func firstAsk(_ n: Int) -> String {
+            let what = n == 1 ? "the 1 task" : "all \(n) tasks"
+            return "Delete \(what) on your lists? This cannot be undone."
+        }                                              // app.js:1634
+        static let firstGo = "Yes, clear everything"   // app.js:1635
+
+        static func lastAsk(_ n: Int) -> String {
+            let what = n == 1 ? "it" : "all \(n)"
+            return "Last check — this permanently deletes \(what) and there is no backup."
+        }                                              // app.js:1639
+        static func lastGo(_ n: Int) -> String {
+            n == 1 ? "Delete it" : "Delete all \(n)"
+        }                                              // app.js:1640
+
+        static func cleared(_ gone: Int) -> String {
+            gone == 1 ? "Cleared. 1 task gone." : "Cleared. \(gone) tasks gone."
+        }                                              // app.js:1649
+    }
+}

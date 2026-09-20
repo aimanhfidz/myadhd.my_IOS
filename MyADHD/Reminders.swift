@@ -19,6 +19,28 @@
    gets you moving. A notification that says "Renew the road tax" is a
    reminder; one that says "Open the JPJ site and find the plate number"
    is a start.
+
+   ---------------------------------------------------------------------
+   Two doors in, one room behind them (design.md §2.2).
+
+   `sync(json:)` is the native one: the caller already has the store's
+   bytes — `StoreBridge` hands it exactly what `AppStore` just wrote — so
+   there is nothing to ask a page for.
+
+   `sync(from: WKWebView)` is the shell's, and it is the one that goes
+   away at the cutover. It exists only to do the read; everything after
+   the read is the same code, and `Checks/bridge.swift` proves the two
+   inputs produce the same schedule.
+
+   What is deliberately NOT symmetrical: the web route also calls
+   `TaskBridge.write`, because it is riding the one `evaluateJavaScript`
+   the shell gets and the widget's copy must come off the same read. The
+   native route does not, because `StoreBridge` calls `TaskBridge` itself,
+   with the same bytes, in the same pass. Calling it here as well would
+   be two keychain writes of one snapshot.
+
+   The rules — which tasks ring, at what time, in what order, how many —
+   are in `Bridge/ReminderPlan.swift`, unchanged and testable off-device.
    ============================================================ */
 
 import UIKit
@@ -33,41 +55,50 @@ enum Reminders {
     /// Ours, so a rebuild never touches a notification somebody else set.
     private static let idPrefix = "myadhd.task."
 
-    /// iOS keeps 64 pending notifications per app and silently drops the
-    /// rest. Soonest first, and leave a few spare.
-    private static let limit = 56
-
-    /// A task with a day but no clock time rings mid-morning rather than at
-    /// midnight, which is when the day technically starts and nobody is
-    /// awake to act on it.
-    private static let defaultHour = 9
-
-    /// A task dated today and written at two in the afternoon used to fall
-    /// straight through this: nine o'clock had been and gone, so the only
-    /// time it had was in the past and it was dropped without a sound. You
-    /// dated it today, so it rings today — an hour out, far enough not to
-    /// be startling and near enough to still be today.
-    ///
-    /// Only for a task that never named a time. An explicit half past four
-    /// that has already gone is genuinely past, and moving it would be
-    /// inventing an appointment the user did not make.
-    private static let rescueDelay: TimeInterval = 60 * 60
-
-    /// And nothing rescued rings after this, because the whole point of the
-    /// rescue is a task you can still act on. Nine at night is late enough
-    /// to catch an afternoon's work and early enough not to be a phone
-    /// going off in a dark room.
-    private static let quietHour = 21
-
-    private struct Item {
-        let id: String
-        let title: String
-        let step: String
-        let fire: Date
-        let parts: DateComponents
+    /// Which tasks ring and when. `ReminderPlanner.parse` is this file's
+    /// old `parse()`, moved rather than rewritten — see that file's header.
+    static func parse(_ json: String?, now: Date = Date()) -> [ReminderPlan] {
+        ReminderPlanner.parse(json, now: now)
     }
 
-    // MARK: - the pass
+    private typealias Item = ReminderPlan
+
+    // MARK: - the native pass
+
+    /// Rebuilds the schedule from bytes the caller already has.
+    ///
+    /// The background task is here for the same reason it is on the web
+    /// route below: the most valuable moment to run this is the moment the
+    /// app is being put away, which is also the moment iOS stops giving it
+    /// time, and the three notification-centre round trips underneath are
+    /// every one of them asynchronous.
+    ///
+    /// A nil `json` is "I could not read the store", never "the store is
+    /// empty" — rebuilding from that would cancel every reminder the app
+    /// has. It returns without touching the schedule, exactly as the web
+    /// route does when the page does not answer.
+    static func sync(json: String?) {
+        guard let json else { return }
+
+        var ticket = UIBackgroundTaskIdentifier.invalid
+        ticket = UIApplication.shared.beginBackgroundTask(withName: "myadhd.reminders") {
+            UIApplication.shared.endBackgroundTask(ticket)
+            ticket = .invalid
+        }
+        let finish = {
+            guard ticket != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(ticket)
+            ticket = .invalid
+        }
+
+        let items = parse(json)
+        authorize(forItems: items) { allowed in
+            guard allowed else { finish(); return }
+            replaceSchedule(with: items, then: finish)
+        }
+    }
+
+    // MARK: - the web pass (deleted at the cutover, with WebScreen)
 
     /// Reads the store out of the page and rebuilds the schedule from it.
     ///
@@ -110,90 +141,6 @@ enum Reminders {
                 replaceSchedule(with: items, then: finish)
             }
         }
-    }
-
-    // MARK: - reading what the web app wrote
-
-    private static func parse(_ json: String?, now: Date = Date()) -> [Item] {
-        guard let json,
-              let data = json.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tasks = root["tasks"] as? [[String: Any]] else { return [] }
-
-        var out: [Item] = []
-
-        for task in tasks {
-            if task["done"] as? Bool == true { continue }
-            if task["skipped"] as? Bool == true { continue }
-
-            guard let id = task["id"] as? String,
-                  let title = task["title"] as? String,
-                  let day = task["when"] as? String,
-                  let stamp = components(day: day, at: task["at"] as? String),
-                  let asked = DayKey.calendar.date(from: stamp.parts) else { continue }
-
-            var fire = asked
-            var parts = stamp.parts
-
-            if fire <= now {
-                /* Yesterday stays gone, and so does a time the user actually
-                   named. Only an untimed task dated today gets a second
-                   chance — and only if there is still a civil hour to take
-                   it in. */
-                guard !stamp.timed,
-                      DayKey.calendar.isDateInToday(asked),
-                      let rescued = rescue(from: now) else { continue }
-                fire = rescued
-                parts = DayKey.calendar.dateComponents(
-                    [.year, .month, .day, .hour, .minute], from: rescued)
-            }
-
-            /* The trigger reads these components in whatever calendar they
-               name, and in the device's calendar when they name none. They
-               are Gregorian — see DayKey.calendar — so they say so. */
-            parts.calendar = DayKey.calendar
-
-            let step = (task["firstStep"] as? String) ?? ""
-            out.append(Item(id: id, title: title, step: step, fire: fire, parts: parts))
-        }
-
-        return Array(out.sorted { $0.fire < $1.fire }.prefix(limit))
-    }
-
-    /// "2026-03-09" and "16:30", the two shapes normalizeDay/normalizeTime
-    /// in app.js guarantee. Anything else is skipped rather than guessed at.
-    private static func components(day: String, at clock: String?)
-        -> (parts: DateComponents, timed: Bool)? {
-        let ymd = day.split(separator: "-").map(String.init).compactMap(Int.init)
-        guard ymd.count == 3, day.count == 10 else { return nil }
-
-        var parts = DateComponents()
-        parts.year = ymd[0]
-        parts.month = ymd[1]
-        parts.day = ymd[2]
-        parts.hour = defaultHour
-        parts.minute = 0
-
-        var timed = false
-        if let clock {
-            let hm = clock.split(separator: ":").map(String.init).compactMap(Int.init)
-            if hm.count == 2, (0...23).contains(hm[0]), (0...59).contains(hm[1]) {
-                parts.hour = hm[0]
-                parts.minute = hm[1]
-                timed = true
-            }
-        }
-
-        return (parts, timed)
-    }
-
-    /// An hour from now, unless that lands in the quiet part of the evening.
-    private static func rescue(from now: Date) -> Date? {
-        let calendar = DayKey.calendar
-        let when = now.addingTimeInterval(rescueDelay)
-        guard let cutoff = calendar.date(bySettingHour: quietHour, minute: 0, second: 0, of: now),
-              when <= cutoff else { return nil }
-        return when
     }
 
     // MARK: - permission

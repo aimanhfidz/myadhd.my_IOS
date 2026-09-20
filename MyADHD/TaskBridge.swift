@@ -14,8 +14,8 @@
    ============================================================ */
 
 import Foundation
-import UIKit
-import WidgetKit
+import WidgetKit   // UIKit was imported here and never used; dropping it is what
+                   // lets Checks/bridge.swift compile this file on a Mac.
 
 enum TaskBridge {
 
@@ -45,27 +45,8 @@ enum TaskBridge {
     // MARK: - the one entry point
 
     static func write(from json: String?) {
-        /* No page, no answer, unparseable, or a store with no tasks key —
-           none of those is "the list is empty". Clearing on any of them
-           would blank the widget every cold launch, because the first read
-           happens before the page has painted. */
-        guard let json,
-              let data = json.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = root["tasks"] as? [[String: Any]]
-        else { return }
-
-        let snapshot = build(from: raw, root: root)
-        guard var blob = TaskStore.encode(snapshot) else { return }
-
-        var shrunk = snapshot
-        var guard_ = 0
-        while blob.count > TaskStore.budget && guard_ < 6 {
-            shrunk = shrink(shrunk, round: guard_)
-            guard let next = TaskStore.encode(shrunk) else { return }
-            blob = next
-            guard_ += 1
-        }
+        guard let packed = packed(from: json) else { return }
+        let (shrunk, blob) = packed
 
         /* A hash of what would be written, not of the store. Two stores
            that differ only in a field no widget draws produce the same
@@ -88,11 +69,47 @@ enum TaskBridge {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
+    /* Everything `write` does except deciding whether to write: parse,
+       build, and shrink until it fits. Split out so `Checks/bridge.swift`
+       can run the whole path over a fixture on a frozen clock and compare
+       the bytes, without a keychain, a stamp in UserDefaults or a reload
+       of anybody's timelines. `write` is the only caller in the app, and
+       it behaves exactly as it did.
+
+       `now` is injected for the same reason: `generated`, `today` and
+       `horizon` all come off the clock, and a check that cannot hold the
+       clock still cannot compare two blobs byte for byte. */
+    static func packed(from json: String?, now: Date = Date()) -> (snapshot: TaskSnapshot, blob: Data)? {
+        /* No page, no answer, unparseable, or a store with no tasks key —
+           none of those is "the list is empty". Clearing on any of them
+           would blank the widget every cold launch, because the first read
+           happens before the page has painted. */
+        guard let json,
+              let data = json.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = root["tasks"] as? [[String: Any]]
+        else { return nil }
+
+        let snapshot = build(from: raw, root: root, now: now)
+        guard var blob = TaskStore.encode(snapshot) else { return nil }
+
+        var shrunk = snapshot
+        var guard_ = 0
+        while blob.count > TaskStore.budget && guard_ < 6 {
+            shrunk = shrink(shrunk, round: guard_)
+            guard let next = TaskStore.encode(shrunk) else { return nil }
+            blob = next
+            guard_ += 1
+        }
+        return (shrunk, blob)
+    }
+
     // MARK: - building it
 
-    private static func build(from raw: [[String: Any]], root: [String: Any]) -> TaskSnapshot {
-        let today = dayKey(Date())
-        let horizon = dayKey(DayKey.calendar.date(byAdding: .day, value: daysAhead, to: Date()) ?? Date())
+    private static func build(from raw: [[String: Any]], root: [String: Any],
+                              now: Date = Date()) -> TaskSnapshot {
+        let today = dayKey(now)
+        let horizon = dayKey(DayKey.calendar.date(byAdding: .day, value: daysAhead, to: now) ?? now)
 
         var kept: [SnapTask] = []
 
@@ -182,7 +199,7 @@ enum TaskBridge {
 
         let dropped = max(0, kept.count - taskMax)
         return TaskSnapshot(
-            generated: Date(),
+            generated: now,
             day: today,
             tasks: Array(kept.prefix(taskMax)),
             dropped: dropped,
