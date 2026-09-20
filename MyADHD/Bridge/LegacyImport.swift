@@ -25,17 +25,23 @@
    empty first snapshot, and somebody whose data is sitting intact in
    WebKit storage opens an empty app and watches every widget on their
    home screen go blank. So an empty read is corroborated before it is
-   believed, against two things that exist if and only if the old shell
-   ever ran here:
+   believed, against the one thing that exists if and only if the old
+   shell ever ran **in this container**:
 
      UserDefaults  myadhd.snapshot.stamp   (TaskBridge.swift:43, 83)
-     Keychain      myadhd.task.snapshot    (TaskSnapshot.swift's TaskStore)
 
-   If either is there and the read came back null — or the evaluation
-   errored, or never answered — the migration is NOT marked done. The app
-   holds on `Bringing your lists over…` and tries again on the next
-   launch, for ever if need be. A hold that a person can retry is
-   recoverable; a blank list that says everything is fine is not.
+   If it is there and the read came back null — or the evaluation errored,
+   or never answered — the migration is NOT marked done. The app holds on
+   `Bringing your lists over…` and tries again on the next launch, for
+   ever if need be. A hold that a person can retry is recoverable; a blank
+   list that says everything is fine is not.
+
+   The guard has to be right in BOTH directions, and the second one is
+   easier to get wrong: an empty read with no trace must mark the
+   migration done and open the ordinary empty app, or a fresh install
+   hangs on that pane with nothing to wait for. `oldShellLeftTraces` says
+   why the keychain — which used to be the second witness, and which
+   outlives the app it belongs to — cannot be part of this decision.
 
    **Nothing is written back and nothing is deleted.** Not a key, not a
    cookie, not the data store. It is the rollback: a build that puts the
@@ -60,9 +66,17 @@
 import Foundation
 import Observation
 import Security
+import WebKit
+
+/* The hold pane and the one line that parents the hidden web view are the
+   only UIKit in this file. They are fenced so that `Checks/migration.swift`
+   can compile THIS file — not a copy of it — for the Mac and run the real
+   import against a real WKWebView on the real origin. Everything the
+   migration actually decides is on the other side of the fence. */
+#if canImport(UIKit)
 import SwiftUI
 import UIKit
-import WebKit
+#endif
 
 @MainActor
 @Observable
@@ -80,8 +94,12 @@ final class LegacyImport {
     /// `myadhd.ios.calView` on the web side; native-only from here.
     static let calViewKey = "myadhd.native.calView"
 
-    /// The two corroborating witnesses for an empty read.
+    /// The witness for an empty read: written in this container, by the
+    /// old shell, every time it wrote a widget snapshot.
     static let snapshotStampKey = "myadhd.snapshot.stamp"
+
+    /// The keychain item that used to be a second witness and is now only
+    /// a line in a reason — see `oldShellLeftTraces`.
     static let snapshotService = "myadhd.task.snapshot"
     static let snapshotAccount = "current"
 
@@ -154,12 +172,42 @@ final class LegacyImport {
         return !FileManager.default.fileExists(atPath: file.documentURL.path)
     }
 
-    /// The old shell left traces here if it ever ran. Either one of them
-    /// turns "there is nothing in localStorage" from an answer into a
-    /// contradiction.
+    /// The old shell left a trace here if it ever ran **in this
+    /// container**. That qualification is the whole of the rule, and it
+    /// is why there is one witness and not two.
+    ///
+    /// `myadhd.snapshot.stamp` is in `Library/Preferences`; the person's
+    /// `localStorage` is in `Library/WebKit`. Both are inside the app
+    /// container, so they live and die together — an App Store update
+    /// keeps the container and keeps both, deleting the app takes the
+    /// container and takes both. A stamp with no store therefore means
+    /// one thing only: the read did not work. That is what a witness is
+    /// for.
+    ///
+    /// **The keychain is not a witness, and used to be.** The item it
+    /// corroborated with, `myadhd.task.snapshot`, is in the shared access
+    /// group — outside the container — and iOS keeps keychain items when
+    /// an app is deleted. So on a delete-and-reinstall, which is a thing
+    /// people do and the one case where an empty store is the honest
+    /// answer, the ghost of the old install contradicts a perfectly good
+    /// empty read: the migration is never marked done, and the app opens
+    /// on `Bringing your lists over…` behind a `Try again` that cannot
+    /// ever succeed. Every launch. For ever. A witness that outlives the
+    /// thing it vouches for is not a witness.
+    ///
+    /// It is still read, by `keychainNote`, into the reason line of a
+    /// hold that something else has already decided — on an upgrade it
+    /// says something true, and a support case is easier with it than
+    /// without. It just cannot decide anything any more.
     var oldShellLeftTraces: Bool {
-        if defaults.string(forKey: Self.snapshotStampKey) != nil { return true }
-        return Self.keychainHasSnapshot()
+        defaults.string(forKey: Self.snapshotStampKey) != nil
+    }
+
+    /// What the keychain has to add, once the decision is made without it.
+    var keychainNote: String {
+        Self.keychainHasSnapshot()
+            ? " (a widget snapshot from an earlier install is in the keychain)"
+            : ""
     }
 
     /// Existence only — the data is not returned and not decoded. A blob
@@ -204,7 +252,9 @@ final class LegacyImport {
 
         let view = WKWebView(frame: .zero, configuration: config)
         view.isHidden = true
+        #if canImport(UIKit)
         view.isUserInteractionEnabled = false
+        #endif
         let driver = Driver(owner: self)
         view.navigationDelegate = driver
 
@@ -212,7 +262,9 @@ final class LegacyImport {
            A view in no hierarchy does load a local string, but a phone
            under pressure is quicker to reclaim one that is on screen
            nowhere; zero by zero and hidden, it costs nothing. */
+        #if canImport(UIKit)
         if let host = Self.hostWindow() { host.addSubview(view) }
+        #endif
 
         self.web = view
         self.driver = driver
@@ -235,12 +287,14 @@ final class LegacyImport {
         run(into: store, then: landing)
     }
 
+    #if canImport(UIKit)
     private static func hostWindow() -> UIWindow? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .first { $0.isKeyWindow }
     }
+    #endif
 
     // MARK: - The one script
 
@@ -303,12 +357,15 @@ final class LegacyImport {
             return
         }
 
-        /* Nothing came back. Either this is a fresh install, or it is
-           somebody's whole life behind a read that did not work. The
-           witnesses decide, and when they disagree with the read the
-           answer is always "try again", never "start empty". */
+        /* Nothing came back. Either this is a fresh install — including a
+           reinstall, where the container went with the app and an empty
+           store is the honest answer — or it is somebody's whole life
+           behind a read that did not work. The witness decides, and when
+           it disagrees with the read the answer is always "try again",
+           never "start empty". */
         if oldShellLeftTraces {
-            conclude(.holding(reason: failed ?? "the store read back empty, but this phone has run the old app"))
+            conclude(.holding(reason: (failed ?? "the store read back empty, but this "
+                                       + "install has run the old app") + keychainNote))
             return
         }
         if let failed {
@@ -316,9 +373,13 @@ final class LegacyImport {
             return
         }
 
-        /* A genuinely fresh install: no store, no stamp, no snapshot. This
-           is the only path that marks the migration done on an empty
-           read, and it is the only one that can afford to. */
+        /* A first launch with nothing to bring over: no store, no stamp,
+           and a read that worked. A never-installed-before phone and a
+           reinstall look identical here, and they should — the container
+           is gone either way, and holding a person on a spinner over data
+           that no longer exists helps nobody. This is the only path that
+           marks the migration done on an empty read, and it is the only
+           one that can afford to. */
         defaults.set(true, forKey: Self.migratedKey)
         conclude(.done(tasks: 0, notes: 0))
     }
@@ -545,6 +606,7 @@ final class LegacyImport {
 
 // MARK: - The hold pane
 
+#if canImport(UIKit)
 /// What a person sees while the import is being retried, and the only
 /// screen in the app that can appear before their lists do.
 ///
@@ -583,3 +645,4 @@ struct LegacyImportHoldView: View {
                           ? AppConfig.darkGround : AppConfig.lightGround))
     }
 }
+#endif

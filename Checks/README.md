@@ -1,6 +1,6 @@
 # Checks
 
-Five scripts. None of them is a unit test in the usual sense — there is no
+Eight scripts. None of them is a unit test in the usual sense — there is no
 Xcode test target and no package here. Each one compiles the **real**
 `MyADHD/` and `Shared/` sources with `swiftc`, the same files the app target
 compiles, and then holds their answers against something outside the port:
@@ -16,7 +16,7 @@ Run them all:
 
 ```sh
 cd "/Users/User/Desktop/Claude Code/myadhd.my_IOS"
-for c in roundtrip copy parity-triage parity-ordering bridge; do
+for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration; do
   ./Checks/$c.sh || echo "FAILED: $c"
 done
 ```
@@ -36,6 +36,14 @@ or `BRIDGE_BUILD` if you need it somewhere specific.
 
 `DEVELOPER_DIR` defaults to `/Applications/Xcode.app/Contents/Developer`,
 because `xcode-select` on this machine points elsewhere.
+
+`storefile.sh` and `migration.sh` also pass `-wmo`, and not for speed. Without
+it the driver names each object file after its input's basename, and
+`Checks/storefile.swift` sits beside the app's own `MyADHD/Core/StoreFile.swift`
+— on a case-insensitive filesystem the second object lands on the first, takes
+the entry point with it, and the link fails with an undefined `_main` that has
+nothing to do with the code. One module, one object, no collision. Worth
+knowing before naming the next check after the file it checks.
 
 ---
 
@@ -201,6 +209,148 @@ Each run gets its own `HOME`, because `DoneLedger` keeps its tally in
 tally behind in the real user's defaults.
 
 **Last run:** all 3 zones OK — 48 comparisons each, 0 failed.
+
+---
+
+## `store.sh` — every mutation does what app.js's does
+
+```sh
+./Checks/store.sh [path/to/app.js]
+```
+
+**Proves:** each of `AppStore`'s mutations leaves the same document behind,
+byte for byte, as the same mutation in the real `app.js` — and schedules the
+same things. `markDone`, `undoDone`, `removeTask`/`undoRemove`, `clearAll`,
+`editTitle`, `breakDown`'s apply, `setQuadrant`, the view toggle,
+`applyTriage`, `settleForOffline`, `applyResort`, `pruneDone`,
+`stampTimeOnly`, the note life cycle and `touchNote`, the profile name and
+avatar, `signupOfferHidden`, `sentFeedbackOn`, and `save()` versus
+`persistOnly()`.
+
+One seed store goes into both sides — a temp `myadhd.v1.json` read through
+`AppStore`'s boot path, and `localStorage` read through app.js's own `load()`
+— and then each side runs the same mutation. Two things are compared:
+`JSON.stringify(state)` against `AppStore.doc.jsonString`, and the **trail**:
+which of `cloud.stamp()`, the write, `syncSoon()` and `cloud.soon()` ran, in
+order.
+
+Every rule is cut out of `app.js` by content, never retyped. Most are whole
+functions; six are statement runs inside a DOM handler, cut by their first and
+last line and wrapped in a function header written in the check — listed by
+name and line in the file's header.
+
+Three zones, and the instants are chosen so the LOCAL day and the UTC day are
+different strings: `pruneDone` counts on the local one and `sentFeedbackOn` is
+the UTC one, and a check that had them the wrong way round could not pass.
+
+Two divergences are deliberate and are pinned rather than hidden — the check
+names each one and asserts the exact shape of it:
+
+- a key the page appends where the assignment lands (`doneAt` on a row that
+  never had one) goes in `normalizeTask`'s place here (design §2.5). Same
+  values, one key in a different position — and the reason `LegacyImport`
+  reseals the cloud sigs rather than copying the page's.
+- a cap landing inside a surrogate pair: the page keeps the orphaned half and
+  a Swift `String` cannot hold one, so `Normalize.slice` takes one unit less
+  (Normalize.swift:53-56). The check asserts the native text is the page's
+  *less exactly that half*.
+- `saveRemind`/`clearRemind` write twice on the web (`touchNote()` then
+  `save()`); `saveNote` folds them into one. Both trails are written down, so
+  the check fails if either moves.
+
+**Last run:** all three zones clean — 472 comparisons each.
+
+---
+
+## `storefile.sh` — the document on disk
+
+```sh
+./Checks/storefile.sh
+```
+
+**Proves:** design §2.4's persistence rules, against a real directory.
+
+- **Atomic replacement.** A reader running flat out beside a writer: 400
+  documents of 400 different lengths written while another loop reads the file
+  as fast as it can. Every read has to parse *and* be one of the documents that
+  was actually written. A `write(to:)` without the rename fails this in
+  a few hundred reads.
+- **One rotation behind.** The previous document goes to `myadhd.v1.bak.json`
+  before the new bytes land, and it is the previous one, not one of a burst.
+- **Quarantine, never overwrite.** A document that will not parse is moved to
+  `myadhd.v1.corrupt-<stamp>.json` with the bytes verbatim; a second corrupt
+  document in the same millisecond gets the next free name; nothing ever writes
+  over either.
+- **Coalescing.** The queue is suspended, three documents are handed over, and
+  the *backup* proves only one write was performed.
+
+Plus two failure modes: an **unreadable** file (a phone not unlocked since a
+reboot) must not be quarantined — it is a good document that will read fine
+later — and a write that fails must leave the document already there alone.
+
+**Last run:** 47 checks, all passed. 2,239 reads raced 400 writes; none torn.
+
+---
+
+## `migration.sh` — the existing user, brought across for real
+
+```sh
+./Checks/migration.sh
+```
+
+**Proves:** `LegacyImport` — the file itself, compiled for the Mac — against a
+real `WKWebView` on the real `https://myadhd.my` origin, with real
+`localStorage`, a real keychain and real files. No network: the document is the
+string `<html></html>` and the base URL only decides the origin.
+
+The import: tasks, notes, profile, `view: 'matrix'`, unknown top-level and
+unknown task keys, the theme into `myadhd.ground`, the calendar view into
+`myadhd.native.calView`, the cloud book's `user` and `graves`, the Google link
+trimmed to two fields, the Supabase session into the keychain. Nothing written
+back to `localStorage` — all six keys are read again afterwards and compared.
+
+And the assertion the cloud story hangs on: **the sigs are resealed from the
+native encoding, not restamped.** After the import the check runs `stamp()`'s
+own comparison (`sigOf(task) != book.sigs[id]`) over every task and requires it
+to move nothing, and asserts every `updatedAt` is the millisecond the page had.
+A copied book would have restamped two of the three fixture rows — the ones
+saved before `importance`/`skipped`/`gcal`/`local`/`doneAt` existed — and
+last-write-wins would then have pushed this phone's stale copy over another
+device's real edit.
+
+**The null-read guard, both directions**, which is what the file is careful
+about:
+
+| | localStorage | UserDefaults stamp | keychain snapshot | must |
+|---|---|---|---|---|
+| App Store update | kept | kept | kept | import, or hold if the read fails |
+| delete + reinstall | **gone** | **gone** | **kept** | mark migrated, open the empty app |
+| never installed | none | none | none | mark migrated, open the empty app |
+
+iOS keeps keychain items when an app is deleted, so `myadhd.task.snapshot`
+outlives the data it was vouching for. While it was a witness, a reinstalling
+person's app held on `Bringing your lists over…` behind a `Try again` that
+could not ever succeed — every launch, for ever. `oldShellLeftTraces` now
+reads one witness, `myadhd.snapshot.stamp`, which lives in the same container
+as the WebKit storage and dies with it. The keychain is still read into the
+reason line of a hold that something else decided, where it cannot decide
+anything.
+
+Restoring the two-witness version fails exactly three checks in the case named
+`the keychain alone is not a trace`, which is how that case earns its keep.
+
+**Not covered:** the two branches that need the read itself to fail — a
+JavaScript evaluation error and the 12-second timeout. Both land in the same
+`settle(read: nil, failed:)` the empty-read cases exercise, but the
+`holding` -with-no-trace branch is only reachable through them and there is no
+way to force either from outside the class.
+
+**What the run touches and puts back:** a throwaway `UserDefaults` suite, a
+temp directory, the six `myadhd` keys on that origin, and two keychain items
+(`myadhd.task.snapshot`, `myadhd.auth.session`) — all removed on the way out.
+Nothing in the repo is written.
+
+**Last run:** 63 checks, all passed.
 
 ---
 

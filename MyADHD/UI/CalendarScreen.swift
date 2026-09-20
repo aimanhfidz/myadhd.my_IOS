@@ -1,0 +1,282 @@
+/* ============================================================
+   MyADHD/UI/CalendarScreen.swift — the month, the day, and what is on it
+
+   `showCalendar` and `renderCalendar` (app.js:2268-2376), the shell's
+   four-way pill (BridgeScript.swift:786-1087), inventory §1.8 and §1.18.
+
+   **The calendar reads; it does not edit.** Nothing here changes a day, a
+   time or a title — Edit is a rename and only a rename, everywhere in
+   this app. What a row can do is what a row on the lists can do: tick,
+   swipe, undo.
+
+   **Two pieces of state, and neither is data.** `calPicked` is the day
+   you are looking at and `calCursor` is the month on screen. The web
+   keeps them in module variables, which survive a tab switch and die on a
+   reload; `CalendarSession` is that, natively — `myadhd.native.*` in
+   UserDefaults so they outlive a view being rebuilt, stamped with a
+   per-launch id so a cold start still lands on today the way a fresh page
+   load does. They are deliberately NOT on the document: a synced "which
+   day am I looking at" would drag another device's cursor around.
+
+   **`Back to today` hides only when BOTH are today's** — the picked day
+   and the visible month. Picking the 3rd of next month and paging back to
+   this one leaves the button up, because the day you are reading about is
+   still over there.
+
+   **The four views are the shell's.** List, Day and Week exist nowhere on
+   the web; they would have gone with the web view. The pill keeps the
+   month header above it in every one of them, which is what the shell's
+   CSS does — `myadhd-view-*` hides the grid, the agenda and `Back to
+   today`, and never `.cal-head`. The chosen view is remembered under
+   `myadhd.native.calView`, which `LegacyImport` has already filled from
+   the old `myadhd.ios.calView` in the page's localStorage.
+   ============================================================ */
+
+import SwiftUI
+
+// MARK: - where you are looking
+
+/// `calCursor` and `calPicked`. See the file header for why UserDefaults
+/// and why a launch stamp.
+@MainActor
+@Observable
+final class CalendarSession {
+
+    static let pickedKey = "myadhd.native.calPicked"
+    static let cursorKey = "myadhd.native.calCursor"
+    /// Which run of the app wrote the two above. A different value means a
+    /// different launch, and the pair is then treated as the null the web
+    /// starts every page load with.
+    static let sessionKey = "myadhd.native.calSession"
+
+    private static let launch = UUID().uuidString
+
+    private(set) var picked: String
+    private(set) var cursor: MonthRef
+
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard, today: String = WebDates.dayKey()) {
+        self.defaults = defaults
+
+        let sameRun = defaults.string(forKey: Self.sessionKey) == Self.launch
+        let storedDay = sameRun ? defaults.string(forKey: Self.pickedKey) : nil
+        let storedMonth = sameRun ? defaults.string(forKey: Self.cursorKey) : nil
+
+        /* `if (!calPicked) calPicked = today;
+            if (!calCursor) calCursor = keyToDate(calPicked.slice(0, 8) + '01');` */
+        let day = storedDay.flatMap { WebDates.keyToDate($0) == nil ? nil : $0 } ?? today
+        self.picked = day
+        self.cursor = storedMonth.flatMap(MonthRef.init(key:)) ?? MonthRef(dayKey: day)
+
+        defaults.set(Self.launch, forKey: Self.sessionKey)
+        persist()
+    }
+
+    /// A cell was tapped.
+    func pick(_ key: String) {
+        picked = key
+        persist()
+    }
+
+    /// `stepMonth(n)`.
+    func step(_ n: Int) {
+        cursor = cursor.adding(n)
+        persist()
+    }
+
+    func show(_ month: MonthRef) {
+        cursor = month
+        persist()
+    }
+
+    /// `#cal-today` — the day AND the month, together.
+    func backToToday(_ today: String) {
+        picked = today
+        cursor = MonthRef(dayKey: today)
+        persist()
+    }
+
+    /// Hidden exactly when there is nowhere to go back to.
+    func isOnToday(_ today: String) -> Bool {
+        picked == today && cursor == MonthRef(dayKey: today)
+    }
+
+    private func persist() {
+        defaults.set(picked, forKey: Self.pickedKey)
+        defaults.set(cursor.key, forKey: Self.cursorKey)
+    }
+}
+
+// MARK: - the screen
+
+struct CalendarScreen: View {
+
+    @Environment(\.theme) private var theme
+
+    let store: AppStore
+    let toasts: ToastCenter
+
+    var today: String = WebDates.dayKey()
+
+    /// False once the cutover puts `CalModePill` in a header of its own.
+    var showsTools: Bool = true
+
+    @State private var session = CalendarSession()
+    @State private var mode = CalMode.remembered
+
+    private var tasks: [TaskItem] { store.doc.tasks }
+
+    /// `!done && !when` — on no day at all, and so on no calendar.
+    private var undated: Int {
+        tasks.filter { !$0.done && !(($0.when.map { !$0.isEmpty }) ?? false) }.count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if showsTools {
+                CalModePill(mode: $mode)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.bottom, 6)
+            }
+
+            /* `.cal-head` stays up in all four views — the shell hides the
+               grid, the agenda and Back to today, never the month row. */
+            monthHead
+                .padding(.bottom, 16)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        switch mode {
+                        case .month: monthView
+                        case .list:  listView
+                        case .day:   CalDayPane(tasks: tasks, today: today, session: session)
+                        case .week:  CalWeekPane(tasks: tasks, today: today, session: session)
+                        }
+                    }
+                    .frame(maxWidth: Theme.measure, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .scrollIndicators(.hidden)
+                /* `settleScroll` — the working hours, found once on the way
+                   into the view. Keyed on the view alone: swiping to another
+                   day, or tapping one on the strip, keeps the hour you were
+                   looking at. */
+                .onChange(of: mode) { _, next in findWorkingHours(proxy, next) }
+                .onAppear { findWorkingHours(proxy, mode) }
+            }
+        }
+        .padding(.horizontal, 20)
+        /* `.cal-wrap{padding-top:clamp(6px,1.5vh,16px)}` */
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(theme.surface)
+    }
+
+    /// The grid is 24 hours tall and starts at midnight; nobody is
+    /// reading about midnight. `requestAnimationFrame` on the web, one
+    /// runloop turn here — the pane has to exist before it can be scrolled
+    /// to.
+    private func findWorkingHours(_ proxy: ScrollViewProxy, _ next: CalMode) {
+        let days = CalDays.shown(next, picked: session.picked)
+        guard !days.isEmpty else { return }
+        let hour = HourGridView.focusHour(days: days, today: today)
+        DispatchQueue.main.async {
+            proxy.scrollTo(HourGridView.anchor(hour), anchor: .top)
+        }
+    }
+
+    // MARK: the month row
+
+    private var monthHead: some View {
+        HStack(spacing: 8) {
+            arrow(-1, symbol: "chevron.left", label: Copy.Calendar.prevMonth)
+
+            Text(session.cursor.title)
+                .font(Font.baloo(19, .heavy))
+                .kerning(-0.02 * 19)
+                .foregroundStyle(theme.ink)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(.updatesFrequently)
+
+            arrow(1, symbol: "chevron.right", label: Copy.Calendar.nextMonth)
+        }
+        .frame(maxWidth: Theme.measure)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func arrow(_ n: Int, symbol: String, label: String) -> some View {
+        Button { session.step(n) } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(theme.muted)
+                .frame(width: 38, height: 38)
+                .overlay(Circle().strokeBorder(theme.lineStrong, lineWidth: 1.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    // MARK: the month, and what is on the day
+
+    private var monthView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MonthPager(tasks: tasks, today: today, session: session)
+
+            if !session.isOnToday(today) {
+                Button { session.backToToday(today) } label: {
+                    Text(Copy.Calendar.backToToday)
+                        .font(Font.baloo(13.5, .semibold))
+                        .foregroundStyle(theme.accent)
+                        .underline()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 14)
+            }
+
+            CalendarAgenda(tasks: tasks,
+                           picked: session.picked,
+                           today: today,
+                           store: store,
+                           toasts: toasts)
+                .padding(.top, 14)
+
+            undatedLine
+        }
+    }
+
+    // MARK: the next two weeks
+
+    private var listView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CalendarListPane(tasks: tasks,
+                             picked: session.picked,
+                             today: today,
+                             store: store,
+                             toasts: toasts)
+            undatedLine
+        }
+    }
+
+    /// `#cal-undated`. Hidden at zero, and it is the one thing the List
+    /// view keeps that Day and Week drop.
+    @ViewBuilder
+    private var undatedLine: some View {
+        if let line = Copy.Calendar.undated(undated) {
+            Text(line)
+                .font(Font.baloo(13))
+                .lineSpacing(13 * 0.55)
+                .foregroundStyle(theme.faint)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 16)
+                .overlay(alignment: .top) { theme.line.frame(height: 1.5) }
+                .padding(.top, 24)
+        }
+    }
+}

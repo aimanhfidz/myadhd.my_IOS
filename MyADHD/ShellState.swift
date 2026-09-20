@@ -29,6 +29,14 @@ final class ShellState: ObservableObject {
         UserDefaults.standard.string(forKey: key) ?? "light"
     }
 
+    /// The write half of that. The native `ThemeStore` owns the toggle now
+    /// that there is no page to be told by, and it writes through here so
+    /// the key stays spelled out in exactly one place.
+    static func remember(_ value: String) {
+        guard value == "light" || value == "dark" else { return }
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
     init() {
         /* theme.js defaults to light and the system preference does not get
            a vote, so the shell must not have one either. */
@@ -39,7 +47,7 @@ final class ShellState: ObservableObject {
     func remember(theme value: String) {
         guard value == "light" || value == "dark", value != theme else { return }
         theme = value
-        UserDefaults.standard.set(value, forKey: Self.key)
+        Self.remember(value)
     }
 
     var ground: Color {

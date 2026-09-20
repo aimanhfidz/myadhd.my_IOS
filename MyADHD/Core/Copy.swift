@@ -145,6 +145,21 @@ enum Copy {
         static func moreChips(_ n: Int) -> String { "+\(n) more" }   // app.js:5054
     }
 
+    // MARK: - The faces (app.js:3881-3882)
+
+    /// `AVATARS`, in its order. The first is the default, and it is what an
+    /// unrecognised stored face is drawn as — `avatarFace` never writes the
+    /// substitution back, so somebody's own choice survives a build that
+    /// cannot draw it.
+    ///
+    /// They are user-facing strings like any other, and one drifting out of
+    /// this list would change the face on somebody's composer without
+    /// anything being written to their profile.
+    enum Avatars {
+        static let faces = ["🧔🏻", "🧔🏻‍♂️", "👨🏻", "👱🏻‍♂️", "👨🏻‍🦲", "👨🏼‍🦱",
+                            "👩🏻", "🧑🏻", "👩🏻‍🦱", "👱🏻‍♀️", "👩🏻‍🦳", "🧑🏻‍🦰"]
+    }
+
     // MARK: - Hold-to-talk (app.js:5280-5481)
 
     enum Mic {
@@ -393,5 +408,319 @@ enum Copy {
         static func cleared(_ gone: Int) -> String {
             gone == 1 ? "Cleared. 1 task gone." : "Cleared. \(gone) tasks gone."
         }                                              // app.js:1649
+    }
+
+    // MARK: - Calendar (app.html:401-454; app.js:2252-2451)
+
+    /// Nested inside `Copy`, so the name is `Copy.Calendar`. Nothing in
+    /// this file names Foundation's calendar, so there is nothing to shadow.
+    enum Calendar {
+        static let prevMonth = "Previous month"        // app.html:415
+        static let nextMonth = "Next month"            // app.html:418
+        static let backToToday = "Back to today"       // app.html:448
+
+        /// The static day-name row, Monday first. Two of the seven are the
+        /// same letter, which is why they are written out and not derived.
+        static let dayInitials = ["M", "T", "W", "T", "F", "S", "S"]   // app.html:435
+
+        /// `${MONTH_NAMES[m]} ${yyyy}` — September 2026.
+        static func monthTitle(month: Int, year: Int) -> String {
+            let name = WebDates.monthNames[min(max(month, 0), 11)]
+            return "\(name) \(year)"
+        }                                              // app.js:2350-2351
+
+        /// A live cell's accessible name: the day, then how much is on it,
+        /// then the first clock time if any of it is booked.
+        static func dayAria(label: String, count: Int, from: String?) -> String {
+            let word = count == 1 ? "thing" : "things"
+            var out = label
+            out += count > 0 ? ", \(count) \(word)" : ", nothing"
+            if let from, !from.isEmpty { out += ", from \(from)" }
+            return out
+        }                                              // app.js:2318-2319
+
+        /// The line under the month. nil at zero, where the web hides it.
+        static func undated(_ n: Int) -> String? {
+            if n <= 0 { return nil }
+            if n == 1 { return "1 more thing has no day on it — it is waiting on your lists." }
+            return "\(n) more things have no day on them — they are waiting on your lists."
+        }                                              // app.js:2373-2374
+
+        /// The overdue group's heading. It rides on today and nowhere else.
+        static func overdueHead(_ n: Int) -> String { "\(n) overdue" }   // app.js:2387
+
+        static let emptyToday = "Nothing on today. Say a day in the dump box and it lands here."   // app.js:2397
+        static func emptyDay(_ phrase: String) -> String { "Nothing on \(phrase)." }   // app.js:2398
+
+        /// A day with no time is not a 00:00 appointment.
+        static let anyTime = "any time"                // app.js:2430
+
+        /// A late row prints which day it was on; an on-time row prints how
+        /// much energy it wants.
+        static func lateMeta(day: String, minutes: String) -> String {
+            day + metaSeparator + minutes
+        }                                              // app.js:2437
+        static func itemMeta(minutes: String, energy: String) -> String {
+            minutes + metaSeparator + "\(energy) energy"
+        }                                              // app.js:2438
+    }
+
+    // MARK: - The shell's four calendar views (BridgeScript.swift:786-1087)
+
+    /// List, Day and Week exist only in the iOS shell: the pill beside the
+    /// month title, and the three panes behind it.
+    enum CalViews {
+        static let list = "List"      // BridgeScript.swift:829
+        static let day = "Day"        // BridgeScript.swift:829
+        static let week = "Week"      // BridgeScript.swift:829
+        static let month = "Month"    // BridgeScript.swift:829
+
+        /// The chips above the hour grid, for everything on the day with no
+        /// clock on it. Six, and then a count.
+        static let anytime = "Anytime"                 // BridgeScript.swift:930
+        static func andMore(_ n: Int) -> String { "+\(n)" }   // BridgeScript.swift:931
+        static let anytimeMax = 6                      // BridgeScript.swift:930
+
+        static let emptyList = "Nothing in the next two weeks. Say a day in the dump box and it lands here."   // BridgeScript.swift:952
+
+        /// A block's second line: `9am · 30 min`.
+        static func blockMeta(time: String, minutes: Int) -> String {
+            time + metaSeparator + "\(minutes) min"
+        }                                              // BridgeScript.swift:920
+    }
+
+    // MARK: - How the matrix works (BridgeScript.swift:532-609)
+
+    /// The four-page walkthrough behind the `?`. The sample tasks are made
+    /// up on purpose — the point is the shape, not the person's own list.
+    enum Walkthrough {
+        static let title = "How the matrix works"      // BridgeScript.swift:545, 591
+        static let close = "Close"                     // BridgeScript.swift:591
+        static let back = "Back"                       // BridgeScript.swift:596
+
+        struct Page {
+            var head: String
+            var body: String
+            var cta: String
+        }
+
+        static let pages: [Page] = [
+            Page(head: "One list, no order",
+                 body: "Everything shouts the same. Nothing says what to do first.",
+                 cta: "Sort them into boxes"),                       // BridgeScript.swift:575-576
+            Page(head: "Four boxes, one decision",
+                 body: "Urgent and important first. The rest waits, moves, or goes.",
+                 cta: "Move one"),                                   // BridgeScript.swift:577
+            Page(head: "Hold, then drag",
+                 body: "Press a task and drop it in another box. Nothing is stuck where it landed.",
+                 cta: "See it on the home screen"),                  // BridgeScript.swift:578
+            Page(head: "On your home screen",
+                 body: "The Today widget shows the next few things every time you look — and you can tick one off right there.",
+                 cta: "Done"),                                       // BridgeScript.swift:579
+        ]
+
+        /// `T` — the eight sample rows and the quadrant each one starts in.
+        static let samples: [(title: String, quadrant: String)] = [
+            ("Send the invoice", "do"),
+            ("Sort old photos", "drop"),
+            ("Plan next month", "plan"),
+            ("Reply to the vendor", "delegate"),
+            ("Pay the rent", "do"),
+            ("Watch that series", "drop"),
+            ("Book the flights", "delegate"),
+            ("Save for the trip", "plan"),
+        ]                                              // BridgeScript.swift:554-557
+
+        /// The one that moves on page three: out of Do now and into Plan,
+        /// keeping its old ring so the move is the thing you see.
+        static let moved = "Pay the rent"              // BridgeScript.swift:568
+
+        // the phone on the last page (BridgeScript.swift:580-581)
+        static let phoneDate = "Friday, 18 September"
+        static let phoneTime = "05:59"
+        static let widgetEyebrow = "TODAY"
+        /// The three rows in the mock widget; the first is already ticked.
+        static let widgetRows: [(title: String, quadrant: String, done: Bool)] = [
+            ("Send the invoice", "do", true),
+            ("Pay the rent", "do", false),
+            ("Plan next month", "plan", false),
+        ]                                              // BridgeScript.swift:581
+    }
+
+    // MARK: - Notes index (app.html:456-506; app.js:4360-4465)
+
+    enum Notes {
+        static let eyebrow = "Notes."                  // app.html:479
+        static let newNote = "New note"                // app.html:483
+
+        /// Empty string when there are none — the summary is hidden
+        /// rather than emptied, but the words are these.
+        static func summary(_ n: Int) -> String {
+            n == 1 ? "1 note" : "\(n) notes"
+        }                                              // app.js:4383
+
+        static let emptyTitle = "Nothing written down yet."                        // app.html:496
+        static let emptyBody = "Notes stay on this device. Nothing here gets sorted."   // app.html:497
+
+        /// app.html ships Write one and the shell has always relabelled it
+        /// on the way past. This build IS the shell, so it draws the label
+        /// the shell drew.
+        static let emptyGo = "Write a note"            // BridgeScript.swift:617
+
+        static let hint = "Notes stay on this device. Signing in carries your lists between browsers; it does not carry these yet."   // app.html:503-504
+
+        /// The card's fallback. The editor heading uses a different word
+        /// for the same absence — see Note.heading.
+        static let untitled = "Untitled"               // app.js:4365
+    }
+
+    // MARK: - The note editor (app.html:514-655; app.js:4570-4998)
+
+    enum Note {
+        static let back = "Back to notes"              // app.html:516
+        static let done = "Save and close"             // app.html:520
+
+        /// A note with no title is still a Note here and Untitled on the
+        /// card. That is app.js:4575 against app.js:4365, not a slip.
+        static let heading = "Note"                    // app.js:4575
+
+        static let titlePlaceholder = "Title"          // app.html:528
+        /// Only on the first block, and only while it is empty.
+        static let firstBlockHint = "Write something"  // app.js:4626
+
+        static let tickOff = "Tick off"                // app.js:4598
+        static let notDone = "Not done"                // app.js:4598
+
+        static let delete = "Delete note"              // app.html:535
+        static let deleted = "Note deleted"            // app.js:4993
+
+        // the right rail (app.html:543-556)
+        static let toolPaper = "Paper colour"          // app.html:543
+        static let toolType = "Text format"            // app.html:546
+        static let toolCheck = "Turn this line into a checkbox"   // app.html:549
+        static let toolClip = "Add a picture"          // app.html:552
+        static let toolBell = "Remind me about this note"         // app.html:555
+
+        static let closeSheet = "Close"                // app.html:568
+
+        /// Text format (app.html:565-595)
+        enum Format {
+            static let title = "Text format"           // app.html:567
+            static let typeGroup = "Line type"         // app.html:572
+            static let markGroup = "Emphasis"          // app.html:579
+            static let fontGroup = "Typeface"          // app.html:585
+            static let alignGroup = "Alignment"        // app.html:590
+
+            static let types = ["p", "h", "ul", "ol", "check"]
+            static func typeLabel(_ t: String) -> String {
+                switch t {
+                case "p":     return "Body"            // app.html:573
+                case "h":     return "Heading"         // app.html:574
+                case "ul":    return "Bullet"          // app.html:575
+                case "ol":    return "Number"          // app.html:576
+                case "check": return "Checkbox"        // app.html:577
+                default:      return t
+                }
+            }
+
+            static let marks = ["b", "i", "u", "strike"]
+            static func markLabel(_ m: String) -> String {
+                switch m {
+                case "b":      return "B"              // app.html:580
+                case "i":      return "I"              // app.html:581
+                case "u":      return "U"              // app.html:582
+                case "strike": return "S"              // app.html:583
+                default:       return m
+                }
+            }
+
+            static func fontLabel(_ f: String) -> String {
+                switch f {
+                case "baloo": return "Baloo"           // app.html:586
+                case "sans":  return "Sans"            // app.html:587
+                case "mono":  return "Mono"            // app.html:588
+                default:      return f
+                }
+            }
+
+            static let aligns = ["left", "center", "right"]
+            static func alignLabel(_ a: String) -> String {
+                switch a {
+                case "left":   return "Left"           // app.html:591
+                case "center": return "Centre"         // app.html:592
+                case "right":  return "Right"          // app.html:593
+                default:       return a
+                }
+            }
+        }
+
+        /// Paper (app.html:597-616)
+        enum Paper {
+            static let title = "Paper"                 // app.html:599
+            static let group = "Paper colour"          // app.html:607
+
+            static func label(_ p: String) -> String {
+                switch p {
+                case "lavender": return "Lavender"     // app.html:608
+                case "violet":   return "Violet"       // app.html:609
+                case "blue":     return "Blue"         // app.html:610
+                case "orange":   return "Orange"       // app.html:611
+                case "red":      return "Red"          // app.html:612
+                case "stone":    return "Stone"        // app.html:613
+                case "white":    return "Plain"        // app.html:614
+                default:         return p
+                }
+            }
+        }
+
+        /// Reminder (app.html:618-654; app.js:4899-4940)
+        enum Remind {
+            static let title = "Reminder"              // app.html:620
+            static let day = "Day"                     // app.html:626
+            static let time = "Time"                   // app.html:630
+            static let repeats = "Repeat"              // app.html:634
+            static let clear = "Clear"                 // app.html:643
+            static let save = "Save"                   // app.html:644
+
+            static let rules = ["", "daily", "weekly", "monthly"]
+            static func ruleLabel(_ r: String) -> String {
+                switch r {
+                case "daily":   return "Every day"     // app.html:637
+                case "weekly":  return "Every week"    // app.html:638
+                case "monthly": return "Every month"   // app.html:639
+                default:        return "Never"         // app.html:636
+                }
+            }
+
+            /// `Reminder ${when}${every}` — the editor line under the
+            /// paper, 12.5px in the accent.
+            static func line(_ when: String, _ every: String) -> String {
+                "Reminder \(when)\(every)"
+            }                                          // app.js:4906
+
+            /// The tail of that line. Empty for a reminder that does not
+            /// come round again.
+            static func every(_ rule: String) -> String {
+                switch rule {
+                case "daily":   return ", every day"   // app.js:4905
+                case "weekly":  return ", every week"  // app.js:4905
+                case "monthly": return ", every month" // app.js:4905
+                default:        return ""
+                }
+            }
+        }
+
+        /// Pictures (app.js:4820-4896)
+        enum Pictures {
+            static let removeAria = "Remove this picture"   // app.js:4835
+
+            /// Raised twice: once when there is no room at all, and again
+            /// when more were picked than there was room for.
+            static func full(_ max: Int) -> String {
+                "A note holds \(max) pictures."
+            }                                               // app.js:4875, 4894
+
+            static let noRoom = "No room left on this device for that picture."   // app.js:4891
+        }
     }
 }
