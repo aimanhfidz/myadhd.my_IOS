@@ -51,6 +51,7 @@ xcrun swiftc -O -wmo -o "$BUILD/migration" \
   MyADHD/Core/StoreFile.swift \
   MyADHD/Core/AppStore.swift \
   MyADHD/Bridge/LegacyImport.swift \
+  MyADHD/Bridge/LegacyStorageFile.swift \
   Shared/TaskSnapshot.swift
 
 "$BUILD/migration"

@@ -161,6 +161,11 @@ final class LegacyImport {
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let directory: URL
+
+    /// Where `LegacyStorageFile` goes looking. The app container in
+    /// life; a fixture in `Checks/migration.swift`, which is the only
+    /// reason it is a parameter at all.
+    @ObservationIgnored private let container: URL
     @ObservationIgnored private var web: WKWebView?
     @ObservationIgnored private var driver: Driver?
     @ObservationIgnored private var timer: DispatchWorkItem?
@@ -169,10 +174,12 @@ final class LegacyImport {
     @ObservationIgnored private weak var target: AppStore?
 
     init(defaults: UserDefaults = .standard,
-         directory: URL = StoreFile.defaultDirectory())
+         directory: URL = StoreFile.defaultDirectory(),
+         container: URL = LegacyStorageFile.defaultContainer())
     {
         self.defaults = defaults
         self.directory = directory
+        self.container = container
     }
 
     // MARK: - Is there anything to do
@@ -258,6 +265,22 @@ final class LegacyImport {
         finished = false
         phase = .reading
 
+        /* The file first. `localStorage` is a SQLite table in our own
+           container, and reading it costs a copy and a SELECT — where
+           asking a web view for the same bytes costs three helper
+           processes and, on a loaded phone, the better part of half a
+           minute (see LegacyStorageFile's header for measurements).
+
+           `nil` from the file reader is not "there is nothing". It is "I
+           could not tell" — no database, an unfamiliar layout, a copy
+           that failed — and the web view below is what answers that.
+           Anything else is a real answer and settles it here, which is
+           why the ordinary launch now makes no web view at all. */
+        if let onDisk = LegacyStorageFile.read(container: container) {
+            settle(read: Self.asReadResult(onDisk), failed: nil)
+            return
+        }
+
         let config = WKWebViewConfiguration()
         /* The store the shell used. Not a fresh non-persistent one — that
            would be an empty origin, which is the whole point of not using
@@ -309,6 +332,26 @@ final class LegacyImport {
             .first { $0.isKeyWindow }
     }
     #endif
+
+    /// The file reader's pairs, in the shape `settle` already takes from
+    /// the script — so there is one path through the decision, not two.
+    /// `origin` is recorded as the file it came from rather than a
+    /// `location.origin`, because no page was asked.
+    static func asReadResult(_ items: [String: String]) -> [String: Any] {
+        var out: [String: Any] = ["origin": "file"]
+        let map = [
+            "store":   "myadhd.v1",
+            "cloud":   "myadhd.cloud.v1",
+            "auth":    "myadhd.auth.v1",
+            "gcal":    "myadhd.gcal.v1",
+            "theme":   "myadhd.theme",
+            "calView": "myadhd.ios.calView",
+        ]
+        for (slot, key) in map {
+            if let value = items[key] { out[slot] = value }
+        }
+        return out
+    }
 
     // MARK: - The one script
 

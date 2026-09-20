@@ -75,6 +75,7 @@
 import Foundation
 import Security
 import WebKit
+import SQLite3   // to write the localStorage fixture the way WebKit writes one
 
 // MARK: - the report
 
@@ -299,7 +300,12 @@ final class Attempt {
         defaults = UserDefaults(suiteName: suite) ?? .standard
         file = StoreFile(directory: dir, clock: { now })
         store = AppStore(file: file, inShell: true, clock: { now })
-        importer = LegacyImport(defaults: defaults, directory: dir)
+        /* `container` is where LegacyStorageFile goes looking. Pointed
+           at the same temp directory, so a test can lay a WebKit tree
+           under it — or leave it bare, which is what every test that
+           existed before this one does, and is why they all still take
+           the web-view road. */
+        importer = LegacyImport(defaults: defaults, directory: dir, container: dir)
     }
 
     /// Run it and wait for the phase it settles on.
@@ -350,6 +356,39 @@ final class Attempt {
 /// zeroed on both sides here — and the value itself is asserted where it
 /// matters, as a stamp from this minute rather than a number out of
 /// nowhere.
+/// Lays down a `localStorage` database in the shape WebKit uses,
+/// under `container`, with the values UTF-16 little-endian encoded the
+/// way a WebKit string is. Returns the file it wrote.
+@discardableResult
+func seedLocalStorageFile(_ container: URL,
+                          bundleID: String = "my.adhd.ios",
+                          items: [String: String]) -> URL {
+    let dir = container
+        .appendingPathComponent("Library/WebKit/\(bundleID)/WebsiteData/Default")
+        .appendingPathComponent("mnAKv7YDj_uwniY0oJLASwymFy_Xv_brWjBVH0dSZic")
+        .appendingPathComponent("mnAKv7YDj_uwniY0oJLASwymFy_Xv_brWjBVH0dSZic")
+        .appendingPathComponent("LocalStorage")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appendingPathComponent("localstorage.sqlite3")
+
+    var handle: OpaquePointer?
+    sqlite3_open_v2(file.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil)
+    sqlite3_exec(handle, "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB NOT NULL ON CONFLICT FAIL)", nil, nil, nil)
+    for (k, v) in items {
+        var st: OpaquePointer?
+        sqlite3_prepare_v2(handle, "INSERT INTO ItemTable (key, value) VALUES (?, ?)", -1, &st, nil)
+        _ = k.withCString { sqlite3_bind_text(st, 1, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }
+        var utf16 = Data()
+        for unit in Array(v.utf16) {
+            utf16.append(UInt8(unit & 0xFF)); utf16.append(UInt8(unit >> 8))
+        }
+        _ = utf16.withUnsafeBytes { sqlite3_bind_blob(st, 2, $0.baseAddress, Int32(utf16.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }
+        sqlite3_step(st); sqlite3_finalize(st)
+    }
+    sqlite3_close(handle)
+    return file
+}
+
 func maskMintedStamps(_ text: String) -> String {
     var doc = StoreDocument.load(text: text)
     let nowMS = Date().timeIntervalSince1970 * 1000
@@ -417,6 +456,9 @@ struct MigrationChecks {
         nothingIsWrittenBack(r, origin)
         thePreferencesThatAreAlreadySet(r, origin)
         aFreshInstall(r, origin)
+        theFileIsReadWithoutAWebView(r, origin)
+        aFileWithNoStoreIsAnAnswer(r, origin)
+        noFileFallsBackToTheWebView(r, origin)
         anEmptyReadWithATrace(r, origin)
         aFailedReadWithNoTraceDoesNotHold(r, origin)
         theKeychainAloneIsNotATrace(r, origin)
@@ -709,6 +751,83 @@ struct MigrationChecks {
         let second = a.retry()
         r.equal("the retry brings it across", describe(second), "done(tasks: 3, notes: 2)")
         r.yes("and marks it done this time", a.migrated)
+    }
+
+    /// The fast path: the store read straight out of the SQLite file,
+    /// with no web view anywhere near it.
+    ///
+    /// This is the one that matters for the error that prompted it — a
+    /// web content process going unresponsive during a migration. There
+    /// is no web content process on this road at all.
+    @MainActor
+    static func theFileIsReadWithoutAWebView(_ r: Report, _ origin: Origin) {
+        r.open("the store is read from the file, and no web view is made")
+        origin.clear()      // the page has nothing: only the file does
+
+        let a = Attempt()
+        defer { a.clean() }
+        seedLocalStorageFile(a.dir, items: [
+            "myadhd.v1": Fixture.store,
+            "myadhd.cloud.v1": Fixture.cloud,
+            "myadhd.theme": "dark",
+            "myadhd.ios.calView": "week",
+        ])
+
+        /* Wound right down: if a web view were used, it could not finish
+           in a thousandth of a second and the phase would not be `done`. */
+        let was = LegacyImport.timeout
+        LegacyImport.timeout = 0.001
+        defer { LegacyImport.timeout = was }
+
+        let phase = a.run()
+        r.equal("it came across", describe(phase), "done(tasks: 3, notes: 2)")
+        r.yes("and the migration is marked done", a.migrated)
+        r.equal("the document is the one from the file",
+                maskMintedStamps(a.document ?? "(missing)"),
+                maskMintedStamps(StoreDocument.load(text: Fixture.store, inShell: true).jsonString))
+        r.equal("the theme came too", a.defaults.string(forKey: LegacyImport.groundKey) ?? "(none)", "dark")
+        r.equal("and the calendar view", a.defaults.string(forKey: LegacyImport.calViewKey) ?? "(none)", "week")
+    }
+
+    /// A file that exists and holds no store of ours is a real answer,
+    /// not a shrug: there is nothing to bring over and no web view is
+    /// needed to confirm it.
+    @MainActor
+    static func aFileWithNoStoreIsAnAnswer(_ r: Report, _ origin: Origin) {
+        r.open("a file with no store of ours answers without a web view")
+        origin.clear()
+
+        let a = Attempt()
+        defer { a.clean() }
+        seedLocalStorageFile(a.dir, items: ["something.else": "not ours"])
+
+        let was = LegacyImport.timeout
+        LegacyImport.timeout = 0.001
+        defer { LegacyImport.timeout = was }
+
+        let phase = a.run()
+        r.equal("nothing to bring", describe(phase), "done(tasks: 0, notes: 0)")
+        r.yes("and it is marked done rather than retried for ever", a.migrated)
+    }
+
+    /// No file at all is NOT an answer. The layout is Apple's and could
+    /// change; when it is not recognised the web view still has to run,
+    /// which is what every other test in this file exercises.
+    @MainActor
+    static func noFileFallsBackToTheWebView(_ r: Report, _ origin: Origin) {
+        r.open("no file falls back to the web view")
+        origin.clear()
+        seedEverything(origin)          // the page has it; no file exists
+
+        let a = Attempt()
+        defer { a.clean() }
+        r.equal("there really is no database",
+                LegacyStorageFile.locate(container: a.dir, bundleID: "my.adhd.ios")?.path ?? "(none)",
+                "(none)")
+
+        let phase = a.run()
+        r.equal("the web view brought it across", describe(phase), "done(tasks: 3, notes: 2)")
+        r.yes("and marked it done", a.migrated)
     }
 
     /// The case that is a real person: they deleted the app and

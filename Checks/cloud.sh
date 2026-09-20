@@ -66,6 +66,7 @@ xcrun swiftc -O -wmo -o "$BUILD/cloud" \
   MyADHD/Sync/Supabase.swift \
   MyADHD/Sync/CloudSync.swift \
   MyADHD/Bridge/LegacyImport.swift \
+  MyADHD/Bridge/LegacyStorageFile.swift \
   Shared/TaskSnapshot.swift
 
 # tz                  epoch ms         what it is
