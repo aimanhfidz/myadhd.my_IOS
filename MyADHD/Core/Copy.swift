@@ -723,4 +723,268 @@ enum Copy {
             static let noRoom = "No room left on this device for that picture."   // app.js:4891
         }
     }
+
+    // MARK: - The two characters the web writes as escapes
+
+    /* app.js builds several of the lines below by concatenating string
+       literals around a —, and app.html writes the same character as
+       an entity. Neither form is the character, so the sentences here are
+       assembled the way app.js assembles them and these two constants
+       stand in for the escape. Checks/copy.sh then greps each literal
+       fragment against the source it came from and the dash against the
+       many places the web writes it out. */
+
+    /// `—`, with the spaces the web puts either side of it.
+    static let emDash = " — "      // app.js:3686, 2721
+
+    /// `&hellip;` in app.html, a real ellipsis everywhere in app.js.
+    static let ellipsis = "…"      // app.js:1666
+
+    // MARK: - Settings (app.html:662-850; app.js:3944-3964)
+
+    /// The Subscription group, the Plans screen and the two donate tins
+    /// are deliberately absent — App Store 3.1.1, and nothing in the app
+    /// is gated, so there is no feature behind them to lose (design §4,
+    /// decision 4). No copy for them is carried here either: a string in
+    /// this file is a promise that something draws it.
+    enum Settings {
+        static let backAria = "Back to home"    // app.html:664
+        static let back = "Home"                // app.html:666
+        static let title = "Settings"           // app.html:668
+
+        // the captions over the groups
+        static let capAccount = "Account"       // app.html:697
+        static let capSync = "Sync calendars"   // app.html:763
+        static let capAbout = "About"           // app.html:796
+
+        // the one row in the Account group this build draws
+        static let profileRow = "Profile"                 // app.html:703
+        static let greetingPlain = "Hey there."           // app.html:704, app.js:3922
+        static func greeting(name: String) -> String {
+            "Hey \(name)."
+        }                                                 // app.js:3922
+
+        // the About group, in order
+        static let feedbackRow = "Send feedback"                  // app.html:805
+        static let feedbackNote = "Tell us what to fix."          // app.html:806
+        static let shareRow = "Share with friends"                // app.html:813
+        static let shareNote = "Someone you know has this too."   // app.html:814
+        static let privacyRow = "Privacy policy"                  // app.html:821
+        static let termsRow = "Terms"                             // app.html:830
+
+        /* paintLocalNote (app.js:3677-3693). Three readings of the same
+           question — where does this actually live — and which one is
+           true depends on the account and the calendar, so the note is
+           re-drawn whenever either of them moves. Each is written the way
+           app.js writes it, one Swift literal per JS literal, so every
+           fragment greps. */
+
+        /// Signed in.
+        static let localSignedIn =
+            "Your lists are on this device and in your account, which is how they "
+            + "reach your other devices. Your name, your face and the calendar link "
+            + "stay on this device only."                 // app.js:3683-3685
+
+        /// Signed out, with the calendar on offer.
+        static let localCalendar =
+            "Your tasks live in this browser only" + emDash + "no account, no server. The "
+            + "calendar link above is the one exception, and only while it is "
+            + "switched on."                              // app.js:3686-3688
+
+        /// Signed out, and no calendar either.
+        static let localAlone =
+            "This lives in this browser only" + emDash + "no account, no sync, nothing "
+            + "leaves the device."                        // app.js:3689-3690
+
+        static let version = "v0.1.0"   // app.html:844
+        static let versionTag = "Beta"  // app.html:844
+    }
+
+    // MARK: - Profile (app.html:855-887; app.js:3875-3942)
+
+    /// `Copy.Profile`, which shadows the store's `Profile` inside this
+    /// file and nowhere else — the same arrangement `Copy.Theme` already
+    /// has with the palette.
+    enum Profile {
+        static let backAria = "Back to settings"   // app.html:860
+        static let back = "Settings"               // app.html:862
+        static let title = "Profile"               // app.html:864
+
+        static let nameLabel = "What should I call you?"   // app.html:876
+        static let namePlaceholder = "Your name"           // app.html:878
+        /// `maxlength="24"`, and `slice(0, 24)` again behind it because a
+        /// paste beats an attribute (app.html:877, app.js:5570).
+        static let nameMax = 24
+
+        static let pickLabel = "Pick a face"    // app.html:882
+        static let pickAria = "Pick an avatar"  // app.html:883
+
+        static func useFace(_ face: String) -> String {
+            "Use \(face) as your face"
+        }                                       // app.js:3937
+
+        static let hint = "This name and face are on this device only. They are not "
+            + "part of an account and they do not travel with your lists."   // app.html:886-887
+    }
+
+    // MARK: - Feedback (app.html:893-968; app.js:2654-2724)
+
+    /// The tins are absent here for the same reason the plans are — see
+    /// `Settings`. `MYADHD_DONATE_URL` is forced empty in the shell
+    /// anyway (BridgeScript), so this screen has never drawn them on iOS.
+    enum Feedback {
+        static let backAria = "Back to settings"   // app.html:894
+        static let back = "Settings"               // app.html:896
+        static let title = "Feedback"              // app.html:898
+
+        static let heading = "Tell us what to fix"   // app.html:910
+        static let lede = "Your ADHD is already halfway through a list of things "
+            + "this app should do differently. We would genuinely like that list. "
+            + "No name, no account" + emDash + "just say it."   // app.html:911-913
+
+        static let label = "What would make this better?"   // app.html:917
+        static let placeholder = "the thing that annoyed you, the feature you keep "
+            + "reaching for, the bit that made no sense" + ellipsis   // app.html:921
+
+        /// `maxlength="2000"`, and the counter says so out loud.
+        static let max = 2000
+        static func counter(_ trimmed: Int) -> String {
+            "\(trimmed) / 2000"
+        }                                          // app.js:2673
+
+        /// Under this many characters the button is dead and a press only
+        /// moves the caret back into the box.
+        static let minimum = 4                     // app.js:2674, 2680
+
+        static let send = "Send it"                // app.html:928
+        static let sending = "Sending…"            // app.js:2683
+
+        /// `<strong>One a day.</strong>` and the rest of the paragraph.
+        static let noteStrong = "One a day."       // app.html:933
+        static let noteRest = " Keeps the spam out, and it means the notes "
+            + "that land are the ones someone actually thought about. Nothing you send "
+            + "is tied to you" + emDash + "no name, no account, no email."   // app.html:933-935
+
+        static let thanksTitle = "Got it. Thank you."   // app.html:950
+
+        /// The default on the card, and what a 2xx leaves behind.
+        static let thanksToday =
+            "That is your one for today — the box opens again tomorrow."   // app.js:2707
+        /// A 429: the server already had one from here today. The device
+        /// is spent either way, so this counts as a send.
+        static let thanksAlready =
+            "Looks like one already came through from here today — the box opens again tomorrow."   // app.js:2706
+
+        // the three failures, each of which becomes `Could not send — …`
+        static let noSignal = "no signal. Your note is still here"      // app.js:2696
+        static let notWired = "the feedback box is not wired up yet"    // app.js:2714
+        static let broke = "something broke on our end"                 // app.js:2715
+
+        static func failed(_ message: String) -> String {
+            "Could not send — \(message)."
+        }                                                               // app.js:2718
+    }
+
+    // MARK: - Share with friends (app.js:4108-4128)
+
+    enum Share {
+        static let title = "my.adhd"   // app.js:4119
+        static let text = "my.adhd — dump everything on your mind, get back one thing to do."   // app.js:4111
+        static let url = "https://myadhd.my"   // app.js:4110
+    }
+
+    // MARK: - The account card (app.html:714-753; app.js:3593-3826)
+    //
+    // Two of these come from cloud.js rather than app.js — the sync's own
+    // error strings, which the hint line prints verbatim. They are why
+    // `Checks/copy.sh` now greps cloud.js and auth.js as well.
+    //
+    // Every literal here breaks where the JavaScript breaks it. app.js
+    // builds most of these sentences out of two or three concatenated
+    // strings, and a Swift constant holding the joined-up sentence would
+    // not grep back to any single line of the source.
+
+    enum Account {
+
+        // signed out (app.js:3609-3620)
+        static let face = "\u{1F464}"                  // app.js:3609
+        static let outTitle = "Just this device"       // app.html:718, app.js:3610
+        static let outState = "Not signed in"          // app.html:719, app.js:3611
+        static let outNote =
+            "Your lists live in this browser alone, so your phone and your laptop "
+            + "each keep a separate one. Sign in and they become the same list — and "
+            + "the calendar link stops asking you to reconnect."   // app.js:3613-3615
+        static let signIn = "Sign in with Google"      // app.html:723, app.js:3616
+        /// The button while Safari is opening — the same words the signup
+        /// offer writes (app.js:5559).
+        static let takingYou = "Taking you to Google…"   // app.js:3700
+
+        // signed in (app.js:3624-3671)
+        static let inFace = "\u{2713}"                 // app.js:3624
+        static let inTitle = "Signed in"               // app.js:3626
+
+        /// The note gains a sentence when the calendar is linked and not
+        /// stale, because this button drives that too.
+        static func inNote(pushesBoth: Bool) -> String {
+            "Your lists sync to every device you sign in on, and the calendar link "
+                + (pushesBoth
+                   ? "renews itself. Sync now pushes both."
+                   : "renews itself.")
+        }                                              // app.js:3631-3636
+
+        static let syncNow = "Sync now"                // app.js:3657
+        static let syncing = "Syncing…"                // app.js:3657
+        static let signOut = "Sign out"                // app.html:729
+
+        // the hint line, which doubles as the sync's only report
+        static let bringingUpToDate = "Bringing this device up to date…"   // app.js:3666
+        static let signingOutIsSafe = "Signing out leaves this device’s copy alone."   // app.js:3670
+
+        /// `Your lists are not travelling right now${err ? ` — ${err}` : ''}. It keeps trying.`
+        static func notTravelling(_ reason: String?) -> String {
+            "Your lists are not travelling right now"
+                + (reason.map { " — " + $0 } ?? "")
+                + ". It keeps trying."
+        }                                              // app.js:3668
+
+        // cloud.js's own two, printed by the line above
+        static let unreachable = "could not reach the server"   // cloud.js:147
+        static func serverAnswered(_ status: Int) -> String {
+            "the server answered \(status)"
+        }                                              // cloud.js:237
+
+        // syncEverything's answers (app.js:3735-3748)
+        static let listsUnreachable = "Could not reach your lists. It keeps trying."   // app.js:3735
+        static let googleSilent = "Lists are up to date. Google did not answer — it keeps trying."   // app.js:3737
+        static let googleStale = "Lists are up to date. Google wants you to sign in again."   // app.js:3741
+
+        static func cameOver(_ added: Int) -> String {
+            "Up to date. " + (added == 1 ? "1 task" : "\(added) tasks") + " came over."
+        }                                              // app.js:3746
+        static let otherDeviceRemoved = "Up to date. Your other device had removed some."   // app.js:3747
+        static let alreadyUpToDate = "Already up to date."   // app.js:3748
+
+        // signing out, and coming back (app.js:3750, 3866)
+        static let signedOut = "Signed out. Your lists are still here."   // app.js:3750
+        static let signedIn = "Signed in. Bringing your lists together…"   // app.js:3866
+
+        // ending the account (app.html:742-752; app.js:3777-3826)
+        static let delete = "Delete account"           // app.html:744
+        static let cancel = "Cancel"                   // app.html:748
+        static let firstAsk =
+            "Delete your account? Your lists stay on this device. What goes is the "
+            + "copy that lets your devices meet — and the Google Calendar link with it."   // app.js:3790-3791
+        static let firstGo = "Yes, delete my account"  // app.js:3792
+        static let lastAsk =
+            "Last check — this ends the account for good. Signing in again starts a "
+            + "new empty one; it cannot bring this one back."   // app.js:3796-3797
+        static let lastGo = "Delete my account"        // app.js:3798
+        static let deleting = "Deleting…"              // app.js:3801
+        static let deleteFailed = "Could not delete the account. Nothing has changed."   // app.js:3815
+        static let deleted = "Account deleted. Your lists are still on this device."   // app.js:3823
+
+        /// `setTimeout(resetAcctDelete, 20000)` — the same disarm the
+        /// lists' danger zone has (app.js:3824).
+        static let disarmAfter: TimeInterval = 20
+    }
 }

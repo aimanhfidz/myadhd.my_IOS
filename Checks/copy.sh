@@ -15,6 +15,17 @@
 #                             (the native titles the shell already draws)
 #   My.adhd/theme.js          (the one pair of strings app.html cannot
 #                              carry: the theme toggle relabels itself)
+#   My.adhd/cloud.js          (the sync phases and their error sentences)
+#   My.adhd/auth.js           (signing in, and what it says when it cannot)
+#   My.adhd/gcal.js           (the calendar link's own errors)
+#   My.adhd/voice.js          (the mic's hints)
+#   My.adhd/config.js
+#
+# The last five arrived with the port itself: the app used to be app.js and
+# a page, so app.js was the whole of the copy. Now that the account card,
+# the calendar link and the mic are Swift, the sentences they say are in
+# the modules that said them. A needle sourced from cloud.js was failing
+# here for no better reason than that this list had not caught up.
 #
 # Two normalisations, both of which only make matching looser, never
 # wrong:
@@ -42,12 +53,20 @@ IOS_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WEB_ROOT=${1:-"$(dirname "$IOS_ROOT")/My.adhd"}
 
 COPY="$IOS_ROOT/MyADHD/Core/Copy.swift"
-BRIDGE="$IOS_ROOT/MyADHD/BridgeScript.swift"
+# Retired from the build at the cutover, kept as the spec for the screens
+# that came out of it — see reference/README.md.
+BRIDGE="$IOS_ROOT/reference/BridgeScript.swift"
 APP_JS="$WEB_ROOT/app.js"
 APP_HTML="$WEB_ROOT/app.html"
 THEME_JS="$WEB_ROOT/theme.js"
+CLOUD_JS="$WEB_ROOT/cloud.js"
+AUTH_JS="$WEB_ROOT/auth.js"
+GCAL_JS="$WEB_ROOT/gcal.js"
+VOICE_JS="$WEB_ROOT/voice.js"
+CONFIG_JS="$WEB_ROOT/config.js"
 
-for f in "$COPY" "$BRIDGE" "$APP_JS" "$APP_HTML" "$THEME_JS"; do
+for f in "$COPY" "$BRIDGE" "$APP_JS" "$APP_HTML" "$THEME_JS" \
+         "$CLOUD_JS" "$AUTH_JS" "$GCAL_JS" "$VOICE_JS" "$CONFIG_JS"; do
   if [ ! -f "$f" ]; then
     echo "copy.sh: missing $f" >&2
     echo "copy.sh: pass the My.adhd checkout as the first argument" >&2
@@ -65,6 +84,7 @@ FRAGS="$WORK/fragments.txt"
 # Decode the handful of HTML entities app.html actually uses, then flatten.
 # &amp; is decoded last so &amp;#39; cannot turn into an apostrophe.
 cat "$APP_JS" "$APP_HTML" "$THEME_JS" "$BRIDGE" \
+    "$CLOUD_JS" "$AUTH_JS" "$GCAL_JS" "$VOICE_JS" "$CONFIG_JS" \
   | sed -e "s/&#39;/'/g" \
         -e 's/&quot;/"/g' \
         -e 's/&times;/\xc3\x97/g' \
@@ -110,7 +130,7 @@ echo "---"
 echo "checked $checked fragments, skipped $skipped, missing $missing"
 
 if [ "$missing" -gt 0 ]; then
-  echo "copy.sh FAILED — the lines above are not in app.js, app.html or BridgeScript.swift."
+  echo "copy.sh FAILED — the lines above are in none of the web app's sources."
   echo "Copy is the product: go and find the real string rather than rewording this one."
   exit 1
 fi

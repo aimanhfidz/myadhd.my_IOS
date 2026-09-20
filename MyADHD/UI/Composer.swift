@@ -35,10 +35,21 @@
    the speed it was let go at: 130–300 ms, from how far the sheet still has
    to fall.
 
-   **The mic is not here yet.** `#composer-voice` is hidden on the web
-   whenever `Voice.available()` is false, which it is on a build with no
-   recorder — so its absence is a state the web app already has, not a
-   hole. It arrives with `Voice/` (design §2.2).
+   **The mic.** `#composer-voice` is anchored to the bottom of the sheet
+   rather than sitting in the flow, because the body scrolls and a mic that
+   scrolls off is a mic you cannot find one-handed. It goes when the
+   keyboard comes — there is no arrangement in which a button 30pt off the
+   bottom of the screen is visible over a keyboard, and hiding it is more
+   honest than letting it be covered. Typing and talking are alternatives,
+   not a pair, which is also why the body's bottom padding drops from 150
+   to 24 the moment the caret lands.
+
+   It is not built at all when `VoiceRecorder.available` is false, which is
+   what the web does with `Voice.available()` — hidden outright, never
+   present and dimmed. Everything it does is in `MicButton`; what belongs
+   here is where it hangs, that a touch on it is not a drag on the sheet
+   (the web's `e.target.closest('button')` guard), and that closing the
+   sheet throws a live hold away.
    ============================================================ */
 
 import SwiftUI
@@ -64,6 +75,24 @@ final class DumpBuffer {
     /// committed a sentence and is going to keep typing (app.js:5618).
     var wantsFocus = false
 
+    /// `spokenDump` (app.js:547). Null means typed, and typing is the
+    /// assumption: it is set only by a hold that produced words, and
+    /// `triage()` takes it and clears it in the same breath.
+    ///
+    /// **Single use, and cleared by anything that writes text the user
+    /// did not speak.** Inviting the repair pass on words someone chose
+    /// themselves means watching their own sentences get rewritten under
+    /// them — so `deliver()` clears it, because Siri, the share sheet and
+    /// `myadhd://dump?text=` are all somebody else's text arriving.
+    /// `write()` does not, because that is only ever this app moving its
+    /// own buffer about, which is the `ownWrite` guard on the web.
+    struct Spoken {
+        var source: VoiceSource
+        var lang: String?
+    }
+
+    private(set) var spoken: Spoken?
+
     init(text: String = "") { self.text = text }
 
     /// `writeBuffer(text)` (app.js:553-557). The app writing to its own
@@ -71,9 +100,27 @@ final class DumpBuffer {
     /// not treat it as somebody typing.
     func write(_ value: String) { text = value }
 
+    /// `spokenDump = { source, lang }` (app.js:5449).
+    func spoke(source: VoiceSource, lang: String?) {
+        spoken = Spoken(source: source, lang: lang)
+    }
+
+    /// `const spoken = spokenDump; spokenDump = null;` (app.js:568-569).
+    /// `vocab` is deliberately not stored beside the other two: the web
+    /// calls `knownNames()` again at triage time, over the task list as
+    /// it stands then and not as it stood when the mic was let go.
+    func takeSpoken(vocab: @autoclosure () -> [String]) -> TriageClient.Spoken? {
+        guard let spoken else { return nil }
+        self.spoken = nil
+        return TriageClient.Spoken(source: spoken.source.rawValue,
+                                   lang: spoken.lang,
+                                   vocab: vocab())
+    }
+
     /// The shell's `fillDumpBox` landing (app.js:5607-5619). Blank text is
     /// dropped rather than opening an empty sheet.
     func deliver(_ value: String) {
+        spoken = nil                         // app.js:5609
         guard !JSText.trim(value).isEmpty else { return }
         text = value
         wantsComposer = true
@@ -95,6 +142,12 @@ struct Composer: View {
 
     let buffer: DumpBuffer
     let store: AppStore
+
+    /// The mic's toasts — the cap, a refusal, a transcriber that could
+    /// not be reached. Required rather than optional on purpose: a host
+    /// that forgot to pass one would lose "no mic access" silently, and
+    /// that is the message the button most needs to be able to say.
+    let toasts: ToastCenter
 
     /// Set false by every way out. The host keeps it.
     @Binding var isPresented: Bool
@@ -120,6 +173,22 @@ struct Composer: View {
 
     @State private var input = ComposerInput()
 
+    // MARK: the mic
+
+    /// One recorder per sheet. It holds no state between holds worth
+    /// keeping and it releases the audio session on every close, so
+    /// there is nothing to hoist above this view.
+    @State private var recorder = VoiceRecorder()
+    @State private var mic = MicControl()
+
+    /// `.composer.is-typing` — set on the box's focus and cleared on its
+    /// blur (app.js:5270-5276).
+    @State private var typing = false
+
+    /// Where the mic is, so a touch that lands on it is not a drag on the
+    /// sheet. The web gets this from `e.target.closest('button')`.
+    @State private var micFrame: CGRect = .zero
+
     private enum Phase { case entering, home, leaving }
 
     // app.js:2057-2079
@@ -139,6 +208,7 @@ struct Composer: View {
         }
         .coordinateSpace(name: Self.space)
         .onPreferenceChange(InputFrame.self) { inputFrame = $0 }
+        .onPreferenceChange(MicButtonFrame.self) { micFrame = $0 }
         /* Carries over whatever is sitting in the dump box, so a
            half-written thought is not lost by reaching for the + instead of
            the dump screen (app.js:1913). */
@@ -176,6 +246,7 @@ struct Composer: View {
             body(for: text)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .bottom) { voice }
         .background {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(theme.surface)
@@ -263,6 +334,44 @@ struct Composer: View {
     /// `el.compPost.disabled = value.trim().length === 0` (app.js:1894).
     private var canSend: Bool { !JSText.trim(text).isEmpty }
 
+    // MARK: the mic
+
+    /// Whether the mic is on screen and taking touches — which is what
+    /// both the body's bottom padding and the drag's exclusion zone
+    /// actually depend on.
+    private var micIsUp: Bool { VoiceRecorder.available && !typing }
+
+    /// `#composer-voice` (app.html:1118-1127, styles.css:2152-2165).
+    /// Absent, not disabled, when there is no microphone to open.
+    @ViewBuilder
+    private var voice: some View {
+        if VoiceRecorder.available {
+            MicButton(recorder: recorder,
+                      control: mic,
+                      space: Self.space,
+                      text: $text,
+                      /* `knownNames()` over the store as it stands when
+                         the finger lands, not as it stood when the sheet
+                         opened. */
+                      vocab: { KnownNames.from(tasks: store.doc.tasks) },
+                      onSpoken: { source, lang in
+                          buffer.spoke(source: source, lang: lang)
+                      },
+                      toast: { toasts.show($0) })
+                /* `bottom: calc(30px + env(safe-area-inset-bottom))`. The
+                   sheet's background is the thing that runs under the home
+                   indicator; its content stops at the safe area, so this is
+                   measured from there. */
+                .padding(.bottom, 30)
+                /* The keyboard and the mic cannot both have the bottom of
+                   the screen. */
+                .opacity(typing ? 0 : 1)
+                .offset(y: typing ? 10 : 0)
+                .allowsHitTesting(!typing)
+                .animation(still(Theme.ease(0.18)), value: typing)
+        }
+    }
+
     // MARK: the body
 
     private func body(for value: String) -> some View {
@@ -286,7 +395,11 @@ struct Composer: View {
                                      controller: input,
                                      placeholder: Copy.Composer.placeholder,
                                      ink: UIColor(theme.ink),
-                                     faint: UIColor(theme.faint))
+                                     faint: UIColor(theme.faint),
+                                     /* `is-typing` (app.js:5270-5276). The
+                                        keyboard and the mic cannot both have
+                                        the bottom of the screen. */
+                                     onFocus: { typing = $0 })
                         .frame(height: max(26, textHeight))
                         /* Where the box is, so a touch that starts on it can
                            be told from one that starts anywhere else — the
@@ -308,7 +421,10 @@ struct Composer: View {
             }
             .padding(.horizontal, barGutter)
             .padding(.top, 16)
-            .padding(.bottom, 24)
+            /* `.composer-body { padding-bottom: 150px }`, which clears the
+               mic so a long dump never ends up underneath it — and 24 once
+               the keyboard has taken the mic's place. */
+            .padding(.bottom, micIsUp ? 150 : 24)
             .background(
                 GeometryReader { g in
                     Color.clear.preference(
@@ -368,6 +484,7 @@ struct Composer: View {
 
     /// `cancelComposer()` (app.js:2043-2053). The text is kept.
     private func cancel() {
+        mic.abandon()                  // Voice.abandon(); restMic();
         store.clearPendingQuadrant()   // the quadrant was this sheet's
         buffer.write(text)
         close()
@@ -435,6 +552,15 @@ struct Composer: View {
 
             /* A body scrolled off its top is being read, not dragged. */
             if bodyScrolledDown { drag.dead = true; return }
+
+            /* `if (e.target.closest('button')) return;` (app.js:2091). The
+               mic is the one button inside the sheet's own drag area, and
+               a hold on it lasts half a minute — without this the sheet
+               would follow the thumb for the whole recording. */
+            if micIsUp && micFrame.contains(g.startLocation) {
+                drag.dead = true
+                return
+            }
 
             /* The text is the one surface with something else to do with a
                touch — a tap has to land a caret, a sideways drag has to
@@ -567,6 +693,9 @@ struct ComposerTextView: UIViewRepresentable {
     let ink: UIColor
     let faint: UIColor
 
+    /// The caret arriving and leaving — `focus` and `blur` on the web.
+    var onFocus: (Bool) -> Void = { _ in }
+
     /// 16.5px / 1.45, in the app's own face.
     private static let size: CGFloat = 16.5
 
@@ -623,6 +752,14 @@ struct ComposerTextView: UIViewRepresentable {
         var hint: UILabel?
 
         init(_ parent: ComposerTextView) { self.parent = parent }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            parent.onFocus(true)
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            parent.onFocus(false)
+        }
 
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text ?? ""

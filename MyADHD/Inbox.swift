@@ -14,6 +14,22 @@
 
 import Foundation
 
+/* These lived in WebScreen.swift, because the web view was the only thing
+   that listened for them. It is gone; the two that are still posted live
+   here, beside the code that posts them.
+
+   `myadhd.reload` went with it: it was the retry button on the offline
+   screen, and there is no offline screen in an app that opens without a
+   connection. */
+extension Notification.Name {
+    /// A myadhd:// link, or the Shortcut, arriving while the app is up.
+    /// A cold launch does not need it — `AppShell` drains the same inbox
+    /// on boot, which is the whole reason `put` writes before it posts.
+    static let myadhdOpen = Notification.Name("myadhd.open")
+    /// Asked for by myadhd://wallpaper and by the Shortcuts phrase.
+    static let myadhdWallpaper = Notification.Name("myadhd.wallpaper")
+}
+
 enum Inbox {
 
     private static let key = "myadhd.pendingDump"

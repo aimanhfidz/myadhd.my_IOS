@@ -21,23 +21,20 @@
    is a start.
 
    ---------------------------------------------------------------------
-   Two doors in, one room behind them (design.md §2.2).
+   One door in: `sync(json:)`. The caller already has the store's bytes —
+   `StoreBridge` hands it exactly what `AppStore` just wrote — so there
+   is nothing to ask anyone for.
 
-   `sync(json:)` is the native one: the caller already has the store's
-   bytes — `StoreBridge` hands it exactly what `AppStore` just wrote — so
-   there is nothing to ask a page for.
+   There were two until the cutover. The other one read the store out of
+   the page with `evaluateJavaScript` and went when the page did; only
+   the read ever differed, and `Checks/bridge.swift` proved the two
+   inputs produced the same schedule before the web one was removed.
 
-   `sync(from: WKWebView)` is the shell's, and it is the one that goes
-   away at the cutover. It exists only to do the read; everything after
-   the read is the same code, and `Checks/bridge.swift` proves the two
-   inputs produce the same schedule.
-
-   What is deliberately NOT symmetrical: the web route also calls
-   `TaskBridge.write`, because it is riding the one `evaluateJavaScript`
-   the shell gets and the widget's copy must come off the same read. The
-   native route does not, because `StoreBridge` calls `TaskBridge` itself,
-   with the same bytes, in the same pass. Calling it here as well would
-   be two keychain writes of one snapshot.
+   This route deliberately does NOT call `TaskBridge.write`. The web one
+   did, because it was riding the single read it got and the widget's
+   copy had to come off the same one. Here `StoreBridge` calls
+   `TaskBridge` itself, with the same bytes, in the same pass — doing it
+   again would be two keychain writes of one snapshot.
 
    The rules — which tasks ring, at what time, in what order, how many —
    are in `Bridge/ReminderPlan.swift`, unchanged and testable off-device.
@@ -45,7 +42,6 @@
 
 import UIKit
 import UserNotifications
-import WebKit
 
 enum Reminders {
 
@@ -95,51 +91,6 @@ enum Reminders {
         authorize(forItems: items) { allowed in
             guard allowed else { finish(); return }
             replaceSchedule(with: items, then: finish)
-        }
-    }
-
-    // MARK: - the web pass (deleted at the cutover, with WebScreen)
-
-    /// Reads the store out of the page and rebuilds the schedule from it.
-    ///
-    /// The read and the three notification-centre round trips after it are
-    /// every one of them asynchronous, and the most valuable moment to run
-    /// this is the moment the app is being put away — which is also the
-    /// moment iOS stops giving it time. Hence the background task: without
-    /// it the chain gets frozen somewhere in the middle and the schedule is
-    /// left half rebuilt.
-    static func sync(from web: WKWebView) {
-        var ticket = UIBackgroundTaskIdentifier.invalid
-        ticket = UIApplication.shared.beginBackgroundTask(withName: "myadhd.reminders") {
-            UIApplication.shared.endBackgroundTask(ticket)
-            ticket = .invalid
-        }
-        let finish = {
-            guard ticket != .invalid else { return }
-            UIApplication.shared.endBackgroundTask(ticket)
-            ticket = .invalid
-        }
-
-        web.evaluateJavaScript("localStorage.getItem('\(storeKey)')") { value, error in
-            /* No page to ask means no answer, not an empty store. Rebuilding
-               from that would cancel every reminder the app has — which is
-               exactly what a sync fired on launch, before the first load,
-               would otherwise do. */
-            guard error == nil else { finish(); return }
-
-            /* The widget's copy, taken from the same read and taken HERE —
-               above the permission gate below, which returns early for
-               anyone who declined notifications. A widget has nothing to do
-               with notifications and must not be starved by that answer.
-               The write is a few milliseconds of keychain, well inside the
-               background task this is already holding. */
-            TaskBridge.write(from: value as? String)
-
-            let items = parse(value as? String)
-            authorize(forItems: items) { allowed in
-                guard allowed else { finish(); return }
-                replaceSchedule(with: items, then: finish)
-            }
         }
     }
 

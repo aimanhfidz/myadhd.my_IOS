@@ -1,6 +1,6 @@
 # Checks
 
-Eight scripts. None of them is a unit test in the usual sense — there is no
+Ten scripts. None of them is a unit test in the usual sense — there is no
 Xcode test target and no package here. Each one compiles the **real**
 `MyADHD/` and `Shared/` sources with `swiftc`, the same files the app target
 compiles, and then holds their answers against something outside the port:
@@ -16,7 +16,7 @@ Run them all:
 
 ```sh
 cd "/Users/User/Desktop/Claude Code/myadhd.my_IOS"
-for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration; do
+for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration wav cloud; do
   ./Checks/$c.sh || echo "FAILED: $c"
 done
 ```
@@ -37,7 +37,7 @@ or `BRIDGE_BUILD` if you need it somewhere specific.
 `DEVELOPER_DIR` defaults to `/Applications/Xcode.app/Contents/Developer`,
 because `xcode-select` on this machine points elsewhere.
 
-`storefile.sh` and `migration.sh` also pass `-wmo`, and not for speed. Without
+`storefile.sh`, `migration.sh` and `wav.sh` also pass `-wmo`, and not for speed. Without
 it the driver names each object file after its input's basename, and
 `Checks/storefile.swift` sits beside the app's own `MyADHD/Core/StoreFile.swift`
 — on a case-insensitive filesystem the second object lands on the first, takes
@@ -351,6 +351,133 @@ temp directory, the six `myadhd` keys on that origin, and two keychain items
 Nothing in the repo is written.
 
 **Last run:** 63 checks, all passed.
+
+---
+
+## `wav.sh` — the recording is the same file the web would have sent
+
+```sh
+./Checks/wav.sh [path/to/voice.js]
+```
+
+**Proves:** `WAV.encode`, `WAV.resample` and `WAV.heardAnything` — the app's
+own `MyADHD/Voice/WAV.swift`, compiled for the Mac — against the real
+`voice.js` running in a `JSContext`. Four slices are cut out of that file by
+line number every run and anchored by content: `RATE` (54), `resample`
+(222-234), `toWav` (240-262) and `heardAnything` (278-285).
+
+Two seconds of synthetic 440 Hz at 48 kHz goes through both sides. The header
+is then read back field by field — RIFF / WAVE / `fmt ` / PCM / mono / 16 kHz
+/ 32000 bytes per second / block align 2 / 16 bits / a `data` size of 64000 —
+and every one of the 64044 bytes is compared with what `voice.js` wrote from
+the identical `Float32` samples. Seven more cases cover the fractional ratio a
+44.1 kHz input gives, the identity path, full-scale clipping, a ramp through
+±1.2 (the clamp and the asymmetric 0x8000-down / 0x7fff-up scale), exactly ±1,
+an input too short to make one output frame, and silence.
+
+Then the floor: `heardAnything` over digital silence, a 1e-6 tap, a 0.008 hold
+in a pocket, exactly 0.01, 0.0101, a quiet-but-real 0.05, a negative-only
+signal and an empty buffer — each required to agree with `voice.js` *and* with
+the answer written down here. Near-silence is a tapped button or a hold in a
+pocket, and paying for a round trip to be told so is the one cost this saves.
+
+Finally, that the floor is actually in the upload path. `VoiceRecorder` needs
+`AVAudioSession` and cannot be built for a Mac, so its guard is read rather
+than run: `stop()` must contain exactly one call to `WAV.encode`, the floor
+must appear above it, and there must be a `return` in between. Agreeing about
+a rule nothing obeys would be the easiest way for this check to pass and the
+app to still upload silence.
+
+Why the writer and the two sample rules live in `WAV.swift` and not beside the
+engine: it is the only file in `Voice/` that builds for a Mac at all.
+`VoiceRecorder` is `AVAudioSession`, and `TranscribeClient` reaches
+`AppConfig`, which is UIKit. A writer that could only be built for the phone
+would be a writer nobody could check.
+
+**Last run:** 35 checks, all passed. 8 files compared byte for byte.
+
+---
+
+## `cloud.sh` — the sync cannot lose a task
+
+```sh
+./Checks/cloud.sh [path/to/cloud.js]
+```
+
+**Proves:** `CloudBook`, `CloudSync` and `Supabase` decide what
+`cloud.js` decides — the signature, the stamp, the merge, what goes up,
+and the bytes on the wire.
+
+This is the most data-sensitive check in the tree. A conflict rule ported
+slightly wrong fails no build and reddens no test: it deletes somebody's
+task on their other phone, or resurrects one they threw away, weeks later.
+So every rule is **cut out of the real `cloud.js` by content** — anchored
+on the lines that carry it, so a rename fails the run by name rather than
+sliding onto whatever moved into a line range — and run in JavaScriptCore
+beside the Swift.
+
+Seven sections:
+
+1. **`sigOf`, byte for byte**, over 220 task fixtures: unicode titles,
+   emoji that straddle surrogate pairs, quotes and backslashes, control
+   characters, null fields, `gcal` refs, unknown keys, rows with and
+   without `updatedAt`. Plus the two properties on their own — that
+   `s.length` counts UTF-16 code units (a surrogate pair is two), and that
+   `updatedAt` is not part of the hash.
+
+2. **The two copies of `sigOf` agree.** `LegacyImport` carries its own
+   (LegacyImport.swift:464) because the migration launch reseals the book
+   before anything in `MyADHD/Sync` is alive. If those two ever drift, the
+   first pass after an upgrade restamps every row and pushes this phone's
+   stale copy over another device's real edit — the exact failure the
+   reseal exists to prevent, and nothing but this assertion stops it.
+
+3. **`stamp`**, over 9 cases: the sig unchanged, the sig moved, a row with
+   no timestamp at all, a stamp already in the future, an id that
+   disappeared, a grave at the TTL and a grave past it, and a grave dug up
+   by an undo.
+
+4. **`merge` and `outbound`, replayed** over 48 row-and-local
+   combinations — 192 comparisons of the merged list, the book and the
+   upsert body. Remote-deleted on `<=`, on `==` and on `>`; an arrival
+   with no grave, with an older one, with one at the same millisecond and
+   with a newer one; in-place replacement on strict `>` and the refusal on
+   `==`; a tombstone pushed and one skipped because the server already has
+   it; an unknown payload key carried through untouched; a payload that is
+   `null`; a row with no `deleted` key; the same id held twice locally.
+
+5. **The wire**, through a `URLProtocol` stub: the exact PostgREST paths,
+   `apikey` **and** `Bearer`, `Prefer:
+   resolution=merge-duplicates,return=minimal`, an ARRAY body compared
+   byte for byte, the assertion that the pull **never** sends a `user_id`
+   filter while every pushed row carries one, and that a status becomes
+   cloud.js's own `the server answered N`.
+
+6. **The microsecond test.** PostgREST renders `updated_at` with six
+   fractional digits and `Date.parse` keeps three, **truncating**. A
+   millisecond decides `rts > mine.updatedAt`, and that decides which
+   device's edit survives — so `.789999` and `.789000` must be the same
+   instant, and `toISOString` must round trip.
+
+7. **The liveness rule** — the one thing in this file that is not a port.
+   A transport failure and a 5xx keep the session; a 400, 401, 403 or 422
+   from `/auth/v1/token` ends it; a live session answers from the record
+   without asking anybody; and two callers arriving together make one
+   refresh, not two. auth.js:159-165 drops the session in every one of
+   those cases (design §4, decision 7), which is a sign-out on a train.
+
+Three zones (`Asia/Kuala_Lumpur`, `America/New_York`, `UTC`) because
+`toISOString` and `Date.parse` both read the process zone through the C
+library, and a run that only ever happened in UTC would not notice a port
+that reached for a local formatter.
+
+**Not covered:** live sign-in. `myadhd://auth` is not on Supabase's
+redirect allow-list yet and the `tasks` table's RLS policies are
+unverified — both dashboard work (design §4, decision 14). Everything
+below the fragment is tested; the redirect itself is not, and cannot be
+from here.
+
+**Last run:** all 3 zones clean — 748 checks each, 0 failed.
 
 ---
 
