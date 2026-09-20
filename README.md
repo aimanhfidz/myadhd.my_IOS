@@ -116,22 +116,35 @@ and they were removed on 2026-09-18 at the owner's call. The generators, the
 listeners and the `navigator.vibrate` polyfill are all gone rather than
 switched off; `git log` has them if the decision is ever reversed.
 
-## Signing in needs one change in Supabase
+## Signing in, and what the server side has to be
 
-`auth.js` sends Google an `redirect_to` of `https://myadhd.my/app`. An https
+`auth.js` sends Google a `redirect_to` of `https://myadhd.my/app`. An https
 address cannot be handed back to an app without an Associated Domains
 entitlement, which needs the paid account — so `GoogleSignIn.swift` rewrites
 it on the way out to `myadhd://auth`, and Supabase will only redirect to
 somewhere on its allow-list.
 
 **Supabase dashboard → Authentication → URL Configuration → Redirect URLs →
-add `myadhd://auth`.** One line, once.
+`myadhd://auth`.** The owner confirmed this is in place on 2026-09-20. It
+cannot be checked from outside: `/auth/v1/authorize` answers 302 to Google
+whatever you ask it to redirect to, and the destination is carried in an
+opaque server-side `state`, so the only proof is a real sign-in on a device.
 
-Everything else about the flow is unchanged. The tokens come back in the
-fragment exactly as they always did and reach the page as a fresh load of
-`/app#access_token=…`, which `absorbRedirect()` in `auth.js` already knows how
-to read. Until that line is added, sign-in opens Safari and comes back with
-nothing; the app itself works, because it always did without an account.
+The rest of the server side WAS checked, on 2026-09-20, and is recorded here
+so it is not guessed at again:
+
+| | |
+|---|---|
+| `tasks`, anonymous select | HTTP 200 and `[]` — the policy exists and filters; nothing leaks |
+| `tasks`, anonymous insert | HTTP 401, `42501 new row violates row-level security policy` |
+| the `(id, user_id)` unique key `on_conflict` needs | present — an upsert naming it reaches the row check (`42501`), where a missing constraint would have failed at planning with `42P10`. The control, `on_conflict=id,nosuchcolumn`, fails earlier still with `42703`, which is what proves the target is validated before the row check |
+| `/api/triage`, `/api/feedback`, `/api/transcribe` | live, and reject an empty body with 400 |
+| `/api/link-google` | live, and refuses an unauthenticated call with 401 |
+
+What none of that proves is the other direction: that the authenticated
+policies **admit** a signed-in person to their own rows. Too strict a policy
+fails exactly like too loose a one is dangerous — silently — and the only way
+to see it is to sign in on a device and watch a row make the round trip.
 
 ## What is where
 
@@ -418,10 +431,10 @@ without asking:**
   apply here, since the app works fully signed out — but Sign in with Apple
   ends the argument rather than having it.
 
-Also outstanding, and nothing to do with code: a paid membership, the
-`myadhd://auth` line in Supabase's redirect allow-list without which sign-in
-dead-ends inside the shell, screenshots, the privacy nutrition label, and the
-review notes.
+Also outstanding, and nothing to do with code: a paid membership,
+screenshots, the privacy nutrition label, and the review notes. The
+`myadhd://auth` redirect line, which used to be on this list, is in place —
+see the sign-in section above for what that does and does not prove.
 
 ## The widgets, and the wallpaper
 
