@@ -418,6 +418,7 @@ struct MigrationChecks {
         thePreferencesThatAreAlreadySet(r, origin)
         aFreshInstall(r, origin)
         anEmptyReadWithATrace(r, origin)
+        aFailedReadWithNoTraceDoesNotHold(r, origin)
         theKeychainAloneIsNotATrace(r, origin)
         nothingToDo(r, origin)
 
@@ -673,6 +674,41 @@ struct MigrationChecks {
         r.equal("the document is there now",
                 maskMintedStamps(a.document ?? "(missing)"),
                 maskMintedStamps(StoreDocument.load(text: Fixture.store, inShell: true).jsonString))
+    }
+
+    /// A read that fails outright, with nothing to say it should have
+    /// worked. Before this was fixed the app held here — which is the
+    /// very thing LegacyImport's header warns about, a fresh install
+    /// stuck on a pane with nothing to wait for, reached by the one road
+    /// the witness rule does not cover.
+    ///
+    /// Forced by winding the timeout down so the timer beats the read.
+    @MainActor
+    static func aFailedReadWithNoTraceDoesNotHold(_ r: Report, _ origin: Origin) {
+        r.open("a failed read with no trace opens the app instead of holding")
+        origin.clear()
+        seedEverything(origin)      // there IS data; the read just will not get to it
+
+        let was = LegacyImport.timeout
+        LegacyImport.timeout = 0.001
+        defer { LegacyImport.timeout = was }
+
+        let a = Attempt()
+        defer { a.clean() }
+        r.equal("no stamp, so no witness", a.defaults.string(forKey: LegacyImport.snapshotStampKey) ?? "(none)", "(none)")
+
+        let first = a.run()
+        r.equal("the read did not answer, and the app opens anyway",
+                describe(first), "done(tasks: 0, notes: 0)")
+        r.equal("but the migration is NOT marked done — the next launch tries again",
+                a.migrated ? "marked" : "not marked", "not marked")
+
+        /* And the next launch, with a timeout that can actually finish,
+           finds the store that was there all along. */
+        LegacyImport.timeout = was
+        let second = a.retry()
+        r.equal("the retry brings it across", describe(second), "done(tasks: 3, notes: 2)")
+        r.yes("and marks it done this time", a.migrated)
     }
 
     /// The case that is a real person: they deleted the app and

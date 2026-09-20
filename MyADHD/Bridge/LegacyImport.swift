@@ -120,7 +120,21 @@ final class LegacyImport {
     /// process can be killed on a phone under memory pressure and then
     /// nothing ever calls back. A launch that hangs on a spinner is worse
     /// than one that says it is still trying.
-    static let timeout: TimeInterval = 12
+    ///
+    /// Thirty, not twelve. Nothing here is waiting on a network — the
+    /// document is a literal string — so the whole budget is WebKit
+    /// starting three helper processes, and that is not fast on a cold or
+    /// busy phone. Measured on a loaded machine: the GPU process took 5.4
+    /// seconds to launch, the networking process 6.2, and the web content
+    /// process 6.7, and the page was called unresponsive before any of
+    /// them had finished. Twelve seconds is inside that, which means the
+    /// timeout could fire on a healthy read that was merely slow. The cost
+    /// of waiting longer is paid only when something really is wrong; the
+    /// cost of firing early is paid by somebody on their first launch.
+    /// A `var` only so `Checks/migration.swift` can wind it down to a
+    /// fraction of a second and make the read genuinely fail. Nothing
+    /// in the app writes to it.
+    static var timeout: TimeInterval = 30
 
     /// The hold pane's line. Deliberately NOT in `Copy.swift`: every
     /// string in that file has to grep back to the web app, and the web
@@ -368,8 +382,25 @@ final class LegacyImport {
                                        + "install has run the old app") + keychainNote))
             return
         }
-        if let failed {
-            conclude(.holding(reason: failed))
+
+        /* A read that did not work, and no witness that says it should
+           have. These two facts together are not a reason to hold.
+           `myadhd.snapshot.stamp` is written by the old shell every time
+           it pushed a widget snapshot, which it did on every store write
+           and on every launch — so anybody with lists to bring over has
+           one. No stamp means this container has never run the old app,
+           and there is nothing behind the read whether it answered or not.
+
+           So the app opens, and the migration is NOT marked done. That is
+           the whole of the fix: a person with nothing to migrate is not
+           made to wait for it, and the next launch quietly tries the read
+           again in case this really was the one-in-a-thousand phone where
+           WebKit could not start and the stamp had also gone. Holding here
+           was the bug — it is the very failure the header warns about, a
+           fresh install stuck on a pane with nothing to wait for, reached
+           by a different road. */
+        if failed != nil {
+            conclude(.done(tasks: 0, notes: 0))
             return
         }
 
