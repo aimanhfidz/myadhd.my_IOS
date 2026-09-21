@@ -571,6 +571,19 @@ enum Copy {
         /// The card's fallback. The editor heading uses a different word
         /// for the same absence — see Note.heading.
         static let untitled = "Untitled"               // app.js:4365
+
+        /// `2/3 done`, on the foot of a card that has a checklist on it.
+        ///
+        /// The index is native-only ground — the web has no such badge, so
+        /// there is no line of app.js to cite for the whole of it. What it
+        /// is built from is the web's: `done` is the word app.html:282 and
+        /// app.js:1570 both use for finished work (`Home.statDone`,
+        /// `DonePile.count`), and the slash is punctuation. `copy.sh` cuts
+        /// this at its interpolations and checks ` done` against the web's
+        /// own sources, which is the whole of what is assertable here.
+        static func checkCount(done: Int, total: Int) -> String {
+            "\(done)/\(total) done"
+        }
     }
 
     // MARK: - The note editor (app.html:514-655; app.js:4570-4998)

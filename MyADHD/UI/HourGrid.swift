@@ -2,10 +2,17 @@
    MyADHD/UI/HourGrid.swift — the Day and Week views
 
    BridgeScript.swift:855-1087 and the CSS at 346-390. Two shapes over one
-   grid: Day is a week strip and a single column at 56pt an hour, Week is
-   seven columns at 40pt an hour. Both carry the chips for whatever is on
-   the day with no clock on it, and a red line across today at the hour it
-   actually is.
+   grid: Day is a week strip and a single column at 56pt an hour, and the
+   columned view is `CalDays.columns` of them at 52pt. Both carry the chips
+   for whatever is on the day with no clock on it, and a red line across
+   today at the hour it actually is.
+
+   **The columned view draws three days, and the mode is still called
+   `week`.** Seven columns is what the web did and what a desktop can
+   afford; on a phone it was seven titles clipped at five characters each.
+   The name is a storage key — see `CalMode` — and the pill's icon was
+   always `rectangle.split.3x1`, so this is the first build where the two
+   agree.
 
    **One scroller, not two.** The grid used to scroll inside itself,
    inside the page, and a finger never knew which one it had. The page is
@@ -13,6 +20,14 @@
    1344pt of it — which is why entering the view scrolls to the working
    hours rather than starting at midnight. Keyed on the view alone: moving
    to another day keeps the hour you were reading.
+
+   **The day header is not in this file's views any more.** The strip and
+   the column head were inside that one scroller, so the same jump to the
+   working hours that made the grid useful took them off the top of the
+   screen and nothing ever brought them back. They were `position: sticky`
+   on the web (BridgeScript.swift:361-362); they are a `safeAreaInset` on
+   the scroller in `CalendarScreen` now, which is the same thing and also
+   makes the jump land below them rather than behind them.
 
    **What is drawn and what is not.** A block is a task on that day WITH a
    clock on it and not skipped — including finished ones, at 45% and
@@ -34,8 +49,9 @@ import SwiftUI
 enum HourGridMetrics {
     /// `HH` — Day.
     static let day: CGFloat = 56
-    /// `HHW` — Week.
-    static let week: CGFloat = 40
+    /// `HHW` — the columned pane. The web's was 40, sized for seven
+    /// columns; three can afford most of the room a single day gets.
+    static let columns: CGFloat = 52
     /// `GLIDE` on `cubic-bezier(.2,.8,.2,1)`, the same 220ms the month
     /// scroller uses.
     static let glideMS: TimeInterval = 0.220
@@ -50,88 +66,108 @@ enum HourGridMetrics {
 
 // MARK: - Day
 
+/// The scrolling half of the Day view. **Its week strip is not in here** —
+/// see `CalendarScreen`'s `dayHeader`, and the note about sticky in this
+/// file's header.
 struct CalDayPane: View {
 
     let tasks: [TaskItem]
     let today: String
     let session: CalendarSession
 
-    @State private var dx: CGFloat = 0
-    @State private var busy = false
+    @Binding var dx: CGFloat
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CalWeekStrip(base: session.picked, today: today) { session.pick($0) }
-                .padding(.top, 2)
-                .padding(.bottom, 12)
-
-            VStack(alignment: .leading, spacing: 0) {
-                AnytimeChips(tasks: tasks, days: [session.picked])
-                HourGridView(days: [session.picked],
-                             tasks: tasks,
-                             today: today,
-                             hourHeight: HourGridMetrics.day,
-                             compact: false)
-            }
-            .offset(x: dx)
+            AnytimeChips(tasks: tasks, days: [session.picked])
+            HourGridView(days: [session.picked],
+                         tasks: tasks,
+                         today: today,
+                         hourHeight: HourGridMetrics.day,
+                         compact: false)
         }
+        .offset(x: dx)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(CalSideSwipe(step: 1, session: session, dx: $dx, busy: $busy))
     }
 }
 
-// MARK: - Week
+// MARK: - the columned pane
 
-struct CalWeekPane: View {
-
-    @Environment(\.theme) private var theme
+/// Three days side by side. The column head is drawn by `CalendarScreen`
+/// so it can stay on screen; everything here scrolls.
+struct CalColumnsPane: View {
 
     let tasks: [TaskItem]
     let today: String
     let session: CalendarSession
 
-    @State private var dx: CGFloat = 0
-    @State private var busy = false
-
-    private var days: [String] { CalDays.week(of: session.picked) }
+    @Binding var dx: CGFloat
 
     var body: some View {
-        let days = self.days
+        let days = CalDays.window(from: session.picked, count: CalDays.columns)
         VStack(alignment: .leading, spacing: 0) {
-            colHead(days)
-                .padding(.bottom, 6)
-
-            VStack(alignment: .leading, spacing: 0) {
-                AnytimeChips(tasks: tasks, days: days)
-                HourGridView(days: days,
-                             tasks: tasks,
-                             today: today,
-                             hourHeight: HourGridMetrics.week,
-                             compact: true)
-            }
-            .offset(x: dx)
+            AnytimeChips(tasks: tasks, days: days)
+            HourGridView(days: days,
+                         tasks: tasks,
+                         today: today,
+                         hourHeight: HourGridMetrics.columns,
+                         /* Seven columns had to be compact — 9.5pt titles
+                            and no second line — because there was no room
+                            to be anything else. Three have the room, so a
+                            block here says what a block on the Day view
+                            says. */
+                         compact: false)
         }
+        .offset(x: dx)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(CalSideSwipe(step: 7, session: session, dx: $dx, busy: $busy))
     }
+}
 
-    /// `.myadhd-colhead` — the same 44pt gutter as the grid under it, so
-    /// the seven names sit over their own columns.
-    private func colHead(_ days: [String]) -> some View {
+/// `.myadhd-colhead` — the same 44pt gutter as the grid under it, so the
+/// names sit over their own columns.
+struct CalColumnHead: View {
+
+    @Environment(\.theme) private var theme
+
+    let days: [String]
+    let today: String
+
+    var body: some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: HourGridMetrics.gutter, height: 1)
             ForEach(days, id: \.self) { key in
-                let date = WebDates.keyToDate(key) ?? Date()
-                let index = WebDates.calendar.component(.weekday, from: date) - 1
-                let name = String(WebDates.dayNames[max(0, min(6, index))].prefix(3))
-                (Text(name + " ").foregroundColor(theme.muted)
-                    + Text("\(WebDates.calendar.component(.day, from: date))")
+                let day = CalDayName.of(key)
+                (Text(day.name + " ").foregroundColor(theme.muted)
+                    + Text(day.number)
                         .foregroundColor(key == today ? theme.accent : theme.ink)
                         .font(Font.baloo(12, .bold)))
                     .font(Font.baloo(12))
                     .frame(maxWidth: .infinity)
             }
         }
+    }
+}
+
+// MARK: - a day key, read once
+
+/// `Mon` and `14`, worked out from a `YYYY-MM-DD` key.
+///
+/// Both the strip and the column head used to do this inline in their own
+/// bodies — a `keyToDate` and two `calendar.component` calls per day, on
+/// every pass, and a body pass happens on every frame of a swipe. It is
+/// the same three calls either way; the point is that they now happen
+/// where they can be hoisted out of a loop rather than inside one.
+struct CalDayName {
+    var name: String
+    var number: String
+
+    static func of(_ key: String) -> CalDayName {
+        let date = WebDates.keyToDate(key) ?? Date()
+        let index = WebDates.calendar.component(.weekday, from: date) - 1
+        return CalDayName(
+            name: String(WebDates.dayNames[max(0, min(6, index))].prefix(3)),
+            number: "\(WebDates.calendar.component(.day, from: date))"
+        )
     }
 }
 
@@ -142,6 +178,13 @@ struct CalWeekPane: View {
 /// scroll, and after that it is one or the other.
 struct CalSideSwipe: ViewModifier {
 
+    /// Days per swipe — and **zero means there is no swipe here at all.**
+    /// The modifier sits on the calendar's one scroller now rather than
+    /// inside a pane, so it is along for Month and List too, and Month has
+    /// a sideways gesture of its own on the month pager. Rather than
+    /// attach and detach the modifier — which would change the scroller's
+    /// identity every time the view mode changed, and throw away its
+    /// offset with it — it stays put and does nothing.
     let step: Int
     let session: CalendarSession
     @Binding var dx: CGFloat
@@ -155,7 +198,7 @@ struct CalSideSwipe: ViewModifier {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 12)
                     .onChanged { value in
-                        guard !busy else { return }
+                        guard step != 0, !busy else { return }
                         guard value.startLocation.x > HourGridMetrics.edge else { return }
                         if mode == nil {
                             mode = abs(value.translation.width) > abs(value.translation.height)
@@ -167,7 +210,7 @@ struct CalSideSwipe: ViewModifier {
                     .onEnded { value in
                         let wasHorizontal = mode == "h"
                         mode = nil
-                        guard !busy, wasHorizontal else { return }
+                        guard step != 0, !busy, wasHorizontal else { return }
                         let moved = value.translation.width
                         guard abs(moved) >= HourGridMetrics.swipeCommit else {
                             withAnimation(HourGridMetrics.glide) { dx = 0 }
@@ -222,26 +265,28 @@ struct CalWeekStrip: View {
     var onPick: (String) -> Void
 
     var body: some View {
+        /* Mixed once for the row, not once per button: the same colour
+           seven times over, and the seven were being remixed on every
+           frame of a swipe. */
+        let fill = Color(hex: QuadrantPalette.mix(accentHex, surfaceHex, 0.14))
         HStack(spacing: 4) {
             ForEach(CalDays.week(of: base), id: \.self) { key in
-                button(key)
+                button(key, fill: fill)
             }
         }
     }
 
-    private func button(_ key: String) -> some View {
-        let date = WebDates.keyToDate(key) ?? Date()
-        let index = WebDates.calendar.component(.weekday, from: date) - 1
-        let name = String(WebDates.dayNames[max(0, min(6, index))].prefix(3))
+    private func button(_ key: String, fill: Color) -> some View {
+        let day = CalDayName.of(key)
         let picked = key == base
         let isToday = key == today
 
         return Button { onPick(key) } label: {
             VStack(spacing: 3) {
-                Text(name)
+                Text(day.name)
                     .font(Font.baloo(11, .semibold))
                     .foregroundStyle(picked ? theme.accent : theme.muted)
-                Text("\(WebDates.calendar.component(.day, from: date))")
+                Text(day.number)
                     .font(Font.baloo(19, .bold))
                     .foregroundStyle(picked ? theme.accent : theme.ink)
                     .underline(isToday)
@@ -251,8 +296,7 @@ struct CalWeekStrip: View {
             .frame(maxWidth: .infinity)
             .background {
                 if picked {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(hex: QuadrantPalette.mix(accentHex, surfaceHex, 0.14)))
+                    RoundedRectangle(cornerRadius: 14, style: .continuous).fill(fill)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -341,12 +385,30 @@ struct HourGridView: View {
     /// What `ScrollViewProxy` scrolls to. One id per hour, per view.
     static func anchor(_ hour: Int) -> String { "myadhd.hour.\(hour)" }
 
+    /// Every task that belongs in a column, bucketed by its day, once.
+    ///
+    /// `column(_:)` used to run this filter itself — so the whole task list
+    /// was walked once per column, per body pass, and a body pass happens
+    /// on every frame of a swipe. One walk now, and each column is handed
+    /// its own.
+    private var byDay: [String: [TaskItem]] {
+        let want = Set(days)
+        var out: [String: [TaskItem]] = [:]
+        for task in tasks {
+            guard let when = task.when, want.contains(when), !task.skipped else { continue }
+            guard (task.at.map { !$0.isEmpty }) ?? false else { continue }
+            out[when, default: []].append(task)
+        }
+        return out
+    }
+
     var body: some View {
+        let byDay = self.byDay
         HStack(alignment: .top, spacing: 0) {
             hours
             HStack(spacing: 0) {
                 ForEach(days, id: \.self) { key in
-                    column(key)
+                    column(key, blocks: byDay[key] ?? [])
                 }
             }
         }
@@ -372,13 +434,8 @@ struct HourGridView: View {
         .accessibilityHidden(true)
     }
 
-    private func column(_ key: String) -> some View {
-        let blocks = tasks.filter { t in
-            guard t.when == key, !t.skipped else { return false }
-            return (t.at.map { !$0.isEmpty }) ?? false
-        }
-
-        return ZStack(alignment: .topLeading) {
+    private func column(_ key: String, blocks: [TaskItem]) -> some View {
+        ZStack(alignment: .topLeading) {
             lines
             ForEach(blocks, id: \.id) { task in
                 block(task)
@@ -388,19 +445,28 @@ struct HourGridView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: hourHeight * 24, alignment: .top)
         .overlay(alignment: .leading) { theme.line.frame(width: 1) }
-        .clipped()
     }
 
+    /// The 24 hour rules, as one drawing.
+    ///
+    /// This was a `VStack` of 24 nested `VStack`s — 48 views per column,
+    /// and there are three columns, all of it built eagerly inside a
+    /// non-lazy scroller. On the web it was a single
+    /// `repeating-linear-gradient` (reference/BridgeScript.swift:369),
+    /// which is what a `Canvas` is: one view, one pass, no layout.
     private var lines: some View {
-        VStack(spacing: 0) {
-            ForEach(0..<24, id: \.self) { _ in
-                VStack(spacing: 0) {
-                    theme.line.frame(height: 1)
-                    Spacer(minLength: 0)
+        Canvas { context, size in
+            let rule = Path { p in
+                for hour in 0..<24 {
+                    let y = CGFloat(hour) * hourHeight
+                    p.move(to: CGPoint(x: 0, y: y))
+                    p.addLine(to: CGPoint(x: size.width, y: y))
                 }
-                .frame(height: hourHeight)
             }
+            context.stroke(rule, with: .color(theme.line), lineWidth: 1)
         }
+        .frame(height: hourHeight * 24)
+        .allowsHitTesting(false)
     }
 
     // MARK: one block
@@ -447,19 +513,30 @@ struct HourGridView: View {
 
     /// `.myadhd-now` — 2pt of `--danger` across the day, with a dot on the
     /// hour column's edge.
+    ///
+    /// **And it moves.** The web re-rendered the calendar every 60s
+    /// (reference/BridgeScript.swift:1087) and the port kept the `Date()`
+    /// read without the thing that re-read it, so the line sat wherever it
+    /// was when the view was built and only ever moved if something else
+    /// happened to invalidate the body. A `TimelineView` around this line
+    /// alone is the missing interval — around the line, not the grid, so
+    /// the minute tick costs one redraw of a 2pt bar rather than of 24
+    /// hours × three columns.
     private var nowLine: some View {
-        let parts = WebDates.calendar.dateComponents([.hour, .minute], from: Date())
-        let minutes = CGFloat((parts.hour ?? 0) * 60 + (parts.minute ?? 0))
-        return theme.danger
-            .frame(height: 2)
-            .overlay(alignment: .leading) {
-                Circle()
-                    .fill(theme.danger)
-                    .frame(width: 10, height: 10)
-                    .offset(x: -5)
-            }
-            .offset(y: minutes / 60 * hourHeight)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        TimelineView(.periodic(from: .now, by: 60)) { tick in
+            let parts = WebDates.calendar.dateComponents([.hour, .minute], from: tick.date)
+            let minutes = CGFloat((parts.hour ?? 0) * 60 + (parts.minute ?? 0))
+            theme.danger
+                .frame(height: 2)
+                .overlay(alignment: .leading) {
+                    Circle()
+                        .fill(theme.danger)
+                        .frame(width: 10, height: 10)
+                        .offset(x: -5)
+                }
+                .offset(y: minutes / 60 * hourHeight)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

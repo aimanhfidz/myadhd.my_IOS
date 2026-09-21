@@ -116,6 +116,9 @@ struct MonthPage: View {
     let cell: CGFloat
 
     var onPick: (String) -> Void = { _ in }
+    /// Passed through to every cell. The two inert pages get it too and
+    /// do nothing with it — they neither post a frame nor take a gesture.
+    let drag: MonthDrag
 
     /// Grouped once per page rather than filtered 42 times. `tasksOn`
     /// still does the sort, so the order it produces is untouched.
@@ -187,7 +190,8 @@ struct MonthPage: View {
                             picked: picked,
                             live: live,
                             size: cell,
-                            onPick: onPick)
+                            onPick: onPick,
+                            drag: drag)
     }
 }
 
@@ -207,6 +211,14 @@ struct MonthDayCell: View {
     let live: Bool
     let size: CGFloat
     var onPick: (String) -> Void
+    /// The hold-and-drag this cell takes part in — it posts its frame so
+    /// the drag can find it, and wears a ring while the finger is on it.
+    let drag: MonthDrag
+
+    /// `QuadrantCell`'s flag, and for its reason: without it a move past
+    /// the slop drops the press and the very next callback starts a fresh
+    /// one, which is a hold that can never be called off.
+    @State private var gestureLive = false
 
     private var isToday: Bool { key == today }
     private var isPicked: Bool { key == picked }
@@ -243,20 +255,60 @@ struct MonthDayCell: View {
         .frame(maxWidth: .infinity)
         .frame(height: size)
         .background(isPicked ? theme.accent : Color.clear)
+        /* Only the live page posts, so a key that exists in two of the
+           three months on screen cannot overwrite itself with the wrong
+           rectangle. */
+        .background {
+            if live {
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: MonthFramesKey.self,
+                        value: [key: geo.frame(in: .named(MonthDrag.space))]
+                    )
+                }
+            }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .strokeBorder(isPicked ? theme.accent : (isToday ? theme.lineStrong : .clear),
                               lineWidth: 1.5)
         )
+        /* `.is-drop` — the cell the finger is over, while it is over it.
+           The fill has already moved here, because crossing a cell picks
+           it; the ring is what says the gesture is still in your hand. */
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(drag.isOver(key) ? theme.accent : .clear, lineWidth: 2.5)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
         .onTapGesture { if live { onPick(key) } }
+        .simultaneousGesture(live ? hold : nil)
         .allowsHitTesting(live)
         .accessibilityHidden(!live)
         /* `aria-pressed` on a button is `.isSelected` here: the same fact,
            said the way VoiceOver says it. */
         .accessibilityAddTraits(live ? (isPicked ? [.isButton, .isSelected] : [.isButton]) : [])
         .accessibilityLabel(live ? aria : "")
+    }
+
+    /// Press, wait, then scrub. `minimumDistance: 0` so the press starts
+    /// on touch-down rather than after the finger has already moved; the
+    /// timer inside `MonthDrag` is what decides this was a hold and not a
+    /// scroll, and the tap above still fires for anything shorter.
+    private var hold: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(MonthDrag.space))
+            .onChanged { value in
+                if !gestureLive {
+                    gestureLive = true
+                    drag.press(key, at: value.startLocation)
+                }
+                drag.moved(to: value.location)
+            }
+            .onEnded { _ in
+                gestureLive = false
+                drag.release()
+            }
     }
 
     /// The earliest time that day, in the dot's place; otherwise the dot.

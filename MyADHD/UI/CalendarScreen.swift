@@ -146,6 +146,18 @@ struct CalendarScreen: View {
     @State private var session = CalendarSession()
     @State private var mode = CalMode.remembered
 
+    /// The sideways swipe's travel, and its guard against a second one
+    /// landing mid-glide. Both used to live inside the panes; they are up
+    /// here because the day header is up here too, and the column head has
+    /// to travel with the columns it names.
+    @State private var dx: CGFloat = 0
+    @State private var busy = false
+
+    /// The month grid's press-and-hold. Owned here rather than by the
+    /// pager, because the scroller that has to stand down while a day is
+    /// being scrubbed is this screen's.
+    @State private var monthDrag = MonthDrag()
+
     private var tasks: [TaskItem] { store.doc.tasks }
 
     /// `!done && !when` — on no day at all, and so on no calendar.
@@ -169,24 +181,59 @@ struct CalendarScreen: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                        /* Somewhere to send Month and List, which have no
+                           hour to settle on. Zero-height and invisible —
+                           it exists to be an anchor. */
+                        Color.clear
+                            .frame(height: 0)
+                            .id(Self.topAnchor)
+
                         switch mode {
                         case .month: monthView
                         case .list:  listView
-                        case .day:   CalDayPane(tasks: tasks, today: today, session: session)
-                        case .week:  CalWeekPane(tasks: tasks, today: today, session: session)
+                        case .day:   CalDayPane(tasks: tasks, today: today,
+                                                session: session, dx: $dx)
+                        case .week:  CalColumnsPane(tasks: tasks, today: today,
+                                                    session: session, dx: $dx)
                         }
                     }
                     .frame(maxWidth: Theme.measure, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .scrollIndicators(.hidden)
+                /* Once a day is airborne the finger belongs to the grid.
+                   The 320ms hold and its 8pt of slop mean a flick was
+                   already read as a scroll and called the lift off, so
+                   this only ever bites after the gesture has committed. */
+                .scrollDisabled(monthDrag.isDragging)
+                /* **The day header does not scroll.** On the web it was
+                   `position: sticky` (reference/BridgeScript.swift:361-362)
+                   and the port put it in the scroller instead, so the one
+                   control that says which day you are on — and the only way
+                   to change it without a swipe — went off the top the
+                   instant `settleScroll` jumped to the working hours, and
+                   never came back on its own.
+
+                   A `safeAreaInset` is that stickiness: the header sits
+                   above the content, does not move, and the scroll view
+                   insets itself under it — which also means `scrollTo`'s
+                   `.top` anchor now lands *below* the header rather than
+                   behind it. That second half is the web's too: it scrolled
+                   by `target - under`, where `under` was the bottom edge of
+                   the stuck strip (reference/BridgeScript.swift:986-1000). */
+                .safeAreaInset(edge: .top, spacing: 0) { dayHeader }
                 /* `settleScroll` — the working hours, found once on the way
                    into the view. Keyed on the view alone: swiping to another
                    day, or tapping one on the strip, keeps the hour you were
-                   looking at. */
+                   looking at, which is what makes the strip worth having. */
                 .onChange(of: mode) { _, next in findWorkingHours(proxy, next) }
                 .onAppear { findWorkingHours(proxy, mode) }
             }
+            /* The swipe is on the scroller rather than inside the pane, so
+               that a finger starting on the pinned header moves the days
+               too — it is the same gesture over what is visually one view. */
+            .modifier(CalSideSwipe(step: swipeStep, session: session,
+                                   dx: $dx, busy: $busy))
         }
         .padding(.horizontal, 20)
         /* `.cal-wrap{padding-top:clamp(6px,1.5vh,16px)}` is the header's
@@ -195,18 +242,69 @@ struct CalendarScreen: View {
         .background(theme.surface.ignoresSafeArea())
     }
 
+    /// What stays on screen above the hours: a week of days to pick from
+    /// on the Day view, the column names on the columned one, and nothing
+    /// at all on Month and List, which have no hours to scroll past.
+    ///
+    /// The strip does not travel with a swipe — "the strip is the frame
+    /// the days move inside", which is `CalWeekStrip`'s own description of
+    /// itself. The column head does, because it names the columns and
+    /// would otherwise be a row of wrong dates for the length of a glide.
+    @ViewBuilder
+    private var dayHeader: some View {
+        switch mode {
+        case .day:
+            CalWeekStrip(base: session.picked, today: today) { session.pick($0) }
+                .padding(.top, 2)
+                .padding(.bottom, 12)
+                .background(theme.surface)
+        case .week:
+            CalColumnHead(days: CalDays.window(from: session.picked,
+                                               count: CalDays.columns),
+                          today: today)
+                .offset(x: dx)
+                .padding(.bottom, 6)
+                .background(theme.surface)
+        case .month, .list:
+            EmptyView()
+        }
+    }
+
+    /// How far a sideways swipe moves, per view. Zero means the view has
+    /// no such gesture — Month has the pager's own, and List is a list.
+    private var swipeStep: Int {
+        switch mode {
+        case .day:  return 1
+        case .week: return CalDays.columns
+        default:    return 0
+        }
+    }
+
     /// The grid is 24 hours tall and starts at midnight; nobody is
     /// reading about midnight. `requestAnimationFrame` on the web, one
     /// runloop turn here — the pane has to exist before it can be scrolled
     /// to.
     private func findWorkingHours(_ proxy: ScrollViewProxy, _ next: CalMode) {
         let days = CalDays.shown(next, picked: session.picked)
-        guard !days.isEmpty else { return }
+        /* **Month and List go to the top instead of nowhere.** This used
+           to return here, which was right when the four views were four
+           scrollers and wrong the moment they shared one: leaving the
+           3-day view at nine in the morning and tapping Month landed on a
+           month grid scrolled a screen and a half past itself, because
+           the offset was the scroller's and the scroller had not changed.
+           Neither has an hour to settle on, so the answer is the top. */
+        guard !days.isEmpty else {
+            DispatchQueue.main.async { proxy.scrollTo(Self.topAnchor, anchor: .top) }
+            return
+        }
         let hour = HourGridView.focusHour(days: days, today: today)
         DispatchQueue.main.async {
             proxy.scrollTo(HourGridView.anchor(hour), anchor: .top)
         }
     }
+
+    /// The zero-height view at the very top of the scroller.
+    private static let topAnchor = "myadhd.cal.top"
 
     // MARK: the month row
 
@@ -244,7 +342,7 @@ struct CalendarScreen: View {
 
     private var monthView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            MonthPager(tasks: tasks, today: today, session: session)
+            MonthPager(tasks: tasks, today: today, session: session, drag: monthDrag)
 
             if !session.isOnToday(today) {
                 Button { session.backToToday(today) } label: {

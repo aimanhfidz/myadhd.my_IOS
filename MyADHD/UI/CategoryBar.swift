@@ -43,6 +43,11 @@ struct CategoryBar: View {
         groups.reduce(0) { $0 + $1.items.count }
     }
 
+    /// The horizontal padding both screens put on the column this row sits
+    /// in — `ListsScreen` on its scroll content, `MatrixScreen` on its root.
+    /// Written down here because this view has to undo it and put it back.
+    static let gutter: CGFloat = 20
+
     var body: some View {
         if isShown {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -58,9 +63,25 @@ struct CategoryBar: View {
             }
             /* The row is its own scroller and keeps its own offset; nothing
                about the pills moves when one is picked, only which one is
-               filled, so there is no `scrollLeft` to put back by hand. The
-               last pill is meant to be cut by the edge — that is what says
-               there is more along there — so the clip stays on. */
+               filled, so there is no `scrollLeft` to put back by hand.
+
+               **The last pill is meant to be cut by the screen edge** — that
+               is what says there is more along there. It was being cut 20pt
+               short of it instead, by the column padding both callers put on
+               everything in this stack, and a 1.5pt capsule stroke severed
+               in clear air does not read as "scroll me", it reads as a
+               drawing bug. So the scroller steps back out to the full width
+               and hands the same 20pt to its own content: the pills still
+               start and stop where the text above them does, and the one
+               being cut is cut by the edge of the phone.
+
+               On a phone that is the whole story. On an iPad the step-out
+               also escapes the `Theme.measure` reading column that
+               `ListsScreen` clamps its content to, so the row would bleed
+               past it — worth knowing before this is called anywhere a
+               720pt column is actually reached. */
+            .padding(.horizontal, -Self.gutter)
+            .contentMargins(.horizontal, Self.gutter, for: .scrollContent)
             .accessibilityLabel(Copy.Lists.catBarAria)
         }
     }

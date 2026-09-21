@@ -39,6 +39,10 @@ struct MonthPager: View {
     let tasks: [TaskItem]
     let today: String
     let session: CalendarSession
+    /// Press-and-hold to scrub the picked day across the grid. Owned by
+    /// `CalendarScreen`, because the scroller that has to stand down while
+    /// it is in flight is up there too.
+    let drag: MonthDrag
 
     /// The pane's width, which decides the cell size and so the height.
     /// Seeded from the screen so the first frame is not zero-high.
@@ -77,6 +81,10 @@ struct MonthPager: View {
         .simultaneousGesture(swipe)
         .animation(Self.glide, value: height)
         .frame(maxWidth: .infinity, alignment: .center)
+        /* The space the cells' frames and the dragging finger are both
+           measured in. On the clipped pane rather than on the row of
+           three, so a point means the same thing whatever `dx` is. */
+        .coordinateSpace(name: MonthDrag.space)
         .background {
             GeometryReader { g in
                 Color.clear.preference(key: MonthWidthKey.self, value: g.size.width)
@@ -85,6 +93,14 @@ struct MonthPager: View {
         .onPreferenceChange(MonthWidthKey.self) { measured in
             if measured > 0 { width = measured }
         }
+        .onPreferenceChange(MonthFramesKey.self) { frames in
+            drag.frames = frames
+        }
+        .onAppear { drag.onPick = { session.pick($0) } }
+        /* A gesture that never got its release — the tab changed under a
+           finger — would otherwise leave the grid thinking it is still
+           being dragged, and the month pager standing down for ever. */
+        .onDisappear { drag.cancel() }
     }
 
     private func pane(_ month: MonthRef, live: Bool) -> some View {
@@ -94,7 +110,8 @@ struct MonthPager: View {
                   picked: session.picked,
                   live: live,
                   cell: cell,
-                  onPick: { session.pick($0) })
+                  onPick: { session.pick($0) },
+                  drag: drag)
             .frame(width: width, alignment: .top)
     }
 
@@ -103,13 +120,18 @@ struct MonthPager: View {
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
-                guard !busy else { return }
+                /* **And not while a day is being scrubbed.** This has no
+                   time gate, so once the hold has lifted, twelve points of
+                   travel across the grid would also start pulling the
+                   month sideways — the same drag doing two things at once.
+                   The hold wins: it asked for this explicitly. */
+                guard !busy, !drag.isDragging else { return }
                 /* A mostly vertical move is the page's scroll, not this. */
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 dx = value.translation.width
             }
             .onEnded { value in
-                guard !busy, dx != 0 else { return }
+                guard !busy, !drag.isDragging, dx != 0 else { return }
                 let travel = value.translation.width
                 let flung = abs(value.velocity.width) > 400
                 if abs(travel) > width * 0.25 || flung {

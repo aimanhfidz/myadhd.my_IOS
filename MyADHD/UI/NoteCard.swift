@@ -31,6 +31,14 @@
    with no `title` field the first line of the body IS the title, so the
    preview starts at the second line and the card does not say the same
    thing twice.
+
+   **It does say how far along a list is, though.** A note carrying
+   checkboxes is a note you come back to in order to finish it, and the
+   one question you have before you open it is how much is left. So those
+   two lines are the list's own lines, boxes and all, and the foot carries
+   `2/3 done` beside the paperclip and the bell. That is still not a
+   preview — it is the same way back in, with the thing you were going to
+   open it to find out already on it.
    ============================================================ */
 
 import SwiftUI
@@ -141,6 +149,36 @@ enum NoteText {
             : n.body
         return JSText.trim(rest)
     }
+
+    /// The note's checkbox lines that have something written on them, in
+    /// the order they are written.
+    ///
+    /// `NoteItem.body` is `blocks.map(\.text).joined` (NoteItem.swift:202),
+    /// so it is the one thing on a note that knows nothing about `type`,
+    /// `marks` or `done`. Everything on this card used to come through it,
+    /// which is why a list with everything ticked drew the same three
+    /// unstyled lines as a list nobody had started. This reads the blocks.
+    static func checks(_ n: NoteItem) -> [NoteBlock] {
+        n.blocks.filter { $0.type == "check" && !JSText.trim($0.text).isEmpty }
+    }
+
+    /// The two lines of a list worth putting on a card: **what is left
+    /// first, then what is done.**
+    ///
+    /// Document order looks like the honest choice and is the wrong one.
+    /// Two of three ticked off, in order, means the card shows the two you
+    /// have already bought and hides the one you have not — the single
+    /// fact you opened the app for. Unfinished first puts it back, and a
+    /// list with nothing left still shows its ticked lines, which is what
+    /// makes a finished list look finished.
+    ///
+    /// Within each half the note's own order is kept; the count in the
+    /// foot says how much is not on show.
+    static func checkPreview(_ blocks: [NoteBlock], limit: Int = 2) -> [NoteBlock] {
+        let open = blocks.filter { !$0.done }
+        let done = blocks.filter(\.done)
+        return Array((open + done).prefix(limit))
+    }
 }
 
 // MARK: - the card
@@ -155,6 +193,7 @@ struct NoteCard: View {
     var body: some View {
         let paper = NotePaper.of(note.look.paper, theme: theme)
         let preview = NoteText.preview(note)
+        let checks = NoteText.checks(note)
 
         Button(action: open) {
             VStack(alignment: .leading, spacing: 5) {
@@ -164,18 +203,26 @@ struct NoteCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
 
-                if !preview.isEmpty {
-                    Text(preview)
-                        .font(.system(size: 13.5))
-                        .lineSpacing(13.5 * 0.45)
-                        .foregroundStyle(theme.muted)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .multilineTextAlignment(.leading)
+                /* A note with a list on it is answered by the list: two of
+                   its lines, with their boxes, in place of two lines of
+                   prose that would not have said which of them were done.
+                   A note with no list is untouched. */
+                if checks.isEmpty {
+                    if !preview.isEmpty {
+                        Text(preview)
+                            .font(.system(size: 13.5))
+                            .lineSpacing(13.5 * 0.45)
+                            .foregroundStyle(theme.muted)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .multilineTextAlignment(.leading)
+                    }
+                } else {
+                    checklist(checks, paper: paper)
                 }
 
-                foot
+                foot(checks)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 15)
@@ -191,14 +238,44 @@ struct NoteCard: View {
         .buttonStyle(.plain)
     }
 
-    /// When it was last touched, then a paperclip with a count and a bell
-    /// with a day — each only when there is one.
-    private var foot: some View {
+    /// The two lines of the list, with their boxes. A ticked one keeps the
+    /// strike it wears in the editor — that is drawn from `done` and is
+    /// never a stored mark (MarksBridge.swift:36-39) — and takes the
+    /// paper's own `faint`, which `NotePaper` has always described as being
+    /// for "a ticked-off line" and which nothing until now used for one.
+    private func checklist(_ blocks: [NoteBlock], paper: NotePaper) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(NoteText.checkPreview(blocks).enumerated()), id: \.offset) { _, block in
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Image(systemName: block.done ? "checkmark.square.fill" : "square")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(block.done ? theme.accent : paper.faint)
+                    Text(JSText.trim(block.text))
+                        .font(.system(size: 13.5))
+                        .strikethrough(block.done, color: paper.faint)
+                        .foregroundStyle(block.done ? paper.faint : theme.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// When it was last touched, then how far along the list is, then a
+    /// paperclip with a count and a bell with a day — each only when there
+    /// is one.
+    private func foot(_ checks: [NoteBlock]) -> some View {
         HStack(spacing: 10) {
             Text(WebDates.noteWhen(note.updatedAt))
                 .font(.system(size: 11.5))
                 .foregroundStyle(theme.faint)
 
+            if !checks.isEmpty {
+                tag("checklist",
+                    Copy.Notes.checkCount(done: checks.filter(\.done).count,
+                                          total: checks.count))
+            }
             if !note.files.isEmpty {
                 tag("paperclip", "\(note.files.count)")
             }

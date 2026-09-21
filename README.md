@@ -110,11 +110,26 @@ There is an iOS 26.5 simulator runtime on this machine now, and most of the
 shell can be checked in it. The device is still the better test: Siri and the
 keychain handover between the app and its widgets are only real there.
 
-**There are no haptics.** They were the first native feature — a buzz on a
-tick, a knock on Clear my head, the two swipe moments `app.js` had asked for —
-and they were removed on 2026-09-18 at the owner's call. The generators, the
-listeners and the `navigator.vibrate` polyfill are all gone rather than
-switched off; `git log` has them if the decision is ever reversed.
+**There are three haptics, and for two days there were none.** They were the
+first native feature — a buzz on a tick, a knock on Clear my head, the two
+swipe moments `app.js` had asked for — and every one of them was removed on
+2026-09-18 at the owner's call, generators and `navigator.vibrate` polyfill
+and all.
+
+What came back with the Swift port is narrower, and the line dividing it
+from what was taken out is worth stating: **a gesture with a timer in it, or
+with a threshold you cannot see, has no other way of telling you it has
+happened.** So all three confirm a gesture, and none of them decorates an
+outcome:
+
+- the matrix lifting a task off its quadrant (`MatrixDrag.swift`)
+- a swipe crossing the point where letting go would do something
+  (`SwipeRow.swift`)
+- the month grid taking hold of a day, so the agenda can be dragged across
+  it (`MonthDrag.swift`)
+
+Nothing buzzes for finishing a task, and nothing should. `git log` has the
+ones that did.
 
 ## Signing in, and what the server side has to be
 

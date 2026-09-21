@@ -25,6 +25,15 @@ import SwiftUI
 // MARK: - the four
 
 enum CalMode: String, CaseIterable, Identifiable {
+    /// **`week` draws three days, and is still called `week`.** Its raw
+    /// value is the string on disk under `myadhd.native.calView`, migrated
+    /// out of the old shell's `myadhd.ios.calView`
+    /// (`LegacyImport.calViewKey`), and `Checks/migration.swift` round-trips
+    /// the literal `"week"` through that import in six places. Rename the
+    /// case and every phone that was last left on this pane silently opens
+    /// on Month instead, because `remembered` falls back on a string it
+    /// does not know. The name is a storage key; what it draws is
+    /// `CalDays.columns`.
     case list, day, week, month
 
     var id: String { rawValue }
@@ -131,17 +140,42 @@ enum CalDays {
     }
 
     /// Monday to Sunday of the week the key is in.
+    ///
+    /// **Still seven, and still anchored on Monday, because the Day pane's
+    /// strip is built from this** (`CalWeekStrip`, HourGrid.swift) and that
+    /// strip is a week — it is the frame the picked day moves inside. The
+    /// columned pane no longer uses it; see `window(from:count:)`.
     static func week(of key: String) -> [String] {
         let mon = monday(of: key)
         return (0..<7).map { WebDates.addDays($0, toKey: mon) }
     }
+
+    /// `count` days starting at `key`.
+    ///
+    /// The columned pane was Monday-to-Sunday, and seven columns on a
+    /// phone is seven columns nobody can read — a title clipped at five
+    /// characters is not a title. Three, starting at the day you picked
+    /// rather than at whatever Monday it happens to belong to, because a
+    /// pane you navigate a day at a time should start where you are: pick
+    /// Thursday and you get Thursday, Friday, Saturday, not a week with
+    /// Thursday buried in the middle of it.
+    static func window(from key: String, count: Int) -> [String] {
+        guard count > 0 else { return [] }
+        return (0..<count).map { WebDates.addDays($0, toKey: key) }
+    }
+
+    /// How many columns the columned pane draws. One number, because the
+    /// pane, the swipe's step and `shown(_:picked:)` all have to agree —
+    /// a swipe that moves a different number of days than the pane shows
+    /// either skips days or repeats them.
+    static let columns = 3
 
     /// Which days a mode is drawing an hour grid for. Month and List draw
     /// none, and scroll nowhere.
     static func shown(_ mode: CalMode, picked: String) -> [String] {
         switch mode {
         case .day:  return [picked]
-        case .week: return week(of: picked)
+        case .week: return window(from: picked, count: columns)
         default:    return []
         }
     }

@@ -222,7 +222,17 @@ struct NoteEditor: View {
                         index: i,
                         block: block,
                         face: .block(type: block.type, font: note.look.font),
-                        ink: UIColor(block.done ? paper.faint : paper.ink),
+                        /* A ticked line used to be faded to `paper.faint`
+                           *and* struck through, and the two together read
+                           as deleted rather than done — the thing you had
+                           just finished was the hardest thing on the page
+                           to see. The strike stays, because that is the
+                           web's and is drawn from `done` rather than
+                           stored as a mark (MarksBridge.swift:36-39); the
+                           fade goes, and the line takes the accent the
+                           box beside it is already filled with. Finished
+                           work is worth looking at. */
+                        ink: UIColor(block.done ? theme.accent : paper.ink),
                         faint: UIColor(paper.faint),
                         hintText: (i == 0 && block.text.isEmpty) ? Copy.Note.firstBlockHint : nil,
                         focusTarget: focus.target,
