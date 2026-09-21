@@ -52,7 +52,7 @@ struct HomeScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            BrandHeader(themeStore: themeStore, openSettings: openSettings)
+            HomeHeader(themeStore: themeStore, openSettings: openSettings)
 
             if coldStart {
                 ColdStart(openComposer: openComposer)
@@ -71,7 +71,7 @@ struct HomeScreen: View {
         }
         .padding(.horizontal, Theme.gutter(UIScreen.main.bounds.width))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(theme.surface)
+        .background(theme.surface.ignoresSafeArea())
     }
 
     /// app.js:4156-4158. Notes count too: somebody who has written a note
@@ -92,28 +92,20 @@ struct HomeScreen: View {
 
 // MARK: - the header
 
-/// `<header class="brand">`: the lockup, the only gear in the app, and the
-/// theme toggle. On the web the lockup is an `<a href="/">` that loses its
-/// href in standalone mode (app.js:5076-5086) — there is no site to go back
-/// to from inside an app, so here it is simply never a link.
-struct BrandHeader: View {
+/// `<header class="brand">`: the only gear in the app and the theme
+/// toggle, with the screen's own name where the lockup used to be. The web
+/// header carried `my.adhd` and an `<a href="/">` that loses its href in
+/// standalone mode (app.js:5076-5086); an app has no site to go back to and
+/// says its name on the icon you tapped, so the wordmark is gone and
+/// `ScreenHeader` puts "Home" in its place. See that file for the argument.
+struct HomeHeader: View {
 
     @Environment(\.theme) private var theme
     let themeStore: ThemeStore
     var openSettings: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 10) {
-                LogoMark()
-                    .frame(width: 26, height: 26)
-                wordmark
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Copy.Home.brandAria)
-
-            Spacer(minLength: 10)
-
+        ScreenHeader(title: Copy.ScreenTitle.home) {
             Button(action: openSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 15, weight: .semibold))
@@ -145,24 +137,18 @@ struct BrandHeader: View {
             .buttonStyle(.plain)
             .accessibilityLabel(themeStore.toggleLabel)
         }
-        .padding(.bottom, 10)
-        .frame(maxWidth: Theme.measure)
-        .frame(maxWidth: .infinity)
         .background(theme.surface)
-    }
-
-    /// 16px / 700 / -.03em, with `.adhd` in `--violet` in both themes.
-    private var wordmark: some View {
-        (Text("my").foregroundColor(theme.ink)
-            + Text(".adhd").foregroundColor(theme.violet))
-            .font(Font.baloo(16, .bold))
-            .kerning(-0.03 * 16)
     }
 }
 
 /// `#logo-mark`: a four-ray asterisk in Vivid Orange with one short ray,
 /// and the capsule's stroke in violet. Four rectangles and a line, at the
 /// coordinates app.html:171-179 gives them in a 100-unit box.
+///
+/// **Nothing draws this any more.** It came out of the header when the
+/// screen's own name took that place. It is the mark, written down once in
+/// SwiftUI, and it is kept for the next thing that needs it — not dead code
+/// somebody forgot.
 struct LogoMark: View {
 
     @Environment(\.theme) private var theme

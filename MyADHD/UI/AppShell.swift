@@ -18,7 +18,8 @@
      2. the migration, but only on a first launch that has never run one
      3. pruneDone(), then stampTimeOnly() — that order, because pruning
         decides what is still here and stamping only touches what is
-        (app.js:5667-5676)
+        (app.js:5667-5676) — and pruneBlankNotes() beside them, which is
+        the same job for a note the editor never got to close
      4. StoreBridge starts, which pushes the widget snapshot and rebuilds
         the notification schedule off the bytes just read
 
@@ -109,6 +110,18 @@ struct AppShell: View {
     private var shell: some View {
         ZStack {
             current
+                /* The bar floats *over* the screen rather than sitting
+                   under it, so the room it needs is an inset inside the
+                   screen and not a frame beneath the bar — `body.has-tabbar
+                   .screen { padding-bottom: 96px + safe-bottom }`. Every
+                   tab screen already writes its own short bottom padding on
+                   top of this and says so in a comment; without it those
+                   numbers were measured against a reservation that was
+                   never made, and the matrix's bottom row and the notes `+`
+                   both ran under the glass. */
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: TabBar.reservedHeight)
+                }
                 .opacity(sorting ? 0 : 1)
 
             if sorting {
@@ -194,6 +207,13 @@ struct AppShell: View {
            change the person made, so neither earns a cloud stamp. */
         _ = store.pruneDone()
         _ = store.stampTimeOnly()
+
+        /* And the notes' half of the same job, which app.js has no
+           equivalent of because a page that goes away still runs its
+           handlers. `newNote()` writes a blank note before the editor
+           opens over it; if the app died in between, `closeNote` never
+           took it away and the index has an `Untitled` card in it. */
+        _ = store.pruneBlankNotes()
 
         let wire = StoreBridge(store: store)
         wire.start()

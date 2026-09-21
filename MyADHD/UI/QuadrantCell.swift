@@ -147,11 +147,18 @@ struct QuadrantCell: View {
     private var head: some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 0) {
+                /* One line, always. `Delegate` at 24pt heavy is the
+                   widest of the four, and on a 375pt phone the column it
+                   gets — half the screen, less the gutters and the `+` —
+                   is a few points short of it, so it wrapped to `Delegat`
+                   over `e`. A quadrant's name is one word and reads as
+                   one; shrinking it a little beats breaking it. */
                 Text(label)
                     .font(Font.baloo(24, .heavy))
                     .kerning(-0.025 * 24)
                     .foregroundStyle(hue)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
 
                 Text(sub)
                     .font(Font.baloo(12))

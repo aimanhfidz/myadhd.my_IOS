@@ -489,6 +489,24 @@ final class AppStore {
         JSText.trim(n.title).isEmpty && JSText.trim(n.body).isEmpty && n.files.isEmpty
     }
 
+    /// **The blanks nothing closed.** `newNote()` writes the note before
+    /// the editor is on screen, deliberately, so a crash between the two
+    /// leaves the note and not a lost one. What it also leaves, if the app
+    /// went away in between, is an `Untitled` card nobody typed into —
+    /// `closeNote` never ran for it and nothing else looks. One pass at
+    /// boot, beside `pruneDone()`, which is the same job for tasks.
+    ///
+    /// The open note is exempt: a cold launch has none, but the argument
+    /// is there so a later caller cannot delete the note under an editor.
+    @discardableResult
+    func pruneBlankNotes(except open: String? = nil) -> Int {
+        let before = doc.notes.count
+        doc.notes.removeAll { $0.id != open && Self.noteIsBlank($0) }
+        let gone = before - doc.notes.count
+        if gone > 0 { persistOnly() }
+        return gone
+    }
+
     /// Leaving the editor.
     func closeNote(_ id: String) {
         if let n = doc.note(id: id), Self.noteIsBlank(n) {

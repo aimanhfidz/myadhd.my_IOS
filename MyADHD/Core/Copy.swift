@@ -56,9 +56,8 @@ enum Copy {
         }                                              // app.js:470
     }
 
-    /// The native titles the shell already puts on the four tab screens,
-    /// in place of the wordmark. Kept so the rebuild lands on the same
-    /// words the current build shows.
+    /// The four tab screens' own names, in the place a website puts its
+    /// wordmark. `ScreenHeader` draws them; the reasoning is in that file.
     enum ScreenTitle {
         static let home = "Home"          // BridgeScript.swift:143
         static let calendar = "Calendar"  // BridgeScript.swift:144

@@ -59,6 +59,8 @@ struct NoteEditor: View {
     @FocusState private var titleFocused: Bool
     /// The one-shot that puts the caret where `openNote` puts it.
     @State private var opened = false
+    /// The one-shot on the way out — see `leaveOnce`.
+    @State private var left = false
 
     /// Which of the three is up. Only ever one: each of the three
     /// toolbar buttons closes the other two (app.js:5183-5228).
@@ -97,11 +99,11 @@ struct NoteEditor: View {
             }
             .toastLayer(toasts, hasTabBar: false)
             .notePictures(isPresented: $picking, note: note, store: store, toasts: toasts)
-            .onAppear { openOnce(note) }
+            .task { await openOnce(note) }
         } else {
             /* The note has gone — deleted from under the editor. There is
                nothing to draw and nowhere to be. */
-            Color.clear.onAppear(perform: onLeave)
+            Color.clear.onAppear(perform: leaveOnce)
         }
     }
 
@@ -335,21 +337,31 @@ struct NoteEditor: View {
     /// remind sheets shut — and NOT the paper sheet, which app.js leaves
     /// alone and which therefore cannot be open here either, because this
     /// editor is created fresh each time.
-    private func openOnce(_ note: NoteItem) {
+    ///
+    /// **Why this waits rather than hopping the runloop once.** The editor
+    /// arrives as a `fullScreenCover`, and a cover's `onAppear` fires at
+    /// the *start* of the presentation transition — the field is not in
+    /// the responder chain yet, so a single `DispatchQueue.main.async`
+    /// asked for first responder before there was one to give and the
+    /// keyboard simply did not come up on a new note. The transition is
+    /// ~0.35s; a third of a second clears it with room to spare and is
+    /// still under what anybody reads as a delay.
+    private func openOnce(_ note: NoteItem) async {
         guard !opened else { return }
         opened = true
         fmtBlock = 0
         sheet = nil
 
-        DispatchQueue.main.async {
-            if JSText.trim(note.title).isEmpty && JSText.trim(note.body).isEmpty {
-                titleFocused = true
-            } else {
-                let last = max(0, note.blocks.count - 1)
-                let end = note.blocks.indices.contains(last)
-                    ? note.blocks[last].text.utf16.count : 0
-                focus.target = .block(index: last, offset: end)
-            }
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        guard !Task.isCancelled else { return }
+
+        if JSText.trim(note.title).isEmpty && JSText.trim(note.body).isEmpty {
+            titleFocused = true
+        } else {
+            let last = max(0, note.blocks.count - 1)
+            let end = note.blocks.indices.contains(last)
+                ? note.blocks[last].text.utf16.count : 0
+            focus.target = .block(index: last, offset: end)
         }
     }
 
@@ -357,6 +369,19 @@ struct NoteEditor: View {
     /// is dropped inside `closeNote`.
     private func leave() {
         store.closeNote(noteID)
+        leaveOnce()
+    }
+
+    /// **`onLeave` is called from two places and must run once.** `leave()`
+    /// changes the store before it dismisses; for a blank note that is
+    /// `closeNote` deleting it, which re-runs `body` with `note == nil` and
+    /// fires the `Color.clear.onAppear` branch above on the way out. Today
+    /// the second call only re-assigns a binding that is already nil, which
+    /// is why nothing has gone wrong yet — this is here so that stays true
+    /// the day `onLeave` does anything else.
+    private func leaveOnce() {
+        guard !left else { return }
+        left = true
         onLeave()
     }
 

@@ -80,8 +80,28 @@ final class CalendarSession {
     }
 
     /// `stepMonth(n)`.
-    func step(_ n: Int) {
-        cursor = cursor.adding(n)
+    ///
+    /// **`carryingDay` is what the arrows above Day, Week and List need.**
+    /// Only the month grid reads `cursor`; the other three panes are all
+    /// drawn from `picked`, so moving the month alone changed the words in
+    /// the header and nothing underneath them. The day of the month comes
+    /// across with it — the 18th of September steps to the 18th of October
+    /// — clamped to the new month's length, so the 31st of January steps to
+    /// the 28th of February rather than off the end of it.
+    ///
+    /// Month mode passes false and keeps the two apart, which is the web's
+    /// own arrangement: there `picked` is the highlighted cell and the day
+    /// the agenda under the grid is about, and paging the grid past it is
+    /// the whole point of `Back to today`. It is also what `MonthPager`'s
+    /// swipe does, and an arrow that behaved differently from a swipe on
+    /// the same grid would be the worse bug.
+    func step(_ n: Int, carryingDay: Bool = false) {
+        let next = cursor.adding(n)
+        if carryingDay {
+            let day = Int(picked.suffix(2)) ?? 1
+            picked = next.dayKey(min(day, next.days))
+        }
+        cursor = next
         persist()
     }
 
@@ -119,7 +139,8 @@ struct CalendarScreen: View {
 
     var today: String = WebDates.dayKey()
 
-    /// False once the cutover puts `CalModePill` in a header of its own.
+    /// Whether this screen draws its own header — the name and the pill.
+    /// False where something above it has already put them on screen.
     var showsTools: Bool = true
 
     @State private var session = CalendarSession()
@@ -135,9 +156,9 @@ struct CalendarScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showsTools {
-                CalModePill(mode: $mode)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.bottom, 6)
+                ScreenHeader(title: Copy.ScreenTitle.calendar) {
+                    CalModePill(mode: $mode)
+                }
             }
 
             /* `.cal-head` stays up in all four views — the shell hides the
@@ -168,10 +189,10 @@ struct CalendarScreen: View {
             }
         }
         .padding(.horizontal, 20)
-        /* `.cal-wrap{padding-top:clamp(6px,1.5vh,16px)}` */
-        .padding(.top, 10)
+        /* `.cal-wrap{padding-top:clamp(6px,1.5vh,16px)}` is the header's
+           own `.padding(.top, 10)` now, so the four tabs' titles line up. */
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(theme.surface)
+        .background(theme.surface.ignoresSafeArea())
     }
 
     /// The grid is 24 hours tall and starts at midnight; nobody is
@@ -207,7 +228,7 @@ struct CalendarScreen: View {
     }
 
     private func arrow(_ n: Int, symbol: String, label: String) -> some View {
-        Button { session.step(n) } label: {
+        Button { session.step(n, carryingDay: mode != .month) } label: {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(theme.muted)

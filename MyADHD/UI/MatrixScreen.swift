@@ -50,8 +50,8 @@ struct MatrixScreen: View {
 
     var today: String = WebDates.dayKey()
 
-    /// False once the cutover puts `MatrixTools` in a screen header of its
-    /// own; true while this screen is the whole of what is on show.
+    /// Whether this screen draws its own header — the name and the tools.
+    /// False where something above it has already put them on screen.
     var showsTools: Bool = true
 
     /// `catFilter` is one variable on the web and the lists own it here,
@@ -89,9 +89,13 @@ struct MatrixScreen: View {
         let shown = chosen == "all" ? open : open.filter { Ordering.catKey($0) == chosen }
 
         VStack(alignment: .leading, spacing: 0) {
+            /* The same header the lists wear, and the same word: this is
+               the lists tab, in its other shape. `MatrixTools` is what
+               says which shape and changes it. */
             if showsTools {
-                MatrixTools(store: store, showHelp: { helping = true })
-                    .padding(.bottom, 6)
+                ScreenHeader(title: Copy.ScreenTitle.lists) {
+                    MatrixTools(store: store, showHelp: { helping = true })
+                }
             }
 
             CategoryBar(groups: groups,
@@ -103,7 +107,7 @@ struct MatrixScreen: View {
         }
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(theme.surface)
+        .background(theme.surface.ignoresSafeArea())
         /* The quadrants and the chip they are aiming at have to agree
            about where a point is, and this is the space they agree in. */
         .coordinateSpace(name: MatrixDrag.space)
@@ -153,7 +157,7 @@ struct MatrixScreen: View {
             }
         }
         /* `window.innerHeight - top - bar - 10` — the 10 is the web's, and
-           the tab bar's room is already reserved by TabShell. */
+           the tab bar's room is already reserved by AppShell. */
         .padding(.bottom, 10)
     }
 

@@ -86,6 +86,18 @@ struct TabBar: View {
     /// styles.css:1468.
     static let maxWidth: CGFloat = 440
 
+    /// `body.has-tabbar .screen { padding-bottom: 96px + safe-bottom }`
+    /// (styles.css:1546) — the bar hovers *over* the screen rather than
+    /// sitting under it, so the room it needs is an inset inside the
+    /// screen and not a frame beneath the bar. `AppShell` applies it to
+    /// every tab screen at once; the short bottom paddings the screens
+    /// write themselves are all measured on top of this.
+    ///
+    /// It lives here rather than on `TabShell` because that one is
+    /// generic, and `TabShell.reservedHeight` cannot be spelled without
+    /// naming a `Content` that has nothing to do with the number.
+    static let reservedHeight: CGFloat = 96
+
     var body: some View {
         HStack(spacing: 0) {
             button(.home)
@@ -270,9 +282,6 @@ struct TabShell<Content: View>: View {
     var add: () -> Void
     @ViewBuilder var content: () -> Content
 
-    /// styles.css:1546.
-    static var reservedHeight: CGFloat { 96 }
-
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
@@ -280,7 +289,7 @@ struct TabShell<Content: View>: View {
 
                 content()
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        Color.clear.frame(height: Self.reservedHeight)
+                        Color.clear.frame(height: TabBar.reservedHeight)
                     }
 
                 TabBar(current: current, tasks: tasks, today: today,

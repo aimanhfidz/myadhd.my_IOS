@@ -36,10 +36,14 @@
       every row is identified by its task id, so the list is edited rather
       than rebuilt and the scroll offset survives on its own. `keepPlace`
       is the default rather than a special case.
-   3. `#btn-view` and the matrix. The 2x2 is Phase 2 (design §3.2) and
-      `MatrixScreen` does not exist yet, so `state.view` is carried by the
-      document, round-trips through every save, and is not read here. The
-      lists are what this screen draws.
+   3. `goToNext` paints both shapes of this tab. Here the lists tab is two
+      screens — this one and `MatrixScreen` — and which is up is
+      `AppShell`'s branch on the document's `view`. So this screen draws the
+      lists and nothing else, and `MatrixTools` in the header is the way
+      across. It is drawn whatever is on the list, including nothing: a
+      screen that hides the way out while it is empty is the same trap in a
+      smaller room, and the one-way version of this had already shut people
+      out of the matrix for good.
    ============================================================ */
 
 import SwiftUI
@@ -71,6 +75,8 @@ struct ListsScreen: View {
     /// `#done-toggle aria-expanded` — collapsed by default, and a
     /// re-render never touches it.
     @State private var doneOpen = false
+    /// The `?`, which the matrix shows too and from the same button.
+    @State private var helping = false
 
     // MARK: what one paint is looking at
 
@@ -97,58 +103,71 @@ struct ListsScreen: View {
         let shown = filter == "all" ? open : open.filter { Ordering.catKey($0) == filter }
         let today = WebDates.dayKey()
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                /* The empty state is a `return` on the web (app.js:1240),
-                   which is why the done pile is not under it: with nothing
-                   open there is nothing to sort, nothing to filter and
-                   nothing to be told about.
-
-                   That `return` also jumps over the offline note and the
-                   filter row without hiding them, so on the web both keep
-                   whatever they were last left showing — tick the last
-                   offline-sorted task off and the note sits there over an
-                   empty screen offering to re-sort nothing. That is a
-                   missed `classList.toggle`, not a decision, and it is not
-                   reproduced: here the two are drawn from what is open, so
-                   they go when it does. */
-                if !open.isEmpty {
-                    eyebrow
-                    summary(open: open, groups: groups)
-                    OfflineNote(store: store, toasts: toasts)
-                        .padding(.bottom, 22)
-                    SignupOffer(store: store, isOffered: isSignupOffered, onSignIn: onSignIn)
-                    CategoryBar(groups: groups, filter: filterBinding(groups))
-                        .padding(.bottom, groups.count >= 2 ? 18 : 0)
-                    buckets(shown, today: today)
-                    DonePile(done: finished, store: store, isOpen: $doneOpen)
-                }
-
-                /* Shown whenever the store holds anything at all, open or
-                   finished — a pile of ticked-off rows is still something
-                   to clear. It sits ABOVE the cleared note, which is the
-                   order the markup puts them in (app.html:381-396). */
-                if !store.doc.tasks.isEmpty {
-                    DangerZone(store: store, toasts: toasts)
-                }
-
-                if open.isEmpty { clearedNote }
+        VStack(alignment: .leading, spacing: 0) {
+            /* The screen's own name, and the way across to the matrix. The
+               header does not scroll: `MatrixTools` is how you leave this
+               screen, and a way out that has to be scrolled back up to is
+               not one. */
+            ScreenHeader(title: Copy.ScreenTitle.lists) {
+                MatrixTools(store: store, showHelp: { helping = true })
             }
-            .frame(maxWidth: Theme.measure, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .center)
             .padding(.horizontal, 20)
-            /* `.now-wrap { padding-top: clamp(18px,3vh,32px); padding-bottom: 8px }`.
-               Nothing more is needed at the foot: `TabShell` reserves the
-               room the floating bar needs as a bottom safe-area inset, and
-               a `ScrollView` already honours that. */
-            .padding(.top, 22)
-            .padding(.bottom, 8)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    /* The empty state is a `return` on the web (app.js:1240),
+                       which is why the done pile is not under it: with nothing
+                       open there is nothing to sort, nothing to filter and
+                       nothing to be told about.
+
+                       That `return` also jumps over the offline note and the
+                       filter row without hiding them, so on the web both keep
+                       whatever they were last left showing — tick the last
+                       offline-sorted task off and the note sits there over an
+                       empty screen offering to re-sort nothing. That is a
+                       missed `classList.toggle`, not a decision, and it is not
+                       reproduced: here the two are drawn from what is open, so
+                       they go when it does. */
+                    if !open.isEmpty {
+                        OfflineNote(store: store, toasts: toasts)
+                            .padding(.bottom, 22)
+                        SignupOffer(store: store, isOffered: isSignupOffered, onSignIn: onSignIn)
+                        CategoryBar(groups: groups, filter: filterBinding(groups))
+                            .padding(.bottom, groups.count >= 2 ? 18 : 0)
+                        buckets(shown, today: today)
+                        DonePile(done: finished, store: store, isOpen: $doneOpen)
+                    }
+
+                    /* Shown whenever the store holds anything at all, open or
+                       finished — a pile of ticked-off rows is still something
+                       to clear. It sits ABOVE the cleared note, which is the
+                       order the markup puts them in (app.html:381-396). */
+                    if !store.doc.tasks.isEmpty {
+                        DangerZone(store: store, toasts: toasts)
+                    }
+
+                    if open.isEmpty { clearedNote }
+                }
+                .frame(maxWidth: Theme.measure, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 20)
+                /* `.now-wrap { padding-top: clamp(18px,3vh,32px); padding-bottom: 8px }`.
+                   Nothing more is needed at the foot: `AppShell` reserves the
+                   room the floating bar needs as a bottom safe-area inset, and
+                   a `ScrollView` already honours that. */
+                .padding(.top, 22)
+                .padding(.bottom, 8)
+            }
+            .scrollDismissesKeyboard(.interactively)
         }
         /* `html, body { background: var(--surface) }` — the screens sit on
            the surface, not on the backdrop; the backdrop is the ground behind
            the floating furniture. */
         .background(theme.surface.ignoresSafeArea())
-        .scrollDismissesKeyboard(.interactively)
+        /* The same walkthrough the matrix shows, from the same `?`. */
+        .fullScreenCover(isPresented: $helping) {
+            MatrixHelp(onClose: { helping = false })
+        }
         .onChange(of: groups.map(\.key)) { _, keys in
             /* `if (catFilter !== 'all' && !groups.some(...)) catFilter = 'all'`
                — the resolution above already draws the right thing; this is
@@ -167,34 +186,17 @@ struct ListsScreen: View {
 
     // MARK: the pieces, in the order they appear
 
-    /// `Sorted, Aiman.` — or `Sorted into lists.` when there is no name on
-    /// the profile to use.
-    private var eyebrow: some View {
-        let name = store.doc.profile.name
-        let text = name.isEmpty ? Copy.Lists.eyebrowPlain : Copy.Lists.eyebrow(name: name)
-        return Text(text.uppercased())
-            .font(Font.baloo(11, .bold))
-            .kerning(0.13 * 11)
-            .foregroundStyle(theme.faint)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, 12)
-    }
+    /* The eyebrow — `SORTED, AIMAN.` — and the summary line under it are
+       both gone, and the shell's own reasoning for taking them out is why
+       (reference/BridgeScript.swift:176-186). The eyebrow was this screen
+       saying its own name in small caps because the bar above it said the
+       app's name instead; the bar says the screen's name now, so it was
+       the same word twice in two sizes. The summary's counts are on the
+       tab bar's badge and on the heading of every bucket.
 
-    /// `4 things · 2 lists · about 1.5 hr all in`. The list count is every
-    /// group, not the filtered ones: it is a description of the pile, and
-    /// the filter is a way of reading it.
-    private func summary(open: [TaskItem],
-                         groups: [(key: String, items: [TaskItem])]) -> some View
-    {
-        let minutes = open.reduce(0) { $0 + $1.minutes }
-        return Text(Copy.Lists.summary(open: open.count,
-                                       lists: groups.count,
-                                       totalMinutes: minutes))
-            .font(Font.baloo(13.5))
-            .foregroundStyle(theme.faint)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, 22)
-    }
+       `Copy.Lists.eyebrow`, `eyebrowPlain` and `summary` stay where they
+       are. They are the web app's sentences and `Checks/copy.sh` holds
+       them to it whether or not this screen draws them today. */
 
     /// The four headings, the ones with something under them, in the order
     /// the day presses on you.

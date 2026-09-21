@@ -12,17 +12,23 @@
    note: `+` means sort this out for me, and not being sorted is what a
    note is for.
 
-   **Two shapes, not one list that can be empty.**
+   **Two shapes, not one list that can be empty.** Both are under the same
+   header, which says `Notes` where the web said it twice — once in the
+   eyebrow and once in the count line, both of which are gone with it.
 
-   - With notes: eyebrow, count, the cards, the hint — and the `New note`
-     button has moved to the bottom right as a 60pt `+`. That is the
-     shell's doing (`#btn-note-new` restyled by `:has(#notes-list > *)`),
-     and it is kept because it is right: a full-width primary CTA above a
-     list of notes is a banner for the one thing the screen is already
-     about.
-   - With none: the empty state alone, centred, with its own button. The
-     count, the hint, the list and the `+` are all absent — `renderNotes`
-     hides each of them by name.
+   - With notes: the cards, the hint — and the `New note` button has moved
+     to the bottom right as a 60pt `+`. That is the shell's doing
+     (`#btn-note-new` restyled by `:has(#notes-list > *)`), and it is kept
+     because it is right: a full-width primary CTA above a list of notes is
+     a banner for the one thing the screen is already about.
+   - With none: the empty state alone, centred in what is left below the
+     header, with its own button. The hint, the list and the `+` are all
+     absent — `renderNotes` hides each of them by name.
+
+   **The `+` is the only way to a second note, so it has to be reachable.**
+   The tab bar's `+` opens the composer, not a note, and the empty state's
+   button is gone the moment there is one note. It sat behind the tab bar
+   for as long as nothing reserved the bar's room — see `AppShell`.
 
    The editor opens over this screen rather than beside it. On the web it
    is a screen of its own that the tab bar stands down for
@@ -49,49 +55,54 @@ struct NotesScreen: View {
     var body: some View {
         let notes = store.notesByRecent
 
-        ZStack(alignment: .bottomTrailing) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if notes.isEmpty {
-                        empty
-                    } else {
-                        Text(Copy.Notes.eyebrow.uppercased())
-                            .font(Font.baloo(11, .bold))
-                            .kerning(0.13 * 11)
-                            .foregroundStyle(theme.faint)
-                            .padding(.bottom, 12)
-
-                        Text(Copy.Notes.summary(notes.count))
-                            .font(Font.baloo(13.5))
-                            .foregroundStyle(theme.faint)
-                            .padding(.bottom, 22)
-
-                        VStack(spacing: 10) {
-                            ForEach(notes, id: \.id) { note in
-                                NoteCard(note: note) { open(note.id) }
-                            }
-                        }
-
-                        Text(Copy.Notes.hint)
-                            .font(.system(size: 13))
-                            .foregroundStyle(theme.faint)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 14)
-                    }
-                }
-                .frame(maxWidth: Theme.measure, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
+        VStack(alignment: .leading, spacing: 0) {
+            /* The eyebrow this replaces said `NOTES.` in small caps, and
+               the line under it said how many — the screen's own name in a
+               second size, and a count. The header says the name once, and
+               the reasoning is the shell's
+               (reference/BridgeScript.swift:176-186). */
+            ScreenHeader(title: Copy.ScreenTitle.notes)
                 .padding(.horizontal, 20)
-                .padding(.top, 22)
-                /* `.notes-wrap { padding-bottom: safe + 160px }` once the
-                   `+` is floating over the list — the last card has to be
-                   reachable from under it. `TabShell` already reserves the
-                   bar's own 96. */
-                .padding(.bottom, notes.isEmpty ? 8 : 74)
-            }
 
-            if !notes.isEmpty { addButton }
+            if notes.isEmpty {
+                /* Not in a scroller. There is one screenful here and it
+                   never grows, so the block is centred in what is left
+                   between the header and the bar rather than pinned to the
+                   top of a `ScrollView` that has nothing to scroll. */
+                empty
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ZStack(alignment: .bottomTrailing) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            VStack(spacing: 10) {
+                                ForEach(notes, id: \.id) { note in
+                                    NoteCard(note: note) { open(note.id) }
+                                }
+                            }
+
+                            Text(Copy.Notes.hint)
+                                .font(.system(size: 13))
+                                .foregroundStyle(theme.faint)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 14)
+                        }
+                        .frame(maxWidth: Theme.measure, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 10)
+                        /* `.notes-wrap { padding-bottom: safe + 160px }`
+                           once the `+` is floating over the list — the last
+                           card has to be reachable from under it.
+                           `AppShell` already reserves the bar's own 96. */
+                        .padding(.bottom, 74)
+                    }
+
+                    addButton
+                }
+            }
         }
         .background(theme.surface.ignoresSafeArea())
         .fullScreenCover(item: $openNote) { open in
@@ -116,8 +127,9 @@ struct NotesScreen: View {
 
     // MARK: the two shapes
 
-    /// `#notes-empty`. Centred, violet-outlined, with the one thing to
-    /// press.
+    /// `#notes-empty`. Violet-outlined, with the one thing to press. It
+    /// carries no padding of its own — where it sits is the caller's, and
+    /// the caller centres it in the whole screen.
     private var empty: some View {
         VStack(spacing: 10) {
             Image(systemName: "doc.text")
@@ -155,8 +167,6 @@ struct NotesScreen: View {
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
-        .padding(.top, 60)
     }
 
     /// The same button and the same handler as the empty state's, wearing
