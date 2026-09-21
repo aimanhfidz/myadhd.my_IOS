@@ -418,6 +418,25 @@ enum Copy {
         static let nextMonth = "Next month"            // app.html:418
         static let backToToday = "Back to today"       // app.html:448
 
+        /// What the toast says after a task has been dragged onto a day.
+        /// The same sentence the matrix says after a drop onto a quadrant
+        /// (`Quadrants.movedTo`) and off the same line of app.js — one
+        /// gesture with two kinds of target should not be two wordings.
+        /// `label` is `WebDates.dayLabel`, so it reads `Moved to Today.`
+        /// or `Moved to Wed 23 Sep.`
+        ///
+        /// Backticks and not quotes, deliberately: `copy.sh` pulls every
+        /// double-quoted run out of this file, comments included, so an
+        /// example written the natural way becomes a needle it then
+        /// cannot find in app.js. It fails loudly, which is the check
+        /// working — but the fix is to not write the example in quotes.
+        static func movedTo(label: String) -> String { "Moved to \(label)." }   // app.js:2857
+        /* No label for the hold itself. The matrix's has none either, and
+           the web has no sentence for one — inventing an English string
+           here would be the first piece of copy in this file that came
+           from nowhere. It is a real gap for VoiceOver, in both gestures,
+           and it wants a decision about wording rather than a guess. */
+
         /// The static day-name row, Monday first. Two of the seven are the
         /// same letter, which is why they are written out and not derived.
         static let dayInitials = ["M", "T", "W", "T", "F", "S", "S"]   // app.html:435

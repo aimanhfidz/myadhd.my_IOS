@@ -43,6 +43,9 @@ struct MonthPager: View {
     /// `CalendarScreen`, because the scroller that has to stand down while
     /// it is in flight is up there too.
     let drag: MonthDrag
+    /// The agenda's drag, for the ring a cell wears while a task is over
+    /// it. The pager does nothing else with it.
+    var taskDrag: MonthTaskDrag? = nil
 
     /// The pane's width, which decides the cell size and so the height.
     /// Seeded from the screen so the first frame is not zero-high.
@@ -81,10 +84,6 @@ struct MonthPager: View {
         .simultaneousGesture(swipe)
         .animation(Self.glide, value: height)
         .frame(maxWidth: .infinity, alignment: .center)
-        /* The space the cells' frames and the dragging finger are both
-           measured in. On the clipped pane rather than on the row of
-           three, so a point means the same thing whatever `dx` is. */
-        .coordinateSpace(name: MonthDrag.space)
         .background {
             GeometryReader { g in
                 Color.clear.preference(key: MonthWidthKey.self, value: g.size.width)
@@ -93,14 +92,11 @@ struct MonthPager: View {
         .onPreferenceChange(MonthWidthKey.self) { measured in
             if measured > 0 { width = measured }
         }
-        .onPreferenceChange(MonthFramesKey.self) { frames in
-            drag.frames = frames
-        }
+        /* The cells' frames go up to `CalendarScreen`, which owns the
+           coordinate space and hands them to both of the month's drags —
+           a task lifted out of the agenda below has to find a cell up
+           here, and that is not this view's to arrange. */
         .onAppear { drag.onPick = { session.pick($0) } }
-        /* A gesture that never got its release — the tab changed under a
-           finger — would otherwise leave the grid thinking it is still
-           being dragged, and the month pager standing down for ever. */
-        .onDisappear { drag.cancel() }
     }
 
     private func pane(_ month: MonthRef, live: Bool) -> some View {
@@ -111,7 +107,8 @@ struct MonthPager: View {
                   live: live,
                   cell: cell,
                   onPick: { session.pick($0) },
-                  drag: drag)
+                  drag: drag,
+                  taskDrag: taskDrag)
             .frame(width: width, alignment: .top)
     }
 

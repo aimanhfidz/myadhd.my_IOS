@@ -38,6 +38,8 @@ struct CalendarAgenda: View {
     let today: String
     let store: AppStore
     let toasts: ToastCenter
+    /// The month grid above this list is what a row can be dropped on.
+    var dayDrag: MonthTaskDrag? = nil
 
     private var overdue: [TaskItem] {
         picked == today ? Ordering.overdueTasks(tasks, today: today) : []
@@ -52,7 +54,8 @@ struct CalendarAgenda: View {
                                    today: today,
                                    late: true,
                                    store: store,
-                                   toasts: toasts)
+                                   toasts: toasts,
+                                   dayDrag: dayDrag)
             }
 
             if items.isEmpty {
@@ -72,7 +75,8 @@ struct CalendarAgenda: View {
                                    today: today,
                                    late: false,
                                    store: store,
-                                   toasts: toasts)
+                                   toasts: toasts,
+                                   dayDrag: dayDrag)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -159,6 +163,7 @@ struct AgendaGroupSection: View {
     let late: Bool
     let store: AppStore
     let toasts: ToastCenter
+    var dayDrag: MonthTaskDrag? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -179,7 +184,8 @@ struct AgendaGroupSection: View {
                                today: today,
                                late: late,
                                store: store,
-                               toasts: toasts)
+                               toasts: toasts,
+                               dayDrag: dayDrag)
                 }
             }
         }
@@ -199,11 +205,29 @@ struct CalItemRow: View {
     let late: Bool
     let store: AppStore
     let toasts: ToastCenter
+    /// Present only under the month grid, which is the only place with
+    /// days on screen to drop a task onto. The List pane passes nil and
+    /// the row behaves exactly as it always has.
+    var dayDrag: MonthTaskDrag? = nil
+
+    /// One touch, one press — `QuadrantCell`'s flag, for its reason.
+    @State private var gestureLive = false
+
+    private var lifted: Bool { dayDrag?.isLifted(task.id) ?? false }
+    private var pressed: Bool { dayDrag?.isPressed(task.id) ?? false }
 
     var body: some View {
-        SwipeRow(cornerRadius: Theme.radiusLg, onCommit: commit) {
+        /* The swipe stands down while the row is in the air: one finger
+           cannot both tip a row over and carry it somewhere. */
+        SwipeRow(isEnabled: !lifted, cornerRadius: Theme.radiusLg, onCommit: commit) {
             card
         }
+        /* It fades in place rather than leaving, so the agenda does not
+           reflow under the hand mid-drag. */
+        .opacity(lifted ? 0.3 : 1)
+        .scaleEffect(pressed ? 0.985 : 1)
+        .animation(Theme.ease(0.18), value: lifted)
+        .animation(Theme.ease(0.14), value: pressed)
     }
 
     private var card: some View {
@@ -223,6 +247,13 @@ struct CalItemRow: View {
                     .padding(.top, 3)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            /* Bound to the title and its meta rather than to the whole
+               row, so the tick and the time slot stay what they are —
+               the line the matrix draws too (`watchPress` returns on
+               `.task-check`, app.js:2748). A finished task never lifts;
+               `moveToDay` would refuse it anyway. */
+            .contentShape(Rectangle())
+            .simultaneousGesture(canDrag ? hold : nil)
         }
         .padding(.vertical, 13)
         .padding(.horizontal, 15)
@@ -269,6 +300,40 @@ struct CalItemRow: View {
         }
         return Copy.Calendar.lateMeta(day: WebDates.dayLabel(task.when ?? "", today: today),
                                       minutes: minutes)
+    }
+
+    // MARK: hold, then drop it on a day
+
+    private var canDrag: Bool { dayDrag != nil && !task.done }
+
+    /// The matrix's gesture, aimed at a month instead of four quadrants.
+    private var hold: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(MonthTaskDrag.space))
+            .onChanged { value in
+                guard let dayDrag else { return }
+                if !gestureLive {
+                    gestureLive = true
+                    dayDrag.press(task, at: value.startLocation)
+                }
+                dayDrag.moved(to: value.location)
+            }
+            .onEnded { _ in
+                gestureLive = false
+                land()
+            }
+    }
+
+    /// A drop that never lifted, or that came down between the cells, is
+    /// nothing. A drop onto the day the task is already on is refused by
+    /// the store and says nothing either.
+    private func land() {
+        guard let dayDrag, let to = dayDrag.release() else { return }
+        let id = task.id
+        let from = task.when
+        guard store.moveToDay(id, to: to) else { return }
+        toasts.show(Copy.Calendar.movedTo(label: WebDates.dayLabel(to, today: today))) {
+            store.moveToDay(id, to: from)
+        }
     }
 
     // MARK: what a row does

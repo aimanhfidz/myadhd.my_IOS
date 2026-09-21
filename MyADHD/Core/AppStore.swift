@@ -347,6 +347,33 @@ final class AppStore {
         return true
     }
 
+    /// Move a task to a day — the whole of what the month grid's drag can
+    /// do to one.
+    ///
+    /// **Only the day changes.** `at` is left alone, so a thing at 3pm
+    /// dragged onto Thursday is at 3pm on Thursday, and a thing with no
+    /// clock on it stays that way. `nil` takes the day off altogether,
+    /// which is what undoing a move onto a previously undated task has to
+    /// do.
+    ///
+    /// **A finished task refuses**, for the reason `stampTimeOnly` gives
+    /// further up this file: moving one onto tomorrow is a lie about a
+    /// thing that has already happened.
+    ///
+    /// `save()` rather than `persistOnly()`, because the day is exactly
+    /// what the reminder schedule and the Google Calendar push are built
+    /// from — both hang off this call.
+    @discardableResult
+    func moveToDay(_ id: String, to day: String?) -> Bool {
+        guard let i = doc.index(ofTask: id) else { return false }
+        guard !doc.tasks[i].done else { return false }
+        let next = (day?.isEmpty ?? true) ? nil : day
+        guard doc.tasks[i].when != next else { return false }
+        doc.tasks[i].when = next
+        save()
+        return true
+    }
+
     /// The view toggle. Persisted, unlike the category filter — that one
     /// is where you are looking right now, this one is how you think
     /// (app.js:1301-1308, 236-244).

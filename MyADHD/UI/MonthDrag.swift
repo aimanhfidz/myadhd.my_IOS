@@ -173,11 +173,126 @@ final class MonthDrag {
 /// Each live day cell puts its own frame in, measured in `MonthDrag.space`.
 /// Only the middle month posts: the two side pages are not hittable, and a
 /// key that appears in more than one month would otherwise collide.
+///
+/// Read by both of this file's gestures — one set of rectangles, two
+/// things you can do to them.
 struct MonthFramesKey: PreferenceKey {
     static let defaultValue: [String: CGRect] = [:]
     static func reduce(value: inout [String: CGRect],
                        nextValue: () -> [String: CGRect])
     {
         value.merge(nextValue()) { _, new in new }
+    }
+}
+
+// MARK: - dragging a task onto a day
+
+/// Hold a task in the agenda under the month grid, then drop it on a day
+/// to move it there.
+///
+/// **This is the matrix's drag with a calendar under it**, and deliberately
+/// so: `MatrixDrag` is the same gesture — hold a task, a chip lifts, a
+/// target lights up, let go and the task moves — and every constant,
+/// including the ghost chip it flies as, is shared rather than re-picked.
+/// The two differ in one thing only: what the frames underneath are. There
+/// they are four quadrants; here they are the days of a month.
+///
+/// **It edits, which the calendar did not.** `CalendarScreen` opens by
+/// saying the calendar reads and does not edit — a rule that was about
+/// never putting a second, quieter editor next to the real one. This is
+/// the one exception, and it earns it by being the gesture, not a form:
+/// moving a task to a day is the whole of what it can do, the day it lands
+/// on is the day you dropped it on, and there is an Undo on the toast.
+/// Nothing else about a task is reachable from here.
+@MainActor
+@Observable
+final class MonthTaskDrag {
+
+    /// The same space and the same frames as the day scrub — see
+    /// `MonthFramesKey`.
+    static let space = MonthDrag.space
+    static let lift: TimeInterval = MatrixDrag.lift
+    static let slop: CGFloat = MatrixDrag.slop
+
+    struct Airborne: Equatable {
+        var id: String
+        var label: String
+        var point: CGPoint
+    }
+
+    private(set) var pressed: String?
+    private(set) var airborne: Airborne?
+    /// The day cell under the finger, which wears the ring.
+    private(set) var over: String?
+
+    @ObservationIgnored private var timer: Task<Void, Never>?
+    @ObservationIgnored private var origin: CGPoint = .zero
+    @ObservationIgnored private var held: (id: String, label: String)?
+
+    @ObservationIgnored var frames: [String: CGRect] = [:]
+
+    init() {}
+
+    func isPressed(_ id: String) -> Bool { pressed == id }
+    func isLifted(_ id: String) -> Bool { airborne?.id == id }
+    var isDragging: Bool { airborne != nil }
+    func isOver(_ key: String) -> Bool { airborne != nil && over == key }
+
+    func press(_ task: TaskItem, at point: CGPoint) {
+        guard pressed == nil, airborne == nil else { return }
+        pressed = task.id
+        origin = point
+        held = (task.id, MatrixDrag.ghostLabel(task))
+        timer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.lift * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.raise()
+        }
+    }
+
+    func moved(to point: CGPoint) {
+        if airborne != nil {
+            airborne?.point = point
+            over = cell(at: point)
+            return
+        }
+        guard pressed != nil else { return }
+        if hypot(point.x - origin.x, point.y - origin.y) > Self.slop { dropPress() }
+    }
+
+    func dropPress() {
+        timer?.cancel()
+        timer = nil
+        pressed = nil
+        held = nil
+    }
+
+    /// The day it came down on, or nil — which covers both "it never
+    /// lifted" and "it came down over no cell at all".
+    func release() -> String? {
+        let landed = airborne != nil ? over : nil
+        cancel()
+        return landed
+    }
+
+    func cancel() {
+        timer?.cancel()
+        timer = nil
+        pressed = nil
+        held = nil
+        airborne = nil
+        over = nil
+    }
+
+    private func raise() {
+        guard let held, pressed == held.id else { return }
+        pressed = nil
+        airborne = Airborne(id: held.id, label: held.label, point: origin)
+        over = cell(at: origin)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func cell(at point: CGPoint) -> String? {
+        frames.first { $0.value.contains(point) }?.key
     }
 }

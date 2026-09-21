@@ -119,6 +119,7 @@ struct MonthPage: View {
     /// Passed through to every cell. The two inert pages get it too and
     /// do nothing with it — they neither post a frame nor take a gesture.
     let drag: MonthDrag
+    var taskDrag: MonthTaskDrag? = nil
 
     /// Grouped once per page rather than filtered 42 times. `tasksOn`
     /// still does the sort, so the order it produces is untouched.
@@ -191,7 +192,8 @@ struct MonthPage: View {
                             live: live,
                             size: cell,
                             onPick: onPick,
-                            drag: drag)
+                            drag: drag,
+                            taskDrag: taskDrag)
     }
 }
 
@@ -214,11 +216,18 @@ struct MonthDayCell: View {
     /// The hold-and-drag this cell takes part in — it posts its frame so
     /// the drag can find it, and wears a ring while the finger is on it.
     let drag: MonthDrag
+    /// The other one: a task being carried over from the agenda below.
+    /// One ring, two reasons to wear it.
+    var taskDrag: MonthTaskDrag? = nil
 
     /// `QuadrantCell`'s flag, and for its reason: without it a move past
     /// the slop drops the press and the very next callback starts a fresh
     /// one, which is a hold that can never be called off.
     @State private var gestureLive = false
+
+    private var isDropTarget: Bool {
+        drag.isOver(key) || (taskDrag?.isOver(key) ?? false)
+    }
 
     private var isToday: Bool { key == today }
     private var isPicked: Bool { key == picked }
@@ -274,11 +283,13 @@ struct MonthDayCell: View {
                               lineWidth: 1.5)
         )
         /* `.is-drop` — the cell the finger is over, while it is over it.
-           The fill has already moved here, because crossing a cell picks
-           it; the ring is what says the gesture is still in your hand. */
+           Scrubbing the picked day, the fill has already moved here and
+           the ring only says the gesture is still in your hand. Carrying
+           a task, the ring is the whole of the answer: it is where the
+           thing would land. */
         .overlay(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(drag.isOver(key) ? theme.accent : .clear, lineWidth: 2.5)
+                .strokeBorder(isDropTarget ? theme.accent : .clear, lineWidth: 2.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))

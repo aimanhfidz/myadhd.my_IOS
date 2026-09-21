@@ -4,10 +4,26 @@
    `showCalendar` and `renderCalendar` (app.js:2268-2376), the shell's
    four-way pill (BridgeScript.swift:786-1087), inventory §1.8 and §1.18.
 
-   **The calendar reads; it does not edit.** Nothing here changes a day, a
-   time or a title — Edit is a rename and only a rename, everywhere in
-   this app. What a row can do is what a row on the lists can do: tick,
-   swipe, undo.
+   **The calendar reads, and moves one thing.** It used to only read:
+   nothing here changed a day, a time or a title, and what a row could do
+   was what a row on the lists can do — tick, swipe, undo. That rule was
+   never about days being sacred. It was about not growing a second,
+   quieter editor beside the real one, where a task could be half-changed
+   somewhere nobody thinks of as a place that changes tasks.
+
+   What has been added since is **dragging a task out of the agenda onto a
+   day in the grid**, and it is allowed for the same reasons the rule was
+   written to protect:
+
+   - it is a gesture, not a form — no field, no sheet, and no second path
+     to the same change;
+   - moving a task to a day is the *whole* of what it can do, and the day
+     it lands on is the day you dropped it on;
+   - it says what it did and offers an Undo, like every other commit here;
+   - a finished task refuses, so it cannot rewrite what already happened.
+
+   Anything past that — a time, a title, a duration — still belongs to the
+   editor and not to this screen. See `MonthTaskDrag`.
 
    **Two pieces of state, and neither is data.** `calPicked` is the day
    you are looking at and `calCursor` is the month on screen. The web
@@ -158,6 +174,11 @@ struct CalendarScreen: View {
     /// being scrubbed is this screen's.
     @State private var monthDrag = MonthDrag()
 
+    /// And dragging a task out of the agenda onto one of those days. Two
+    /// gestures over one set of cell frames: this one starts on a row,
+    /// the one above starts on a cell.
+    @State private var taskDrag = MonthTaskDrag()
+
     private var tasks: [TaskItem] { store.doc.tasks }
 
     /// `!done && !when` — on no day at all, and so on no calendar.
@@ -205,7 +226,7 @@ struct CalendarScreen: View {
                    The 320ms hold and its 8pt of slop mean a flick was
                    already read as a scroll and called the lift off, so
                    this only ever bites after the gesture has committed. */
-                .scrollDisabled(monthDrag.isDragging)
+                .scrollDisabled(monthDrag.isDragging || taskDrag.isDragging)
                 /* **The day header does not scroll.** On the web it was
                    `position: sticky` (reference/BridgeScript.swift:361-362)
                    and the port put it in the scroller instead, so the one
@@ -342,7 +363,8 @@ struct CalendarScreen: View {
 
     private var monthView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            MonthPager(tasks: tasks, today: today, session: session, drag: monthDrag)
+            MonthPager(tasks: tasks, today: today, session: session,
+                       drag: monthDrag, taskDrag: taskDrag)
 
             if !session.isOnToday(today) {
                 Button { session.backToToday(today) } label: {
@@ -363,10 +385,33 @@ struct CalendarScreen: View {
                            picked: session.picked,
                            today: today,
                            store: store,
-                           toasts: toasts)
+                           toasts: toasts,
+                           dayDrag: taskDrag)
                 .padding(.top, 14)
 
             undatedLine
+        }
+        /* **The space the grid and the agenda agree in.** It has to be
+           out here and not on the pager, because a task lifted out of the
+           list below has to be findable over a cell above it, and those
+           are two different views. Both drags read the same rectangles —
+           see `MonthFramesKey`. */
+        .coordinateSpace(name: MonthDrag.space)
+        .onPreferenceChange(MonthFramesKey.self) { frames in
+            monthDrag.frames = frames
+            taskDrag.frames = frames
+        }
+        .overlay {
+            if let air = taskDrag.airborne {
+                MatrixGhost(label: air.label, point: air.point)
+            }
+        }
+        /* A gesture that never got its release — the tab changed under a
+           finger — would leave a chip in the air for as long as the app
+           runs. */
+        .onDisappear {
+            monthDrag.cancel()
+            taskDrag.cancel()
         }
     }
 
