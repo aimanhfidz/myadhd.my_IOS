@@ -338,32 +338,58 @@ struct NoteEditor: View {
     /// alone and which therefore cannot be open here either, because this
     /// editor is created fresh each time.
     ///
-    /// **Why this waits rather than hopping the runloop once.** The editor
-    /// arrives as a `fullScreenCover`, and a cover's `onAppear` fires at
-    /// the *start* of the presentation transition — the field is not in
-    /// the responder chain yet, so a single `DispatchQueue.main.async`
-    /// asked for first responder before there was one to give and the
-    /// keyboard simply did not come up on a new note. The transition is
-    /// ~0.35s; a third of a second clears it with room to spare and is
-    /// still under what anybody reads as a delay.
+    /// **The two halves of this need opposite things, which is why they
+    /// are not one code path.**
+    ///
+    /// Going back into a note sets `focus.target`, and that is a *request*
+    /// rather than a call: whichever block owns the index answers it and
+    /// clears it through `onFocusApplied`, and until one does it simply
+    /// waits. It cannot be too early, so it is made immediately.
+    ///
+    /// A new note's title is a SwiftUI `@FocusState`, and that one can be
+    /// too early. The editor arrives as a `fullScreenCover`, whose
+    /// `onAppear` fires at the *start* of the presentation transition —
+    /// ask then and there is no responder yet to become first, so the
+    /// keyboard did not come up at all. A fixed wait long enough to clear
+    /// the transition is a wait everybody pays, on a phone that may also
+    /// be launching a third-party keyboard extension behind it. So this
+    /// asks, reads the answer back — `@FocusState` is written to when the
+    /// field takes focus — and asks again until it sticks. It costs one
+    /// 50ms hop on a phone that was ready, instead of 350ms on every one.
+    ///
+    /// It gives up after `focusBudget`, and stops early if anything else
+    /// has asked for the keyboard in the meantime, so a person who taps
+    /// a block or opens a sheet inside the first half-second does not get
+    /// the title yanked back from under them.
     private func openOnce(_ note: NoteItem) async {
         guard !opened else { return }
         opened = true
         fmtBlock = 0
         sheet = nil
 
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        guard !Task.isCancelled else { return }
-
-        if JSText.trim(note.title).isEmpty && JSText.trim(note.body).isEmpty {
-            titleFocused = true
-        } else {
+        guard JSText.trim(note.title).isEmpty && JSText.trim(note.body).isEmpty else {
             let last = max(0, note.blocks.count - 1)
             let end = note.blocks.indices.contains(last)
                 ? note.blocks[last].text.utf16.count : 0
             focus.target = .block(index: last, offset: end)
+            return
+        }
+
+        for _ in 0..<Self.focusAttempts {
+            titleFocused = true
+            try? await Task.sleep(nanoseconds: Self.focusRetry)
+            if titleFocused || Task.isCancelled { return }
+            // Somebody else wants it more than we do.
+            if sheet != nil || focus.target != nil { return }
         }
     }
+
+    /// 50ms a go, for up to three quarters of a second. The transition is
+    /// ~0.35s, so the budget is roughly double what a slow one needs —
+    /// long enough not to give up on a cold launch, short enough that a
+    /// genuine failure stops rather than fights the screen.
+    private static let focusRetry: UInt64 = 50_000_000
+    private static let focusAttempts = 15
 
     /// `leaveNote()` = `closeNote()` + back to the index. The blank note
     /// is dropped inside `closeNote`.
