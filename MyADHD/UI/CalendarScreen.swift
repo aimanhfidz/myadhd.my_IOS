@@ -153,6 +153,11 @@ struct CalendarScreen: View {
     let store: AppStore
     let toasts: ToastCenter
 
+    /// The meetings already on this phone. nil in a preview or a render
+    /// harness, and silent until the switch in Settings is on — all four
+    /// panes then draw exactly as they did before it existed.
+    var meetings: MeetingReader? = nil
+
     var today: String = WebDates.dayKey()
 
     /// Whether this screen draws its own header — the name and the pill.
@@ -213,9 +218,11 @@ struct CalendarScreen: View {
                         case .month: monthView
                         case .list:  listView
                         case .day:   CalDayPane(tasks: tasks, today: today,
-                                                session: session, dx: $dx)
+                                                session: session, dx: $dx,
+                                                meetings: meetings)
                         case .week:  CalColumnsPane(tasks: tasks, today: today,
-                                                    session: session, dx: $dx)
+                                                    session: session, dx: $dx,
+                                                    meetings: meetings)
                         }
                     }
                     .frame(maxWidth: Theme.measure, alignment: .leading)
@@ -364,7 +371,8 @@ struct CalendarScreen: View {
     private var monthView: some View {
         VStack(alignment: .leading, spacing: 0) {
             MonthPager(tasks: tasks, today: today, session: session,
-                       drag: monthDrag, taskDrag: taskDrag)
+                       drag: monthDrag, taskDrag: taskDrag,
+                       meetings: meetings)
 
             if !session.isOnToday(today) {
                 Button { session.backToToday(today) } label: {
@@ -386,7 +394,8 @@ struct CalendarScreen: View {
                            today: today,
                            store: store,
                            toasts: toasts,
-                           dayDrag: taskDrag)
+                           dayDrag: taskDrag,
+                           meetings: meetings)
                 .padding(.top, 14)
 
             undatedLine
@@ -423,7 +432,8 @@ struct CalendarScreen: View {
                              picked: session.picked,
                              today: today,
                              store: store,
-                             toasts: toasts)
+                             toasts: toasts,
+                             meetings: meetings)
             undatedLine
         }
     }

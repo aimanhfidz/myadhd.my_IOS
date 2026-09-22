@@ -40,11 +40,18 @@ struct CalendarAgenda: View {
     let toasts: ToastCenter
     /// The month grid above this list is what a row can be dropped on.
     var dayDrag: MonthTaskDrag? = nil
+    /// nil wherever meetings have not been wired in, and empty whenever
+    /// the switch is off or the permission was refused. Both cases draw
+    /// the agenda exactly as it was before any of this existed.
+    var meetings: MeetingReader? = nil
 
     private var overdue: [TaskItem] {
         picked == today ? Ordering.overdueTasks(tasks, today: today) : []
     }
     private var items: [TaskItem] { Ordering.tasksOn(tasks, picked) }
+    private var onDay: [Meeting] {
+        AgendaEntry.unclaimed(meetings?.on(picked) ?? [], by: tasks)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -58,7 +65,7 @@ struct CalendarAgenda: View {
                                    dayDrag: dayDrag)
             }
 
-            if items.isEmpty {
+            if items.isEmpty && onDay.isEmpty {
                 Text(picked == today
                      ? Copy.Calendar.emptyToday
                      : Copy.Calendar.emptyDay(WebDates.dayPhrase(picked, today: today)))
@@ -76,7 +83,8 @@ struct CalendarAgenda: View {
                                    late: false,
                                    store: store,
                                    toasts: toasts,
-                                   dayDrag: dayDrag)
+                                   dayDrag: dayDrag,
+                                   meetings: onDay)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -97,6 +105,7 @@ struct CalendarListPane: View {
     let today: String
     let store: AppStore
     let toasts: ToastCenter
+    var meetings: MeetingReader? = nil
 
     private var from: String { Ordering.jsLess(picked, today) ? picked : today }
 
@@ -104,12 +113,16 @@ struct CalendarListPane: View {
         from == today ? Ordering.overdueTasks(tasks, today: today) : []
     }
 
-    /// Fourteen days from `from`, and only the ones with something on them.
-    private var days: [(key: String, items: [TaskItem])] {
+    /// Fourteen days from `from`, and only the ones with something on
+    /// them — where something now includes a meeting. A day holding
+    /// nothing but meetings used to be skipped, which would have hidden
+    /// exactly the day this feature exists to show.
+    private var days: [(key: String, items: [TaskItem], meetings: [Meeting])] {
         (0..<14).compactMap { offset in
             let key = WebDates.addDays(offset, toKey: from)
             let items = Ordering.tasksOn(tasks, key)
-            return items.isEmpty ? nil : (key, items)
+            let onDay = AgendaEntry.unclaimed(meetings?.on(key) ?? [], by: tasks)
+            return items.isEmpty && onDay.isEmpty ? nil : (key, items, onDay)
         }
     }
 
@@ -141,7 +154,8 @@ struct CalendarListPane: View {
                                        today: today,
                                        late: false,
                                        store: store,
-                                       toasts: toasts)
+                                       toasts: toasts,
+                                       meetings: day.meetings)
                 }
             }
         }
@@ -165,6 +179,16 @@ struct AgendaGroupSection: View {
     let toasts: ToastCenter
     var dayDrag: MonthTaskDrag? = nil
 
+    /// Read off the phone, interleaved with the tasks by the clock.
+    /// Empty in the overdue group and left empty by every caller that has
+    /// no reader — the section then draws exactly as it always has.
+    ///
+    /// **The overdue group never gets any.** Overdue is a list of things
+    /// still to do that you have missed; a meeting that has been and gone
+    /// is not one of them, and putting it under a heading that counts
+    /// what you owe would be a lie about the number.
+    var meetings: [Meeting] = []
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(heading.uppercased())
@@ -179,13 +203,18 @@ struct AgendaGroupSection: View {
                 .padding(.bottom, 10)
 
             LazyVStack(alignment: .leading, spacing: 8) {
-                ForEach(items, id: \.id) { task in
-                    CalItemRow(task: task,
-                               today: today,
-                               late: late,
-                               store: store,
-                               toasts: toasts,
-                               dayDrag: dayDrag)
+                ForEach(AgendaEntry.merge(tasks: items, meetings: meetings)) { entry in
+                    switch entry {
+                    case .task(let task):
+                        CalItemRow(task: task,
+                                   today: today,
+                                   late: late,
+                                   store: store,
+                                   toasts: toasts,
+                                   dayDrag: dayDrag)
+                    case .meeting(let meeting):
+                        CalMeetingRow(meeting: meeting, store: store, toasts: toasts)
+                    }
                 }
             }
         }
@@ -354,5 +383,118 @@ struct CalItemRow: View {
     private func remove() {
         guard let removal = store.removeTask(task.id) else { return }
         toasts.show(Copy.TaskRow.removed) { store.undoRemove(removal) }
+    }
+}
+
+// MARK: - a meeting's row
+
+/// Deliberately not a `CalItemRow` with a flag on it.
+///
+/// **No tick, and no swipe.** A task row commits Done on a swipe left and
+/// Remove on a swipe right, and neither verb means anything here: you
+/// cannot finish somebody else's meeting and deleting it from my.adhd
+/// would delete nothing. Giving the row those gestures and then refusing
+/// them is worse than not having them — it teaches that a swipe sometimes
+/// does nothing.
+///
+/// **A washed ground instead of a white card.** A task sits on
+/// `surface`; this sits on `wash`, which is the same move the app already
+/// makes for a thing you are reading rather than acting on. No new colour
+/// is spent: orange still means act now and red still means destructive.
+///
+/// The glyph stands where the tick stands so every title in the day
+/// starts on the same line, whichever kind of row it is on.
+struct CalMeetingRow: View {
+
+    @Environment(\.theme) private var theme
+
+    let meeting: Meeting
+    let store: AppStore
+    let toasts: ToastCenter
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 11) {
+            glyph
+            slot
+            VStack(alignment: .leading, spacing: 0) {
+                Text(meeting.title)
+                    .font(Font.baloo(15, .semibold))
+                    .lineSpacing(15 * 0.35)
+                    .foregroundStyle(theme.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(meta)
+                    .font(Font.baloo(12.5))
+                    .foregroundStyle(theme.faint)
+                    .padding(.top, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                makeTask
+                    .padding(.top, 9)
+            }
+        }
+        .padding(.vertical, 13)
+        .padding(.horizontal, 15)
+        .background(theme.wash)
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous)
+                .strokeBorder(theme.line, lineWidth: 1.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous))
+    }
+
+    /// Where the tick would be. Not a button, and it does not look like
+    /// one: nothing about this row is yours to press except the one thing
+    /// that is.
+    private var glyph: some View {
+        Image(systemName: "calendar")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(theme.muted)
+            .frame(width: 24, height: 24)
+            .padding(.top, 1)
+            .accessibilityHidden(true)
+    }
+
+    /// The same fixed 62pt column a task row uses.
+    private var slot: some View {
+        let label = WebDates.timeLabel(meeting.at)
+        return Text(label ?? Copy.Meetings.allDay)
+            .font(Font.baloo(13.5, label == nil ? .semibold : .bold))
+            .foregroundStyle(label == nil ? theme.faint : theme.ink)
+            .frame(width: 62, alignment: .leading)
+            .padding(.top, 1)
+    }
+
+    private var meta: String {
+        guard !meeting.isAllDay else {
+            return Copy.Meetings.allDayMeta(calendar: meeting.calendarTitle)
+        }
+        return Copy.Meetings.meta(calendar: meeting.calendarTitle,
+                                  minutes: WebDates.minutesLabel(meeting.minutes))
+    }
+
+    /// The one thing on this row that does something. It COPIES the
+    /// meeting into your own lists — the calendar it came from is not
+    /// touched, and the meeting is still the meeting.
+    private var makeTask: some View {
+        Button(action: claim) {
+            Text(Copy.Meetings.makeTask)
+                .font(Font.baloo(12.5, .bold))
+                .foregroundStyle(theme.ink)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(theme.surface, in: Capsule())
+                .overlay(Capsule().strokeBorder(theme.lineStrong, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// `applyTriage` and not a bespoke insert, so a meeting whose title is
+    /// already on a list is caught by the same de-dupe every dump gets,
+    /// and the toast is the sentence the web already says for it.
+    private func claim() {
+        let result = store.applyTriage([meeting.asTask()])
+        guard let said = Copy.Triage.result(added: result.added, dupes: result.dupes) else { return }
+        toasts.show(said)
     }
 }

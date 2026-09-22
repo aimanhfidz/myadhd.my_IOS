@@ -77,14 +77,19 @@ struct CalDayPane: View {
 
     @Binding var dx: CGFloat
 
+    var meetings: MeetingReader? = nil
+
     var body: some View {
+        let days = [session.picked]
+        let onDays = MeetingDays.on(days, from: meetings, tasks: tasks)
         VStack(alignment: .leading, spacing: 0) {
-            AnytimeChips(tasks: tasks, days: [session.picked])
-            HourGridView(days: [session.picked],
+            AnytimeChips(tasks: tasks, days: days, meetings: onDays)
+            HourGridView(days: days,
                          tasks: tasks,
                          today: today,
                          hourHeight: HourGridMetrics.day,
-                         compact: false)
+                         compact: false,
+                         meetings: onDays)
         }
         .offset(x: dx)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -103,10 +108,13 @@ struct CalColumnsPane: View {
 
     @Binding var dx: CGFloat
 
+    var meetings: MeetingReader? = nil
+
     var body: some View {
         let days = CalDays.window(from: session.picked, count: CalDays.columns)
+        let onDays = MeetingDays.on(days, from: meetings, tasks: tasks)
         VStack(alignment: .leading, spacing: 0) {
-            AnytimeChips(tasks: tasks, days: days)
+            AnytimeChips(tasks: tasks, days: days, meetings: onDays)
             HourGridView(days: days,
                          tasks: tasks,
                          today: today,
@@ -116,7 +124,8 @@ struct CalColumnsPane: View {
                             to be anything else. Three have the room, so a
                             block here says what a block on the Day view
                             says. */
-                         compact: false)
+                         compact: false,
+                         meetings: onDays)
         }
         .offset(x: dx)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -310,6 +319,26 @@ struct CalWeekStrip: View {
     private var surfaceHex: UInt32 { theme.dark ? 0x101018 : 0xFFFFFF }
 }
 
+// MARK: - the days a pane is showing
+
+/// The one place that turns a reader into the meetings a pane needs.
+/// Both panes ask the same question about a handful of days, and neither
+/// should have to remember to drop the ones that have become tasks.
+enum MeetingDays {
+    /// `MeetingReader` is main-actor state, and so is every view that
+    /// asks this.
+    @MainActor
+    static func on(_ days: [String],
+                   from reader: MeetingReader?,
+                   tasks: [TaskItem]) -> [Meeting]
+    {
+        guard let reader else { return [] }
+        let want = Set(days)
+        let found = reader.days.filter { want.contains($0.key) }.flatMap(\.value)
+        return AgendaEntry.unclaimed(found, by: tasks)
+    }
+}
+
 // MARK: - anytime
 
 /// `anytime(days)` — everything on these days with no clock on it, six
@@ -322,6 +351,15 @@ struct AnytimeChips: View {
     let tasks: [TaskItem]
     let days: [String]
 
+    /// The all-day ones join the chips rather than the grid. This row is
+    /// already the place for everything true of the day but not of an
+    /// hour, which is exactly what an all-day event is.
+    var meetings: [Meeting] = []
+
+    private var allDay: [Meeting] {
+        meetings.filter { $0.at == nil }
+    }
+
     private var items: [TaskItem] {
         let want = Set(days)
         return tasks.filter { t in
@@ -332,21 +370,22 @@ struct AnytimeChips: View {
 
     var body: some View {
         let items = self.items
-        if !items.isEmpty {
+        let allDay = self.allDay
+        if !items.isEmpty || !allDay.isEmpty {
             ChipFlow(spacing: 6, lineSpacing: 6) {
                 Text(Copy.CalViews.anytime)
                     .font(Font.baloo(11))
                     .foregroundStyle(theme.muted)
 
+                /* The meetings lead. An all-day event is true of the day
+                   whether you like it or not; a task with no clock is
+                   merely unscheduled, and that is the softer fact. */
+                ForEach(allDay, id: \.occurrenceID) { meeting in
+                    chip(meeting.title, mine: false)
+                }
+
                 ForEach(items.prefix(Copy.CalViews.anytimeMax), id: \.id) { task in
-                    Text(task.title)
-                        .font(Font.baloo(12))
-                        .foregroundStyle(theme.ink)
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(theme.wash, in: Capsule())
-                        .overlay(Capsule().strokeBorder(theme.line, lineWidth: 1))
+                    chip(task.title, mine: true)
                 }
 
                 if items.count > Copy.CalViews.anytimeMax {
@@ -357,6 +396,21 @@ struct AnytimeChips: View {
             }
             .padding(.bottom, 10)
         }
+    }
+
+    /// One shape, two fillings. Yours is the washed chip it has always
+    /// been; somebody else's is hollow, which is the same distinction the
+    /// blocks below make and costs no new colour.
+    private func chip(_ title: String, mine: Bool) -> some View {
+        Text(title)
+            .font(Font.baloo(12))
+            .foregroundStyle(mine ? theme.ink : theme.inkSoft)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(mine ? theme.wash : theme.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(mine ? theme.line : theme.lineStrong,
+                                            lineWidth: mine ? 1 : 1.5))
     }
 }
 
@@ -372,6 +426,10 @@ struct HourGridView: View {
     let hourHeight: CGFloat
     /// Week: tighter blocks, smaller titles, no second line.
     let compact: Bool
+
+    /// The hours somebody else booked. Only the timed ones draw here; the
+    /// all-day ones are chips above the grid.
+    var meetings: [Meeting] = []
 
     /// The hour a fresh entry into the view scrolls to: two before the
     /// current one when today is on screen, and the start of the working
@@ -402,13 +460,27 @@ struct HourGridView: View {
         return out
     }
 
+    /// The same bucketing for meetings, timed ones only.
+    private var meetingsByDay: [String: [Meeting]] {
+        let want = Set(days)
+        var out: [String: [Meeting]] = [:]
+        for meeting in meetings {
+            guard want.contains(meeting.when), meeting.at != nil else { continue }
+            out[meeting.when, default: []].append(meeting)
+        }
+        return out
+    }
+
     var body: some View {
         let byDay = self.byDay
+        let meetingsByDay = self.meetingsByDay
         HStack(alignment: .top, spacing: 0) {
             hours
             HStack(spacing: 0) {
                 ForEach(days, id: \.self) { key in
-                    column(key, blocks: byDay[key] ?? [])
+                    column(key,
+                           blocks: byDay[key] ?? [],
+                           meetings: meetingsByDay[key] ?? [])
                 }
             }
         }
@@ -434,9 +506,18 @@ struct HourGridView: View {
         .accessibilityHidden(true)
     }
 
-    private func column(_ key: String, blocks: [TaskItem]) -> some View {
+    private func column(_ key: String,
+                        blocks: [TaskItem],
+                        meetings: [Meeting]) -> some View
+    {
         ZStack(alignment: .topLeading) {
             lines
+            /* Meetings go down first so a task you scheduled on top of one
+               draws over it. Both are true; the one you can act on is the
+               one worth reading. */
+            ForEach(meetings, id: \.occurrenceID) { meeting in
+                meetingBlock(meeting)
+            }
             ForEach(blocks, id: \.id) { task in
                 block(task)
             }
@@ -506,6 +587,57 @@ struct HourGridView: View {
         .overlay(alignment: .leading) { hue.frame(width: compact ? 2 : 3) }
         .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 8, style: .continuous))
         .opacity(task.done ? 0.45 : 1)
+        .padding(.horizontal, 3)
+        .offset(y: start / 60 * hourHeight)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// A meeting, on the same rail and in the same geometry as a task —
+    /// and hollow rather than filled.
+    ///
+    /// **No new colour is spent on it.** Violet on this grid means a
+    /// thing you decided to do and orange means one you have missed;
+    /// giving an hour somebody else booked either of them would stop both
+    /// meaning anything. So the difference is the treatment: a task is a
+    /// tinted block with a solid rail, a meeting is the page showing
+    /// through inside a drawn edge. It reads at a glance without reading
+    /// the words, which is the whole job of a block on an hour grid.
+    private func meetingBlock(_ meeting: Meeting) -> some View {
+        let start = CGFloat(WebDates.clockMinutes(meeting.at) ?? 0)
+        let length = CGFloat(max(20, meeting.minutes))
+        let height = max(hourHeight * 0.5, length / 60 * hourHeight - 2)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Text(meeting.title)
+                .font(Font.baloo(compact ? 9.5 : 12.5, .semibold))
+                .foregroundStyle(theme.inkSoft)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if !compact, let at = WebDates.timeLabel(meeting.at) {
+                Text(Copy.CalViews.blockMeta(time: at, minutes: Int(length)))
+                    .font(Font.baloo(10.5))
+                    .foregroundStyle(theme.faint)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, compact ? 5 : 8)
+        .padding(.trailing, compact ? 3 : 6)
+        .padding(.vertical, compact ? 3 : 4)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: height, alignment: .top)
+        .background(theme.surface)
+        .overlay(alignment: .leading) { theme.lineStrong.frame(width: compact ? 2 : 3) }
+        /* `lineStrong` and not `line`. On a dark page the block's ground
+           IS the page — that is what makes it read as hollow — so the
+           edge is the only thing drawing it, and the hairline used
+           between rows on a white card disappears here. */
+        .overlay(
+            RoundedRectangle(cornerRadius: compact ? 6 : 8, style: .continuous)
+                .strokeBorder(theme.lineStrong, lineWidth: 1.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 8, style: .continuous))
         .padding(.horizontal, 3)
         .offset(y: start / 60 * hourHeight)
         .accessibilityElement(children: .combine)

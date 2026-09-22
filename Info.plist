@@ -60,6 +60,22 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Hold the mic button to say what is in your head instead of typing it. The recording is transcribed and then thrown away.</string>
 
+	<!-- Meetings.swift. Off until the switch in Settings is turned on, so
+	     this sentence is never shown to somebody who did not ask for it.
+
+	     Only the full-access spelling. iOS 17 split the old
+	     NSCalendarsUsageDescription into full and write-only, and there
+	     is no read-only request to make: full access IS the read one,
+	     write-only being the lesser grant that can add an event and
+	     cannot see one. The deployment target is 17.0, so the pre-split
+	     key would apply to no build this project produces.
+
+	     Nothing is ever written back. The app reads the day and draws it;
+	     turning a meeting into a task copies it into the app's own lists
+	     and still leaves the calendar alone. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>my.adhd shows the meetings already on your phone, so your day looks like the day you actually have. Nothing is added, changed or sent anywhere.</string>
+
 	<!-- A static screen cannot know which theme was chosen, so it follows
 	     the system and the shell paints the remembered ground a frame later. -->
 	<key>UILaunchScreen</key>

@@ -46,6 +46,9 @@ struct MonthPager: View {
     /// The agenda's drag, for the ring a cell wears while a task is over
     /// it. The pager does nothing else with it.
     var taskDrag: MonthTaskDrag? = nil
+    /// Passed straight through to the pages, so a day carrying nothing
+    /// but somebody else's meetings still wears a mark.
+    var meetings: MeetingReader? = nil
 
     /// The pane's width, which decides the cell size and so the height.
     /// Seeded from the screen so the first frame is not zero-high.
@@ -108,7 +111,8 @@ struct MonthPager: View {
                   cell: cell,
                   onPick: { session.pick($0) },
                   drag: drag,
-                  taskDrag: taskDrag)
+                  taskDrag: taskDrag,
+                  meetings: meetings)
             .frame(width: width, alignment: .top)
     }
 

@@ -507,6 +507,65 @@ enum Copy {
         }                                              // BridgeScript.swift:920
     }
 
+    // MARK: - Meetings read off the phone (Meetings.swift)
+
+    /// **The only block in this file with no web original.** Every other
+    /// constant here was grepped out of the web app and pasted; these
+    /// could not be, because the website has no way to read a diary and
+    /// has therefore never had a sentence about one. `Checks/copy.sh`
+    /// knows these by name and checks everything else as strictly as
+    /// ever — the list is at the top of that script, and it is not a
+    /// place to put a string that does have an original.
+    ///
+    /// The register is the web app's: second person, no jargon, and the
+    /// sentence says what happens rather than what the feature is called.
+    enum Meetings {
+        static let switchTitle = "Show my meetings"
+        static let switchNote = "Meetings already on this phone show up beside your tasks."
+
+        /// iOS shows its prompt once and never again, so a refusal is a
+        /// dead end unless the row says where the way back is.
+        static let deniedNote = "my.adhd cannot see your calendar. iOS only asks once, so Settings is the way back."
+        static let openSettings = "Open Settings"
+
+        /// What the switch cannot say on its own: it is on, so why is the
+        /// day still empty? Two numbers separate the two answers.
+        ///
+        /// No calendars means this phone has nothing to read — a Google
+        /// account that lives only in the Google Calendar app and was
+        /// never added under iOS Settings is invisible to every other app
+        /// on the phone, this one included. Calendars but no meetings
+        /// means the read worked and the window or the filters are what
+        /// to look at next.
+        static func readNote(_ calendars: Int, _ meetings: Int) -> String {
+            let seen = calendars == 1 ? "1 calendar" : "\(calendars) calendars"
+            let got = meetings == 1 ? "1 meeting" : "\(meetings) meetings"
+            return "Reading \(seen). \(got) in the next 60 days."
+        }
+
+        /// The action on a meeting row. It copies the meeting into your
+        /// own lists; it does not move it, and it changes nothing on the
+        /// calendar it came from.
+        static let makeTask = "Make this a task"
+
+        /// The time column for a meeting that has no clock. NOT the
+        /// task's `any time`, which means the opposite thing: an undated
+        /// task could be done at any hour, and an all-day event is true
+        /// of every hour whether you like it or not.
+        static let allDay = "All day"
+
+        /// A meeting row's second line: which calendar it came off, then
+        /// how long it runs. Knowing a thing is on the work calendar is
+        /// most of what you need to know about it.
+        static func meta(calendar: String, minutes: String) -> String {
+            calendar + metaSeparator + minutes
+        }
+
+        /// An all-day meeting has no length worth printing, so the line
+        /// is only where it came from.
+        static func allDayMeta(calendar: String) -> String { calendar }
+    }
+
     // MARK: - How the matrix works (BridgeScript.swift:532-609)
 
     /// The four-page walkthrough behind the `?`. The sample tasks are made

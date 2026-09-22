@@ -41,6 +41,12 @@ struct AppShell: View {
     @State private var buffer = DumpBuffer()
     @State private var importer = LegacyImport()
 
+    /// The meetings already on this phone. One reader for the whole app,
+    /// so home and the calendar agree about the day and only one
+    /// `EKEventStore` is ever built. It reads nothing at all until the
+    /// switch in Settings is on.
+    @State private var meetings = MeetingReader()
+
     /// The account. `Session` is the Keychain record and can be built
     /// straight away; the other two need `store`, so they are made in
     /// `boot()` like the bridge. Signed out, all three are inert — the
@@ -95,6 +101,12 @@ struct AppShell: View {
             if phase == .active {
                 returned()
                 cloud?.sceneBecameActive()
+                /* A refusal can be taken back in Settings, and an
+                   invitation can arrive while the app is in the
+                   background on a phone that then does not fire
+                   EKEventStoreChanged at us. Coming back to the front is
+                   the cheapest moment to ask again. */
+                meetings.refresh()
             } else {
                 cloud?.sceneResigned()
             }
@@ -154,7 +166,8 @@ struct AppShell: View {
                            toasts: toasts,
                            onClose: { settingsUp = false },
                            accountCard: accountCard,
-                           isSignedIn: session.signedIn)
+                           isSignedIn: session.signedIn,
+                           meetings: meetings)
         }
     }
 
@@ -167,11 +180,12 @@ struct AppShell: View {
         case .home:
             HomeScreen(store: store,
                        themeStore: themeStore,
+                       meetings: meetings,
                        openSettings: { settingsUp = true },
                        openComposer: { openComposer() },
                        goToLists: { go(to: .lists) })
         case .calendar:
-            CalendarScreen(store: store, toasts: toasts)
+            CalendarScreen(store: store, toasts: toasts, meetings: meetings)
         case .lists:
             if store.doc.view == "matrix" {
                 MatrixScreen(store: store,

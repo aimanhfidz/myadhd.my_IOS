@@ -42,6 +42,10 @@ struct HomeScreen: View {
     let store: AppStore
     let themeStore: ThemeStore
 
+    /// The meetings already on this phone. Silent until the switch in
+    /// Settings is on, and the card is then exactly what it was.
+    var meetings: MeetingReader? = nil
+
     /// `#btn-settings`, `#btn-start-dump` / `#tab-add`, and the row tap
     /// (`goToNext`). Handed in because none of the three is home's to do.
     var openSettings: () -> Void
@@ -59,7 +63,10 @@ struct HomeScreen: View {
             } else {
                 ScrollView {
                     VStack(spacing: 14) {
-                        TodayCard(card: card, today: today, goToLists: goToLists)
+                        TodayCard(card: card,
+                                  today: today,
+                                  meetings: soon,
+                                  goToLists: goToLists)
                         StatRow(stats: stats)
                     }
                     .padding(.top, 26)
@@ -87,6 +94,13 @@ struct HomeScreen: View {
 
     private var stats: Ordering.Stats {
         Ordering.stats(store.doc.tasks, today: today)
+    }
+
+    /// Today's meetings, and today's only. The card is about the next
+    /// few hours; a meeting on Friday belongs on the calendar, not in the
+    /// answer to what is next.
+    private var soon: [Meeting] {
+        AgendaEntry.unclaimed(meetings?.on(today) ?? [], by: store.doc.tasks)
     }
 }
 
@@ -268,7 +282,55 @@ struct TodayCard: View {
     @Environment(\.theme) private var theme
     let card: Ordering.HomeToday
     let today: String
+    /// Today's, already filtered of any that has become a task.
+    var meetings: [Meeting] = []
     var goToLists: () -> Void
+
+    /// **`Ordering.homeToday` is not touched.** It is checked line for
+    /// line against the web's own `paintToday`
+    /// (`Checks/parity-ordering.sh`), and a meeting is a thing the web has
+    /// never heard of — teaching that function about one would put the
+    /// port and its original permanently out of step for no gain.
+    ///
+    /// So the merge happens here instead, and it is the same rule
+    /// `homeToday` already sorts by: the deadline. A meeting at nine sits
+    /// ahead of a task due at five, something already late stays on top
+    /// of both, and a task with no day at all still sorts last. The cap
+    /// is the same three, so a morning full of meetings can push a task
+    /// off the card — which is the truth the card exists to tell.
+    private var rows: [AgendaEntry] {
+        guard !meetings.isEmpty else { return card.next.map(AgendaEntry.task) }
+        let entries = card.next.map(AgendaEntry.task) + meetings.map(AgendaEntry.meeting)
+        let sorted = Ordering.stableSorted(entries) { a, b in
+            let l = Self.due(a), r = Self.due(b)
+            if l == r { return nil }
+            return l < r
+        }
+        return Array(sorted.prefix(Ordering.homeNextMax))
+    }
+
+    /// `Ordering.dueAt`'s number, for either kind of row. An all-day
+    /// meeting sorts from the start of its day, because it is already
+    /// true at breakfast; an undated task sorts last, because it is not
+    /// due at all.
+    private static func due(_ entry: AgendaEntry) -> Double {
+        switch entry {
+        case .task(let t):
+            return Ordering.dueAt(t)
+        case .meeting(let m):
+            let day = m.when.replacingOccurrences(of: "-", with: "")
+            let clock = m.at?.replacingOccurrences(of: ":", with: "") ?? "0000"
+            return Double(day + clock) ?? .infinity
+        }
+    }
+
+    private var showsEmpty: Bool { rows.isEmpty }
+
+    /// The card is showing everything only when nothing is left over on
+    /// either side.
+    private var showsMore: Bool {
+        card.open.count + meetings.count > rows.count
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -282,7 +344,7 @@ struct TodayCard: View {
 
                 Spacer(minLength: 10)
 
-                if card.showsMore {
+                if showsMore {
                     Button(action: goToLists) {
                         Text(Copy.Home.more)
                             .font(Font.baloo(13, .semibold))
@@ -293,14 +355,19 @@ struct TodayCard: View {
             }
             .padding(.bottom, 14)
 
-            if card.showsEmpty {
+            if showsEmpty {
                 Text(Copy.Home.empty)
                     .font(Font.baloo(14))
                     .foregroundStyle(theme.muted)
             } else {
                 VStack(spacing: 8) {
-                    ForEach(card.next, id: \.id) { t in
-                        HomeTaskRow(task: t, today: today, tap: goToLists)
+                    ForEach(rows) { row in
+                        switch row {
+                        case .task(let t):
+                            HomeTaskRow(task: t, today: today, tap: goToLists)
+                        case .meeting(let m):
+                            HomeMeetingRow(meeting: m, today: today)
+                        }
                     }
                 }
             }
@@ -376,6 +443,75 @@ struct HomeTaskRow: View {
         Copy.Home.rowMeta(
             when: WebDates.whenLabel(when: task.when, at: task.at, today: today),
             minutes: task.minutes
+        )
+    }
+}
+
+/// The same signpost for an hour you did not choose. Not a button: a
+/// task row goes to the lists because there is something to do about it
+/// there, and there is nothing my.adhd can do about a meeting.
+struct HomeMeetingRow: View {
+
+    @Environment(\.theme) private var theme
+    let meeting: Meeting
+    let today: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            /* The rule is `lineStrong` and never orange. A meeting cannot
+               be late — it happens whether or not you are ready — and
+               orange on this screen has exactly one meaning. */
+            Capsule()
+                .fill(theme.lineStrong)
+                .frame(width: 2.5)
+                .padding(.vertical, 9)
+
+            VStack(alignment: .leading, spacing: 3) {
+                /* **The glyph is not decoration.** A task row here is a
+                   button into the lists and this one is not, so the two
+                   have to be tellable apart before they are tapped —
+                   otherwise the difference between them is a tap that
+                   silently does nothing. It is the same mark the agenda
+                   puts where the tick would be, for the same reason. */
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.muted)
+                        .accessibilityHidden(true)
+
+                    Text(meeting.title)
+                        .font(Font.baloo(14.5, .semibold))
+                        .foregroundStyle(theme.inkSoft)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(meta)
+                    .font(Font.baloo(12.5))
+                    .foregroundStyle(theme.faint)
+            }
+            .padding(.leading, 13.5)
+            .padding(.trailing, 12)
+            .padding(.vertical, 9)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// The calendar it came off leads, then the row's usual when and how
+    /// long — `Work · Today · 9.30am · 60 min`. Both halves are already
+    /// `metaSeparator` joins, so this is composition and not a new
+    /// sentence.
+    private var meta: String {
+        guard !meeting.isAllDay else {
+            return Copy.Meetings.allDayMeta(calendar: meeting.calendarTitle)
+        }
+        return Copy.Meetings.meta(
+            calendar: meeting.calendarTitle,
+            minutes: Copy.Home.rowMeta(
+                when: WebDates.whenLabel(when: meeting.when, at: meeting.at, today: today),
+                minutes: meeting.minutes
+            )
         )
     }
 }

@@ -81,6 +81,12 @@ struct SettingsScreen: View {
     /// linked: the web asks whether the card is on the screen at all.
     var isCalendarConfigured: Bool = false
 
+    /// The meetings already on this phone, and the switch that turns them
+    /// on. Nothing to do with the Google card above it — that one is a
+    /// wiring decision about where your tasks go, and this one is a read
+    /// of the calendar iOS already has.
+    var meetings: MeetingReader? = nil
+
     // MARK: - one tap deeper (app.js:4087-4101)
 
     /// Three screens rather than three panes. `fullScreenCover` is the
@@ -182,6 +188,10 @@ struct SettingsScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsCaption(Copy.Settings.capSync)
             if let googleCard { googleCard() }
+            if let meetings {
+                MeetingsCard(meetings: meetings)
+                    .padding(.top, googleCard == nil ? 0 : 14)
+            }
         }
         .padding(.top, 26)      // .settings-section + .settings-section
     }
@@ -442,6 +452,139 @@ struct SettingsRow: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(theme.lineStrong, lineWidth: 1.5)
         )
+    }
+}
+
+// MARK: - meetings
+
+/// The switch that reads this phone's calendar, under `Sync calendars`
+/// and beside the Google card rather than inside it.
+///
+/// **They are two different decisions and they only look alike.** The
+/// Google card settles where your tasks go; this settles whether the app
+/// may look at the day you already have. One writes, one reads, and
+/// neither needs the other — somebody with no Google account at all can
+/// turn this on, because what it reads is whatever iOS has.
+///
+/// The switch asks for the permission the first time it is moved, and
+/// puts itself back if the answer is no. It has to: iOS shows its prompt
+/// exactly once, so a switch left standing on after a refusal would be a
+/// control that says the feature is on while it draws nothing.
+struct MeetingsCard: View {
+
+    @Environment(\.theme) private var theme
+
+    let meetings: MeetingReader
+
+    @State private var asking = false
+
+    var body: some View {
+        SettingsGroup {
+            VStack(alignment: .leading, spacing: 0) {
+                Toggle(isOn: binding) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Copy.Meetings.switchTitle)
+                            .font(Font.baloo(15.5, .bold))
+                            .kerning(-0.015 * 15.5)
+                            .foregroundStyle(theme.ink)
+
+                        Text(Copy.Meetings.switchNote)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(theme.faint)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .tint(theme.accent)
+                .disabled(asking)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                if denied { deniedRow } else if reading { readRow }
+            }
+        }
+    }
+
+    /// Refused once, and iOS will not ask again. The row is shown only
+    /// when the switch is on, because somebody who has left it off is not
+    /// being blocked by anything and does not need to be told about
+    /// Settings.
+    private var denied: Bool {
+        meetings.enabled && meetings.access == .denied
+    }
+
+    /// On and allowed — so the switch is doing its job, and the only
+    /// question left is why the day looks the way it does. Off needs no
+    /// numbers, and refused has a row of its own that says more, which is
+    /// why this is the `else` of that one rather than a second row under it.
+    private var reading: Bool {
+        meetings.enabled && meetings.access == .granted
+    }
+
+    private var readRow: some View {
+        Text(Copy.Meetings.readNote(meetings.calendars, meetings.found))
+            .font(.system(size: 12.5, weight: .semibold))
+            .foregroundStyle(theme.faint)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 16)
+            .overlay(alignment: .top) {
+                Rectangle().fill(theme.line).frame(height: 1.5)
+            }
+    }
+
+    private var deniedRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(Copy.Meetings.deniedNote)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(theme.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: openSettings) {
+                Text(Copy.Meetings.openSettings)
+                    .font(Font.baloo(13.5, .bold))
+                    .foregroundStyle(theme.accent)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) {
+            Rectangle().fill(theme.line).frame(height: 1.5)
+        }
+    }
+
+    /// Turning it on is an async question with a refusal for an answer,
+    /// which a plain `$meetings.enabled` cannot express.
+    private var binding: Binding<Bool> {
+        Binding(
+            get: { meetings.enabled },
+            set: { want in
+                guard want else { meetings.enabled = false; return }
+                /* On before the prompt, so the switch does not sit still
+                   under a finger while iOS decides — and off again below
+                   if the answer is no. */
+                meetings.enabled = true
+                guard meetings.access == .notDetermined else { return }
+                asking = true
+                Task {
+                    let answer = await meetings.requestAccess()
+                    asking = false
+                    if answer == .denied { meetings.enabled = false }
+                }
+            }
+        )
+    }
+
+    private func openSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 }
 

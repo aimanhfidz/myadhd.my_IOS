@@ -120,11 +120,19 @@ struct MonthPage: View {
     /// do nothing with it — they neither post a frame nor take a gesture.
     let drag: MonthDrag
     var taskDrag: MonthTaskDrag? = nil
+    var meetings: MeetingReader? = nil
 
     /// Grouped once per page rather than filtered 42 times. `tasksOn`
     /// still does the sort, so the order it produces is untouched.
     private var byDay: [String: [TaskItem]] {
         Dictionary(grouping: tasks.filter { Ordering.scheduled($0) }) { $0.when ?? "" }
+    }
+
+    /// The same idea for meetings, and for the same reason: forty-two
+    /// cells asking one at a time would rebuild the claimed-event set
+    /// forty-two times. Empty unless the switch is on.
+    private var meetingsByDay: [String: [Meeting]] {
+        AgendaEntry.unclaimed(meetings?.days ?? [:], by: tasks)
     }
 
     /// `.cal-dow` + `.cal-grid` share `gap: 3px`.
@@ -140,6 +148,7 @@ struct MonthPage: View {
 
     var body: some View {
         let byDay = self.byDay
+        let meetingsByDay = self.meetingsByDay
 
         VStack(spacing: 0) {
             dow
@@ -152,7 +161,7 @@ struct MonthPage: View {
                             let index = week * 7 + column
                             let day = index - month.blanks + 1
                             if day >= 1 && day <= month.days {
-                                dayCell(day, byDay: byDay)
+                                dayCell(day, byDay: byDay, meetingsByDay: meetingsByDay)
                             } else {
                                 /* `span.cal-day.is-blank` — inert, and it
                                    still takes a cell so the month keeps
@@ -181,7 +190,10 @@ struct MonthPage: View {
         .accessibilityHidden(true)
     }
 
-    private func dayCell(_ day: Int, byDay: [String: [TaskItem]]) -> some View {
+    private func dayCell(_ day: Int,
+                         byDay: [String: [TaskItem]],
+                         meetingsByDay: [String: [Meeting]]) -> some View
+    {
         let key = month.dayKey(day)
         let items = Ordering.tasksOn(byDay[key] ?? [], key)
         return MonthDayCell(day: day,
@@ -193,7 +205,8 @@ struct MonthPage: View {
                             size: cell,
                             onPick: onPick,
                             drag: drag,
-                            taskDrag: taskDrag)
+                            taskDrag: taskDrag,
+                            meetings: meetingsByDay[key] ?? [])
     }
 }
 
@@ -220,6 +233,10 @@ struct MonthDayCell: View {
     /// One ring, two reasons to wear it.
     var taskDrag: MonthTaskDrag? = nil
 
+    /// What is on the day that you did not put there. Already filtered of
+    /// any meeting that has become a task, so nothing is counted twice.
+    var meetings: [Meeting] = []
+
     /// `QuadrantCell`'s flag, and for its reason: without it a move past
     /// the slop drops the press and the very next callback starts a fresh
     /// one, which is a hold that can never be called off.
@@ -231,11 +248,33 @@ struct MonthDayCell: View {
 
     private var isToday: Bool { key == today }
     private var isPicked: Bool { key == picked }
-    private var hasItems: Bool { !items.isEmpty }
+    /// A day with nothing of your own on it but an hour booked by
+    /// somebody else is not an empty day, and must not draw as one.
+    private var hasItems: Bool { !items.isEmpty || !meetings.isEmpty }
     /// `key < today` — the strict boundary, on the mark alone.
     private var isLate: Bool { Ordering.jsLess(key, today) }
     private var firstTimed: TaskItem? {
         items.first { ($0.at.map { !$0.isEmpty }) ?? false }
+    }
+
+    /// The earliest meeting carrying a clock. `meetings` arrives in no
+    /// particular order, so this asks for the minimum rather than the
+    /// first.
+    private var firstMeeting: Meeting? {
+        meetings.compactMap { m -> (String, Meeting)? in
+            guard let at = m.at, !at.isEmpty else { return nil }
+            return (at, m)
+        }
+        .min { Ordering.localeCompare($0.0, $1.0) < 0 }?.1
+    }
+
+    /// Whichever of the two is earlier — the mark says when the day
+    /// starts, and it does not matter whose idea it was.
+    private var markTime: String? {
+        let mine = firstTimed?.at
+        guard let theirs = firstMeeting?.at else { return mine }
+        guard let mine else { return theirs }
+        return Ordering.localeCompare(mine, theirs) <= 0 ? mine : theirs
     }
 
     private var digit: Color {
@@ -243,8 +282,13 @@ struct MonthDayCell: View {
         return isToday ? theme.ink : theme.inkSoft
     }
 
+    /// **A day of nothing but meetings is muted, not accented.** The
+    /// accent on this grid means there is something of yours here; orange
+    /// means it is late. Neither is true of an hour somebody else booked,
+    /// and spending the accent on one would stop it meaning anything.
     private var markColour: Color {
         if isPicked { return theme.onAccent }
+        if items.isEmpty { return theme.muted }
         return isLate ? theme.orange : theme.accent
     }
 
@@ -325,7 +369,7 @@ struct MonthDayCell: View {
     /// The earliest time that day, in the dot's place; otherwise the dot.
     @ViewBuilder
     private var mark: some View {
-        if let at = firstTimed?.at, let label = WebDates.timeLabel(at) {
+        if let at = markTime, let label = WebDates.timeLabel(at) {
             Text(label)
                 .font(Font.baloo(Self.timeSize, .bold))
                 .kerning(-0.02 * Self.timeSize)
@@ -349,7 +393,7 @@ struct MonthDayCell: View {
 
     private var aria: String {
         Copy.Calendar.dayAria(label: WebDates.dayLabel(key, today: today),
-                              count: items.count,
-                              from: firstTimed.flatMap { WebDates.timeLabel($0.at) })
+                              count: items.count + meetings.count,
+                              from: WebDates.timeLabel(markTime))
     }
 }
