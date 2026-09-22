@@ -46,9 +46,23 @@
      usually fire a tap after a drag: it costs one `Date` comparison and the
      failure it prevents is a row flapping open under a thumb that just
      ticked something off.
-   - The gesture is `simultaneousGesture`, which is the native reading of
-     `touch-action: pan-y`. It only claims the row once the move is plainly
-     sideways, so a vertical drag scrolls the list and never moves a card.
+   - **`touch-action: pan-y` is a `UIPanGestureRecognizer`, not a
+     `DragGesture`.** It used to be the latter, attached with
+     `simultaneousGesture` and told to give up in `onChanged` when the
+     move turned out to be vertical. That stopped the CARD moving and did
+     not give the list its finger back: by the time the closure runs the
+     gesture has already recognised, and a SwiftUI gesture that recognises
+     beats `UIScrollView`'s pan. The symptom was a flick that did nothing
+     — measured on a fresh launch, a 320pt pull started on a card scrolled
+     the list at 0.9s and did not at 0.6s or faster, while the same pull
+     started on a heading scrolled at any speed. A slow drag worked
+     because the scroller got there first.
+
+     The decision has to be made BEFORE recognition, which is what
+     `gestureRecognizerShouldBegin` is for: sideways and this row takes
+     it, otherwise the recogniser fails and the touch was never ours. The
+     recogniser also declares itself simultaneous with everything, so the
+     scroller is not cancelled on the way past.
    ============================================================ */
 
 import SwiftUI
@@ -153,8 +167,6 @@ struct SwipeRow<Content: View>: View {
     @State private var dx: CGFloat = 0
     /// Certainly a swipe, rather than a finger that has not decided.
     @State private var live = false
-    /// It went down the page first, so the list has it and we never will.
-    @State private var dead = false
     @State private var armed = false
     /// On its way out; the rails are all gap from here.
     @State private var leaving = false
@@ -223,7 +235,15 @@ struct SwipeRow<Content: View>: View {
             .onPreferenceChange(SwipeWidthKey.self) { w in
                 if w > 0 { width = w }
             }
-            .simultaneousGesture(drag, including: isEnabled ? .all : .subviews)
+            /* Behind everything and hit-testing to nothing: the view
+               exists only to hang a recogniser on the row's host. See
+               `SwipePanGesture`. */
+            .background {
+                SwipePanGesture(isEnabled: isEnabled,
+                                onBegan: began,
+                                onChanged: moved,
+                                onEnded: ended)
+            }
     }
 
     // MARK: the two rails
@@ -290,55 +310,62 @@ struct SwipeRow<Content: View>: View {
 
     // MARK: the gesture
 
-    private var drag: some Gesture {
-        DragGesture(minimumDistance: SwipeMetrics.slop, coordinateSpace: .local)
-            .onChanged { value in
-                guard !leaving else { return }
-                guard !dead else { return }
+    /* Three callbacks instead of one closure, because the recogniser has
+       three phases and the middle one is the only one that paints.
 
-                if !live {
-                    /* Down the page belongs to the list and stays there:
-                       only a move that is plainly sideways takes the row. */
-                    let dy = value.translation.height
-                    let across = value.translation.width
-                    if abs(dy) >= abs(across) {
-                        if abs(dy) > SwipeMetrics.slop { dead = true }
-                        return
-                    }
-                    live = true
-                    // carry on from here, not from a jump
-                    origin = across
-                }
+       `live` and `origin` survive from the old gesture and mean the same
+       things: the row does not move until the finger has gone
+       `SwipeMetrics.slop` across, and when it does start moving it starts
+       from rest rather than jumping the slop. `dead` is gone — a move
+       down the page now fails the recogniser outright, so there is no
+       state to sit in while a gesture we do not want runs to completion. */
 
-                paint(value.translation.width - origin)
-            }
-            .onEnded { value in
-                let wasLive = live
-                let travel = dx
-                live = false
-                dead = false
-                guard wasLive, !leaving else { return }
+    private func began() {
+        live = false
+        origin = 0
+    }
 
-                guardUntil = Date().addingTimeInterval(SwipeMetrics.tapGuard)
+    private func moved(_ translation: CGSize) {
+        guard !leaving else { return }
 
-                /* A short, fast flick reads as decided; it is the slow short
-                   push that is a change of mind. A row held still before the
-                   finger came off is neither, whatever it was doing on the
-                   way there — and `velocity` is already a reading off the
-                   last few frames, which is what the web's 90ms freshness
-                   test was buying. */
-                let vx = value.velocity.width
-                let flick = abs(vx) > SwipeMetrics.flick
-                    && (vx < 0) == (travel < 0)
-                    && vx != 0
-                    && abs(travel) > SwipeMetrics.flickMinTravel
+        if !live {
+            /* The recogniser has already ruled the move sideways; this is
+               the row's own threshold on top of that, so a small sideways
+               wobble inside a tap does not shift the card. */
+            guard abs(translation.width) >= SwipeMetrics.slop else { return }
+            live = true
+            // carry on from here, not from a jump
+            origin = translation.width
+        }
 
-                if armed || flick {
-                    leave(done: travel < 0)
-                } else {
-                    settle()
-                }
-            }
+        paint(translation.width - origin)
+    }
+
+    private func ended(_ translation: CGSize, _ velocity: CGSize) {
+        let wasLive = live
+        let travel = dx
+        live = false
+        guard wasLive, !leaving else { return }
+
+        guardUntil = Date().addingTimeInterval(SwipeMetrics.tapGuard)
+
+        /* A short, fast flick reads as decided; it is the slow short
+           push that is a change of mind. A row held still before the
+           finger came off is neither, whatever it was doing on the
+           way there — and `velocity` is already a reading off the
+           last few frames, which is what the web's 90ms freshness
+           test was buying. */
+        let vx = velocity.width
+        let flick = abs(vx) > SwipeMetrics.flick
+            && (vx < 0) == (travel < 0)
+            && vx != 0
+            && abs(travel) > SwipeMetrics.flickMinTravel
+
+        if armed || flick {
+            leave(done: travel < 0)
+        } else {
+            settle()
+        }
     }
 
     /// `paintSwipe` — follows the finger to the limit and then resists, so
@@ -402,5 +429,202 @@ private struct SwipeWidthKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         let next = nextValue()
         if next > 0 { value = next }
+    }
+}
+
+// MARK: - the recogniser
+
+/* ============================================================
+   `touch-action: pan-y`, which SwiftUI has no spelling for.
+
+   **Why this is UIKit.** A `DragGesture` decides nothing until its
+   `onChanged` runs, and by then it has recognised — and a recognised
+   SwiftUI gesture takes the touch off `UIScrollView`'s pan. There is no
+   way to un-recognise, so the old code's "this is vertical, stand down"
+   branch could stop the card moving but could not give the list its
+   finger back. `gestureRecognizerShouldBegin` is the hook that runs
+   BEFORE recognition, and returning false there fails the recogniser for
+   that whole touch — which is exactly "this was never mine".
+
+   **Why it hit-tests to nothing.** A recogniser fires for touches landing
+   on its own view or any descendant, so this view attaches its pan to its
+   SUPERVIEW — the host that also holds the card — and then makes itself
+   untouchable, so it neither covers the card nor steals its taps. The
+   card is drawn in front and the tick button inside it keeps working.
+   ============================================================ */
+
+struct SwipePanGesture: UIViewRepresentable {
+
+    var isEnabled: Bool
+    var onBegan: () -> Void
+    var onChanged: (CGSize) -> Void
+    var onEnded: (CGSize, CGSize) -> Void
+
+    func makeUIView(context: Context) -> SwipePanHost {
+        let host = SwipePanHost()
+        host.coordinator = context.coordinator
+        return host
+    }
+
+    func updateUIView(_ host: SwipePanHost, context: Context) {
+        context.coordinator.onBegan = onBegan
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+        /* Disabled rather than detached. A row being reworded is enabled
+           again a moment later, and re-attaching would mean finding the
+           host a second time.
+
+           Held on the coordinator rather than written straight to the
+           recogniser, because this runs before `didMoveToWindow` has made
+           one: a row that arrives already disabled — a title being edited
+           when the list redraws — would otherwise come back swipeable. */
+        context.coordinator.wanted = isEnabled
+    }
+
+    static func dismantleUIView(_ host: SwipePanHost, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+
+        var onBegan: () -> Void = {}
+        var onChanged: (CGSize) -> Void = { _ in }
+        var onEnded: (CGSize, CGSize) -> Void = { _, _ in }
+
+        /// What `isEnabled` last asked for, whether or not there was a
+        /// recogniser to tell at the time.
+        var wanted = true {
+            didSet { pan?.isEnabled = wanted }
+        }
+
+        private(set) var pan: UIPanGestureRecognizer?
+        private weak var attachedTo: UIView?
+        /// The row this recogniser speaks for. The recogniser sits on a
+        /// view shared with every other row in the list, so without this
+        /// a swipe anywhere would move every card at once.
+        private weak var row: UIView?
+
+        func attach(to view: UIView, scopedTo row: UIView) {
+            guard pan == nil else { return }
+            self.row = row
+            let recogniser = UIPanGestureRecognizer(target: self, action: #selector(handle(_:)))
+            recogniser.delegate = self
+            /* One finger, and a trackpad's two-finger scroll is the
+               list's, never a row's. */
+            recogniser.minimumNumberOfTouches = 1
+            recogniser.maximumNumberOfTouches = 1
+            recogniser.isEnabled = wanted
+            view.addGestureRecognizer(recogniser)
+            pan = recogniser
+            attachedTo = view
+        }
+
+        func detach() {
+            if let pan, let attachedTo { attachedTo.removeGestureRecognizer(pan) }
+            pan = nil
+            attachedTo = nil
+        }
+
+        @objc func handle(_ g: UIPanGestureRecognizer) {
+            guard let view = g.view else { return }
+            let t = g.translation(in: view)
+
+            switch g.state {
+            case .began:
+                onBegan()
+                onChanged(CGSize(width: t.x, height: t.y))
+            case .changed:
+                onChanged(CGSize(width: t.x, height: t.y))
+            case .ended:
+                let v = g.velocity(in: view)
+                onEnded(CGSize(width: t.x, height: t.y),
+                        CGSize(width: v.x, height: v.y))
+            case .cancelled, .failed:
+                /* The system took the touch — an edge swipe, a call
+                   arriving. The row is not left parked where it stood. */
+                onEnded(CGSize(width: t.x, height: t.y), .zero)
+            default:
+                break
+            }
+        }
+
+        /// **The whole fix.** Sideways and the row takes it; anything else
+        /// and this recogniser fails, leaving the touch where it was — with
+        /// the scroller.
+        ///
+        /// A pan is asked this once, at the moment it wants to begin, so
+        /// the answer is made on the first few points of travel. That is
+        /// the same one-shot reading the old code made; the difference is
+        /// that a no here costs nothing, where before it cost the scroll.
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            guard let pan = g as? UIPanGestureRecognizer, let view = pan.view else { return false }
+
+            /* Ours only if it started on our row. Every row in the list
+               has a recogniser on this same view, and each one is asked. */
+            if let row {
+                let here = pan.location(in: view)
+                guard row.convert(row.bounds, to: view).contains(here) else { return false }
+            }
+
+            let t = pan.translation(in: view)
+            /* Ties go to the list. A perfectly diagonal move is not a
+               swipe anybody meant, and the list is the safer reading of
+               it — the same way round as the old `abs(dy) >= abs(across)`. */
+            return abs(t.x) > abs(t.y)
+        }
+
+        /// Never cancel anything else on the way past — not the scroller,
+        /// not the tap, not the calendar's press-and-hold.
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool
+        {
+            true
+        }
+    }
+}
+
+/// Holds the coordinator until SwiftUI has put it in a window, then hands
+/// the recogniser to the nearest view that the row's touches actually
+/// reach, and gets out of the way.
+final class SwipePanHost: UIView {
+
+    var coordinator: SwipePanGesture.Coordinator?
+
+    /// Untouchable, always. Without this the view would sit over the row
+    /// and eat the tap that opens it.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, let host = sharedAncestor() else { return }
+        coordinator?.attach(to: host, scopedTo: self)
+    }
+
+    /* **Not `superview`.** SwiftUI gives a representable a wrapper of its
+       own — `UIKitPlatformViewHost<PlatformViewRepresentableAdaptor<…>>` —
+       sized exactly to it, and that wrapper holds nothing else. A
+       recogniser there never fires, because the card is not a view at all:
+       SwiftUI draws rows into a shared layer and only a representable gets
+       a real `UIView`. So the touch lands on the SCROLLER's content view,
+       and that is the one to hang the recogniser on.
+
+       Found by size rather than by class name, because the class names
+       above are SwiftUI's private business and have changed before: our
+       own wrapper matches our bounds exactly, and the first ancestor that
+       is bigger is the shared one. `scopedTo` is then what keeps this
+       row's recogniser to this row's rectangle — see `shouldBegin`. */
+    private func sharedAncestor() -> UIView? {
+        var candidate = superview
+        var hops = 0
+        while let view = candidate, hops < 6 {
+            if view.bounds.width > bounds.width || view.bounds.height > bounds.height {
+                return view
+            }
+            candidate = view.superview
+            hops += 1
+        }
+        return superview
     }
 }
