@@ -117,6 +117,16 @@ struct RemindSheet: View {
         filled = true
         day = WebDates.keyToDate(note.remindOn ?? "") ?? Date()
         time = Self.date(from: note.remindAt ?? "09:00") ?? Date()
+        /* The web's defaults are today at nine, which is fine on a page
+           that never rings. Here, opened at two in the afternoon, Save as
+           it stood wrote a reminder that had already gone: the note showed
+           a bell and nothing ever rang. A new reminder whose nine o'clock
+           has passed starts on tomorrow instead. */
+        if note.remindOn == nil,
+           let nine = WebDates.calendar.date(bySettingHour: 9, minute: 0, second: 0, of: Date()),
+           nine <= Date() {
+            day = WebDates.addDays(Date(), 1)
+        }
         rule = NoteItem.repeats.contains(note.repeatRule) ? note.repeatRule : ""
     }
 

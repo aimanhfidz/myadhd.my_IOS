@@ -509,7 +509,8 @@ enum Copy {
 
     // MARK: - Meetings read off the phone (Meetings.swift)
 
-    /// **The only block in this file with no web original.** Every other
+    /// **One of the two blocks in this file with no web original** —
+    /// `Nudges`, next, is the other. Every other
     /// constant here was grepped out of the web app and pasted; these
     /// could not be, because the website has no way to read a diary and
     /// has therefore never had a sentence about one. `Checks/copy.sh`
@@ -564,6 +565,49 @@ enum Copy {
         /// An all-day meeting has no length worth printing, so the line
         /// is only where it came from.
         static func allDayMeta(calendar: String) -> String { calendar }
+    }
+
+    // MARK: - Nudges and reminders (Reminders.swift, NudgePlan.swift)
+
+    /// **No web original, for the same kind of reason as `Meetings`.** The
+    /// website sends no notifications at all — its README lists them under
+    /// what the beta deliberately leaves out — so it has never had a
+    /// sentence about ringing, and `Checks/copy.sh` lists these by name.
+    ///
+    /// A nudge's body is still the web's: the Today card's title and first
+    /// task, and the calendar's line about undated things. Its title is new
+    /// — the person asked for one that calls them by name, in a tone that
+    /// matches how hard they asked to be nudged.
+    enum Nudges {
+        static let caption = "Reminders"
+        static let switchTitle = "Nudge me through the day"
+        static let switchNote = "The next thing to do, as often as you ask. Tasks with a time still ring at their time."
+
+        /// The three levels, in the person's own words, and how often each
+        /// one rings. `NudgeLevel` maps onto these.
+        static let helpLabel = "HELP ME!!"
+        static let pleaseLabel = "Please Remind Me"
+        static let okayLabel = "It's Okay I Know"
+        static let everyHour = "Every hour"
+        static let every2Hours = "Every 2 hours"
+        static let every4Hours = "Every 4 hours"
+
+        /// The waking window the levels ring inside.
+        static let from = "From"
+        static let until = "until"
+
+        /// A nudge's title, one tone per level, calling the person by the
+        /// name the profile screen keeps — or not, when it keeps none.
+        static func helpTitle(name: String) -> String { "\(name), let's do this one now" }
+        static let helpTitlePlain = "Let's do this one now"
+        static func pleaseTitle(name: String) -> String { "Hey \(name), reminding you" }
+        static let pleaseTitlePlain = "Reminding you"
+        static func okayTitle(name: String) -> String { "Just so you know, \(name)" }
+        static let okayTitlePlain = "Just so you know"
+
+        /// The same way back as `Meetings.deniedNote`, for the same reason:
+        /// iOS asks once and never again.
+        static let deniedNote = "my.adhd cannot send you notifications. iOS only asks once, so Settings is the way back."
     }
 
     // MARK: - How the matrix works (BridgeScript.swift:532-609)

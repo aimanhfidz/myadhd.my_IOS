@@ -12,9 +12,17 @@
    ============================================================ */
 
 import SwiftUI
+import UserNotifications
 
 @main
 struct MyADHDApp: App {
+
+    /// Before launch finishes, or the tap that launched the app is never
+    /// heard — see `NotificationRouter`.
+    init() {
+        UNUserNotificationCenter.current().delegate = NotificationRouter.shared
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

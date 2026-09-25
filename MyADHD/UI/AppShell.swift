@@ -117,6 +117,11 @@ struct AppShell: View {
         .onReceive(NotificationCenter.default.publisher(for: .myadhdOpen)) { _ in
             takeInbox()
         }
+        /* A tapped reminder or nudge, while the app is running. One that
+           launched it is taken in `boot()` instead. */
+        .onReceive(NotificationCenter.default.publisher(for: .myadhdOpenTab)) { _ in
+            if let next = NotificationRouter.shared.takePending() { route(to: next) }
+        }
     }
 
     private var shell: some View {
@@ -246,6 +251,10 @@ struct AppShell: View {
         cloud = sync
 
         takeInbox()
+
+        /* A reminder tapped with the app closed: the tap got here before
+           anything was listening for it. */
+        if let next = NotificationRouter.shared.takePending() { route(to: next) }
     }
 
     /// Coming back to the front. The drain goes first so that the ticks a
@@ -295,6 +304,17 @@ struct AppShell: View {
 
     private func go(to next: AppTab) {
         tab = next
+    }
+
+    /// A tapped notification. Settings is a cover over the tabs, so a tab
+    /// changed underneath it looked like the tap had done nothing — it
+    /// comes down. The composer is somebody mid-sentence and a sort is
+    /// about to choose the screen itself, so neither is interrupted: the
+    /// app coming to the front is the whole of the answer then.
+    private func route(to next: AppTab) {
+        settingsUp = false
+        guard !composerUp, !sorting else { return }
+        go(to: next)
     }
 
     private func openComposer() {

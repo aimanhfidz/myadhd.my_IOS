@@ -34,6 +34,10 @@ struct ReminderPlan: Equatable {
     let step: String
     let fire: Date
     let parts: DateComponents
+    /// Given "an hour from now" by the rescue below rather than a time of
+    /// its own. `Reminders` keeps the hour it was first given, because
+    /// "now" moves on every rebuild — see `Reminders.replaceSchedule`.
+    var rescued: Bool = false
 }
 
 enum ReminderPlanner {
@@ -92,6 +96,7 @@ enum ReminderPlanner {
 
             var fire = asked
             var parts = stamp.parts
+            var wasRescued = false
 
             if fire <= now {
                 /* Yesterday stays gone, and so does a time the user actually
@@ -104,6 +109,7 @@ enum ReminderPlanner {
                 fire = rescued
                 parts = DayKey.calendar.dateComponents(
                     [.year, .month, .day, .hour, .minute], from: rescued)
+                wasRescued = true
             }
 
             /* The trigger reads these components in whatever calendar they
@@ -112,7 +118,8 @@ enum ReminderPlanner {
             parts.calendar = DayKey.calendar
 
             let step = (task["firstStep"] as? String) ?? ""
-            out.append(ReminderPlan(id: id, title: title, step: step, fire: fire, parts: parts))
+            out.append(ReminderPlan(id: id, title: title, step: step, fire: fire, parts: parts,
+                                    rescued: wasRescued))
         }
 
         return Array(out.sorted { $0.fire < $1.fire }.prefix(limit))

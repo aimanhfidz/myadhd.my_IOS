@@ -116,6 +116,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     account
                     sync
+                    reminders
                     about
                     localNote
                     version
@@ -192,6 +193,17 @@ struct SettingsScreen: View {
                 MeetingsCard(meetings: meetings)
                     .padding(.top, googleCard == nil ? 0 : 14)
             }
+        }
+        .padding(.top, 26)      // .settings-section + .settings-section
+    }
+
+    /// The nudges, and the one permission every notification here shares.
+    /// Its own group: nothing to do with an account or a calendar, and
+    /// the web has no section like it to line up with.
+    private var reminders: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsCaption(Copy.Nudges.caption)
+            RemindersCard(store: store)
         }
         .padding(.top, 26)      // .settings-section + .settings-section
     }

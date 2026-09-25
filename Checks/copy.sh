@@ -43,12 +43,18 @@
 # punctuation, are skipped — there is no sense asserting that a full stop
 # appears in app.js.
 #
-# One block is exempt, by name: Copy.Meetings. The app reads the meetings
+# Two blocks are exempt, by name. Copy.Meetings: the app reads the meetings
 # already on the phone through EventKit, which is a thing the website
 # cannot do at all — the scope its Google link holds is allowed to touch
 # only the calendar it made itself — so there is no web original to grep
-# and no paraphrase to catch. Every fragment of it is listed below and
-# every other literal in Copy.swift is still checked exactly as strictly.
+# and no paraphrase to catch. Copy.Nudges: the website sends no
+# notifications (its README leaves them out of the beta on purpose), so
+# the switch that governs the phone's has no sentence to copy either — nor
+# the three levels, which are the user's own words (HELP ME!!, Please
+# Remind Me, It's Okay I Know), nor the nudge titles that call the person
+# by name, which they asked for in a tone to match each level.
+# Every fragment of both is listed below and every other literal in
+# Copy.swift is still checked exactly as strictly.
 #
 # NOTHING GOES IN THAT LIST THAT HAS AN ORIGINAL. The point of this check
 # is that copy cannot be reworded quietly; an exemption granted to a
@@ -139,6 +145,22 @@ Reading
 1 meeting
 meetings
 in the next 60 days.
+Reminders
+Nudge me through the day
+The next thing to do, as often as you ask. Tasks with a time still ring at their time.
+my.adhd cannot send you notifications. iOS only asks once, so Settings is the way back.
+HELP ME!!
+Please Remind Me
+It's Okay I Know
+Every hour
+Every 2 hours
+Every 4 hours
+, let's do this one now
+Let's do this one now
+, reminding you
+Reminding you
+Just so you know,
+Just so you know
 NATIVE_ONLY
 
 checked=0
