@@ -37,16 +37,40 @@ enum TaskBridge {
     private static let stepMax = 96
     private static let taskMax = 64
 
-    /// What was last written, so an unchanged store costs nothing. Typing
-    /// in the composer writes myadhd.v1 on a 1.5s debounce and none of
-    /// those writes change a single thing a widget draws.
-    private static let stampKey = "myadhd.snapshot.stamp"
+    /// What was last written, and when, so an unchanged store costs
+    /// nothing. Typing in the composer writes myadhd.v1 on a 1.5s debounce
+    /// and none of those writes change a single thing a widget draws.
+    ///
+    /// NOT "myadhd.snapshot.stamp", which is what this used to be called.
+    /// That key belongs to the old web-view shell: it wrote it every time
+    /// it wrote a widget snapshot, and LegacyImport.oldShellLeftTraces
+    /// reads its mere presence as proof that the old app ran on this phone
+    /// — the one witness that turns an empty migration read into "hold and
+    /// try again" rather than "start empty". The native app writing it too
+    /// made every fresh install a witness against itself: TaskBridge's
+    /// first write set it while the migration's fallback read was still in
+    /// flight, the read came back empty, the witness said the old app had
+    /// been here, and the app held on "Bringing your lists over…" on every
+    /// launch. So the native app never writes that key, never reads it,
+    /// and never clears it either — on a real upgrade it is the evidence.
+    private static let stampKey = "myadhd.native.snapshotStamp"
+
+    /// How long an unchanged snapshot is left alone before it is written
+    /// again anyway. `generated` is the snapshot's only clock: isStale()
+    /// calls a tile "old" at twenty-four hours, and SnapProvider schedules
+    /// its next look six hours after it. A stamp that skipped every write
+    /// of an unchanged list would let `generated` fall a day behind a phone
+    /// that is opened every hour, and the tiles would call a current list
+    /// old. Three hours keeps it inside both of those with room to spare,
+    /// and costs one keychain write per three hours of use.
+    private static let restampAfter: TimeInterval = 3 * 60 * 60
 
     // MARK: - the one entry point
 
     static func write(from json: String?) {
-        guard let packed = packed(from: json) else { return }
-        let (shrunk, blob) = packed
+        let now = Date()
+        guard let packed = packed(from: json, now: now) else { return }
+        let shrunk = packed.snapshot
 
         /* A hash of what would be written, not of the store. Two stores
            that differ only in a field no widget draws produce the same
@@ -56,17 +80,62 @@ enum TaskBridge {
            Not hashValue: Swift seeds its hasher per process, so a stamp
            written before a relaunch never matches the one computed after
            one, and every cold launch paid for a keychain write and a
-           reload of every timeline it was supposed to save. */
-        let stamp = digest(blob)
-        if UserDefaults.standard.string(forKey: stampKey) == stamp { return }
+           reload of every timeline it was supposed to save.
+
+           And not of the blob, which is what it used to be, because the
+           blob can never match. It carries `generated` — the time of this
+           very call — so every push hashed differently from the one before
+           it, and every debounced keystroke paid for the keychain write
+           and the reload this was written to save. On top of that the
+           blob's key order is not stable from one encode to the next (see
+           the header of Checks/bridge.swift). stamp(of:) hashes the
+           snapshot with the clock held still and the keys sorted; the
+           clock gets its own rule, restampAfter. */
+        let stamp = Self.stamp(of: shrunk)
+        if let stamp, let last = lastStamp(), last.digest == stamp,
+           now >= last.at, now.timeIntervalSince(last.at) < restampAfter { return }
 
         guard TaskStore.write(shrunk) else { return }
-        UserDefaults.standard.set(stamp, forKey: stampKey)
+        if let stamp {
+            UserDefaults.standard.set("\(stamp) \(Int(now.timeIntervalSince1970))", forKey: stampKey)
+        }
 
-        /* Only on a real change, and only ever just after the user was in
-           the app — which is a user-initiated reload, not one of the
-           rationed background ones. */
+        /* Only on a real change or a restamp, and only ever just after the
+           user was in the app — which is a user-initiated reload, not one
+           of the rationed background ones. A restamp reloads too: it is
+           what takes an "old" label off a tile the moment the app is
+           opened, even when nothing in the list moved. */
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// The stamp last written, and the moment it was. nil for anything
+    /// that does not parse, which is treated as "never written" — the
+    /// cost of that being wrong is one keychain write.
+    private static func lastStamp() -> (digest: String, at: Date)? {
+        guard let raw = UserDefaults.standard.string(forKey: stampKey) else { return nil }
+        let bits = raw.split(separator: " ")
+        guard bits.count == 2, let secs = Int(bits[1]) else { return nil }
+        return (String(bits[0]), Date(timeIntervalSince1970: TimeInterval(secs)))
+    }
+
+    /* What a widget would draw, as a stable string: the snapshot with
+       `generated` pinned to the epoch, encoded with sorted keys, then
+       FNV-1a. Pinned rather than dropped so the shape is the real
+       TaskSnapshot and no second list of its fields can fall out of step
+       with the first. Internal rather than private so Checks/bridge.swift
+       can hold it to "same list, different clock, same stamp". nil only
+       if the encoder fails, which `write` takes as "write it anyway". */
+    static func stamp(of snapshot: TaskSnapshot) -> String? {
+        let still = TaskSnapshot(generated: Date(timeIntervalSince1970: 0), day: snapshot.day,
+                                 tasks: snapshot.tasks, dropped: snapshot.dropped,
+                                 doneToday: snapshot.doneToday,
+                                 calFrom: snapshot.calFrom, cal: snapshot.cal,
+                                 histFrom: snapshot.histFrom, hist: snapshot.hist)
+        let coder = JSONEncoder()
+        coder.dateEncodingStrategy = .secondsSince1970
+        coder.outputFormatting = [.sortedKeys]
+        guard let json = try? coder.encode(still) else { return nil }
+        return digest(json)
     }
 
     /* Everything `write` does except deciding whether to write: parse,

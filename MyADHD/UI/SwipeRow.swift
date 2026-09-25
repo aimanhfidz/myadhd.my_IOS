@@ -242,7 +242,8 @@ struct SwipeRow<Content: View>: View {
                 SwipePanGesture(isEnabled: isEnabled,
                                 onBegan: began,
                                 onChanged: moved,
-                                onEnded: ended)
+                                onEnded: ended,
+                                onCancelled: cancelled)
             }
     }
 
@@ -339,6 +340,17 @@ struct SwipeRow<Content: View>: View {
         }
 
         paint(translation.width - origin)
+    }
+
+    /// The system took the touch — a call, Control Centre, an edge swipe.
+    /// Nobody let go, so nothing was decided: the row goes back, even from
+    /// past the mark. It used to arrive here as an ordinary end and tick
+    /// off or remove the task under a finger that had never lifted.
+    private func cancelled() {
+        let wasLive = live
+        live = false
+        guard wasLive, !leaving else { return }
+        settle()
     }
 
     private func ended(_ translation: CGSize, _ velocity: CGSize) {
@@ -459,6 +471,7 @@ struct SwipePanGesture: UIViewRepresentable {
     var onBegan: () -> Void
     var onChanged: (CGSize) -> Void
     var onEnded: (CGSize, CGSize) -> Void
+    var onCancelled: () -> Void = {}
 
     func makeUIView(context: Context) -> SwipePanHost {
         let host = SwipePanHost()
@@ -470,6 +483,7 @@ struct SwipePanGesture: UIViewRepresentable {
         context.coordinator.onBegan = onBegan
         context.coordinator.onChanged = onChanged
         context.coordinator.onEnded = onEnded
+        context.coordinator.onCancelled = onCancelled
         /* Disabled rather than detached. A row being reworded is enabled
            again a moment later, and re-attaching would mean finding the
            host a second time.
@@ -492,6 +506,7 @@ struct SwipePanGesture: UIViewRepresentable {
         var onBegan: () -> Void = {}
         var onChanged: (CGSize) -> Void = { _ in }
         var onEnded: (CGSize, CGSize) -> Void = { _, _ in }
+        var onCancelled: () -> Void = {}
 
         /// What `isEnabled` last asked for, whether or not there was a
         /// recogniser to tell at the time.
@@ -543,8 +558,9 @@ struct SwipePanGesture: UIViewRepresentable {
                         CGSize(width: v.x, height: v.y))
             case .cancelled, .failed:
                 /* The system took the touch — an edge swipe, a call
-                   arriving. The row is not left parked where it stood. */
-                onEnded(CGSize(width: t.x, height: t.y), .zero)
+                   arriving. The row is not left parked where it stood,
+                   and it is not committed either: see `cancelled()`. */
+                onCancelled()
             default:
                 break
             }

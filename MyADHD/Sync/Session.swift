@@ -407,11 +407,25 @@ final class Session {
         do {
             (data, response) = try await http.data(for: request)
         } catch {
+            /* Cancelled by a sign-out is not a tunnel, and the card should
+               not say it could not reach the server. */
+            guard stillHolds(refresh) else { throw SessionError.signedOut }
             /* THE DIVERGENCE. auth.js drops the session here. A tunnel is
                not a revocation, and an app that cannot open its own lists
                on a train is not an offline-first app. */
             throw SessionError.offline(error)
         }
+
+        /* The session may have gone while the answer was on its way.
+           `clear()` cancels this task, but an answer that has already
+           arrived still resumes it — and writing a record here would put
+           back a session with no account on it (`signedIn` true, `user`
+           nil) and keep it in the Keychain across launches. A new sign-in
+           in the meantime is the same thing the other way round: this
+           answer would overwrite that account's tokens with the old
+           one's. And before the status is read, so a 4xx for the old
+           grant cannot `clear()` the new session either. */
+        guard stillHolds(refresh) else { throw SessionError.signedOut }
 
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
 
@@ -446,5 +460,13 @@ final class Session {
         )
         persist()
         return access
+    }
+
+    /// Whether the session a refresh set out for is still the one on the
+    /// device: not cancelled by `clear()`, and still holding the grant the
+    /// refresh sent. GoTrue rotates the refresh token on every refresh and
+    /// every sign-in mints a new one, so the grant names the session.
+    private func stillHolds(_ refresh: String) -> Bool {
+        !Task.isCancelled && record?.refreshToken == refresh
     }
 }

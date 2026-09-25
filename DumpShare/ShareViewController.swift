@@ -26,9 +26,16 @@ import UniformTypeIdentifiers
 
 final class ShareViewController: SLComposeServiceViewController {
 
+    /* The attachments are always asked, including when the box already
+       has words in it. There used to be a guard here that skipped the
+       whole load whenever it did, on the theory that Safari had "filled it
+       already" — but what Safari fills the box with is the page's TITLE,
+       and the address arrives separately, as an attachment. So the one
+       share this file was written around kept the title and dropped the
+       link every time. What arrives now is added to the box rather than
+       put over it: see offer(heading:link:) and fill(_:). */
     override func presentationAnimationDidFinish() {
         super.presentationAnimationDidFinish()
-        guard contentText?.isEmpty ?? true else { return }   // Safari filled it already
         load()
     }
 
@@ -62,7 +69,7 @@ final class ShareViewController: SLComposeServiceViewController {
             if provider.hasItemConformingToTypeIdentifier(url) {
                 provider.loadItem(forTypeIdentifier: url, options: nil) { [weak self] value, _ in
                     let link = (value as? URL) ?? (value as? String).flatMap(URL.init(string:))
-                    self?.fill(Self.compose(heading: heading, link: link))
+                    self?.offer(heading: heading, link: link)
                 }
                 return
             }
@@ -90,9 +97,50 @@ final class ShareViewController: SLComposeServiceViewController {
         }
     }
 
+    /* The link, laid onto whatever the box says by the time it arrives.
+       Read on the main thread and at that moment, not when the load began:
+       loadItem answers whenever it answers, and by then the box may hold
+       Safari's title, or the person may already have started typing in it.
+
+       An empty box gets title and link, both, exactly as before. A box
+       with words in it keeps them and gains " — link" — unless the link is
+       in there already, which is what a share from an app that puts the
+       address into its own text looks like, and doubling it would make the
+       task's title half URL. */
+    private func offer(heading: String?, link: URL?) {
+        DispatchQueue.main.async {
+            let typed = (self.textView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let value: String?
+            if typed.isEmpty {
+                value = Self.compose(heading: heading, link: link)
+            } else if let link, !Self.mentions(typed, link) {
+                value = Self.compose(heading: typed, link: link)
+            } else {
+                value = nil
+            }
+            guard let value, !value.isEmpty else { return }
+            self.textView.text = value
+            self.validateContent()
+        }
+    }
+
+    /// Already in the text, near enough: the address as given, or the same
+    /// address without its trailing slash, which is how most apps that
+    /// quote a link in their own text actually write it.
+    private static func mentions(_ text: String, _ link: URL) -> Bool {
+        let full = link.absoluteString
+        let bare = full.hasSuffix("/") ? String(full.dropLast()) : full
+        return text.contains(full) || (!bare.isEmpty && text.contains(bare))
+    }
+
+    /// Text that arrives on its own fills an EMPTY box and never replaces
+    /// one with words in it — those words are either Safari's, already
+    /// what this would have put there, or the person's own.
     private func fill(_ value: String?) {
         guard let value, !value.isEmpty else { return }
         DispatchQueue.main.async {
+            let typed = (self.textView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard typed.isEmpty else { return }
             self.textView.text = value
             self.validateContent()
         }

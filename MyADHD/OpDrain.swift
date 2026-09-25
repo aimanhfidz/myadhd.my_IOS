@@ -57,8 +57,8 @@ enum OpDrain {
     /// wrote something.
     ///
     /// An op for a task that is already done applies and is dropped —
-    /// `markDone` is idempotent on the store and the row is in the state
-    /// the tile said it was.
+    /// `landTick` leaves an already-done task alone and the row is in the
+    /// state the tile said it was.
     ///
     /// Synchronous on purpose. `StoreBridge` runs this BEFORE it pushes
     /// the snapshot out on `didBecomeActive`, so a widget tick and the
@@ -73,18 +73,24 @@ enum OpDrain {
         let ticks = OpQueue.peek().filter { $0.op.kind == .done }
         guard !ticks.isEmpty else { return 0 }
 
-        var landed: [String] = []
+        var handled: [String] = []
+        var landed = 0
         for tick in ticks {
             /* One save() per tick, which is what the web does too — every
                markDone is its own save. The file write coalesces them and
                StoreBridge's debounce coalesces the snapshot, so three
-               ticks taken on a tile cost one of each. */
-            guard store.markDone(tick.op.id) else { continue }
-            landed.append(tick.account)
+               ticks taken on a tile cost one of each.
+
+               `landTick`, not `markDone`: the tick keeps the moment it was
+               taken, and one for a task already done elsewhere is dropped
+               without re-stamping it or claiming a toast. */
+            guard let ticked = store.landTick(tick.op.id, at: tick.op.at) else { continue }
+            handled.append(tick.account)
+            if ticked { landed += 1 }
         }
 
-        OpQueue.drop(landed)
-        return landed.count
+        OpQueue.drop(handled)
+        return landed
     }
 
 }

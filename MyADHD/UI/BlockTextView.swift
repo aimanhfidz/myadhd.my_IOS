@@ -136,10 +136,17 @@ struct BlockTextView: UIViewRepresentable {
     /// Everything about the block that changes how it is drawn but does
     /// not change its text. When this moves, the view is rebuilt even
     /// though the words are the same.
+    ///
+    /// Not the placeholder. The hint is a separate label, set on every
+    /// render below; it is not in the text. It used to be in here, and the
+    /// hint goes away with the first letter typed — so the first letters
+    /// forced a full reload, and the reload threw away the style somebody
+    /// had just picked: bold on, "hello", came out "He" bold and "llo"
+    /// plain.
     private var styleToken: String {
         [block.type, block.align, block.done ? "1" : "0",
          face.regular.fontName, String(format: "%.2f", face.regular.pointSize),
-         "\(ink.hashValue)", hintText ?? "-"].joined(separator: "|")
+         "\(ink.hashValue)"].joined(separator: "|")
     }
 
     // MARK: making it
@@ -151,6 +158,11 @@ struct BlockTextView: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = false
+        /* A text view that does not scroll wants its longest line on one
+           line, and will say so as an intrinsic width. Nothing on the paper
+           is allowed to ask for width — see `sizeThatFits` below. */
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
         view.spellCheckingType = .yes            // spellcheck="true", app.js:4622
         view.autocorrectionType = .default
         view.adjustsFontForContentSizeCategory = false
@@ -207,11 +219,23 @@ struct BlockTextView: UIViewRepresentable {
             let end = next.length
             view.selectedRange = NSRange(location: min(was.location, end), length: 0)
             c.appliedStyle = styleToken
+
+            /* Only with a reload. Every keystroke writes the store and
+               comes back through here, and resetting these every time
+               undid the style somebody had just picked: B with nothing
+               selected, then "hello", came out as a bold "h" and a plain
+               "ello", and typing on from the end of a bold run went plain
+               from its second letter. Between reloads UIKit keeps them
+               itself, from the letter before the caret. */
+            view.typingAttributes = MarksBridge.baseAttributes(face: face, ink: ink,
+                                                               base: base, paragraph: paragraph)
         }
 
-        view.typingAttributes = MarksBridge.baseAttributes(face: face, ink: ink,
-                                                           base: base, paragraph: paragraph)
-        view.textColor = block.done ? faint : ink
+        /* `ink` already IS the accent on a ticked line — NoteEditor chose
+           it so finished work is not the faintest thing on the page — and
+           swapping in `faint` here put back the fade that comment
+           removed. */
+        view.textColor = ink
 
         c.hint?.text = hintText
         c.hint?.font = face.regular
@@ -238,6 +262,24 @@ struct BlockTextView: UIViewRepresentable {
         case "right":  return .right
         default:       return .left
         }
+    }
+
+    /// SwiftUI sizes a representable from its intrinsic size unless it is
+    /// given a better answer, and the intrinsic width of a non-scrolling
+    /// `UITextView` is the whole block on one line. That width went up
+    /// through the paper and the screen until the back button and the tick
+    /// were both off the edge. Take the width the paper proposes and only
+    /// ever answer with a height — the same fix as `ComposerTextView`.
+    func sizeThatFits(_ proposal: ProposedViewSize,
+                      uiView: BlockTextInput,
+                      context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0, width < .infinity else {
+            return nil
+        }
+        let wanted = uiView.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude)
+        ).height
+        return CGSize(width: width, height: wanted)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }

@@ -379,7 +379,11 @@ struct TodayList<Lead: View>: View {
     private var title: String {
         guard let snapshot else { return "MY.ADHD" }
         if late > 0 { return late == 1 ? "1 LATE" : "\(late) LATE" }
-        return snapshot.todayTasks.contains { !$0.done } ? "TODAY" : "NEXT UP"
+        /* Today as of the tile's own moment, not the day the app last
+           wrote the snapshot on — after midnight with the app unopened,
+           those differ, and the heading said TODAY over yesterday. */
+        return snapshot.tasks(on: snapshot.effectiveDay(now)).contains { !$0.done }
+            ? "TODAY" : "NEXT UP"
     }
 
     var body: some View {

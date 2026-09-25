@@ -349,6 +349,19 @@ struct MeetingChecks {
         r.equal("a finished task still holds its meeting",
                 AgendaEntry.unclaimed([one, two], by: [done]).map(\.id).joined(separator: ","),
                 "m-2")
+
+        /* A repeating meeting: every occurrence carries the same event
+           identifier. Making a task of Thursday's must leave Friday's. */
+        let friday = "2026-09-25"
+        let weekly = meeting("m-weekly", day, "10:00")
+        let next = meeting("m-weekly", friday, "10:00")
+        var claimedOne = weekly.asTask()
+        claimedOne.id = "t-from-weekly"
+        r.equal("one occurrence of a series claims that day only",
+                AgendaEntry.unclaimed([day: [weekly], friday: [next]], by: [claimedOne])
+                    .mapValues(\.count).sorted { $0.key < $1.key }
+                    .map { "\($0.key)=\($0.value)" }.joined(separator: ","),
+                "\(day)=0,\(friday)=1")
     }
 
     // MARK: - 6. the reader

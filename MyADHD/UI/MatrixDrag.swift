@@ -12,14 +12,15 @@
    off. Those two numbers are the whole gesture; everything else follows
    from them.
 
-   **Why not `LongPressGesture.sequenced(before: DragGesture)`**, which is
-   the idiomatic shape and would give 320/8 for free: the sequence hands
-   over no location at the moment the press succeeds, only on the first
-   drag change after it. The web places the ghost at the point the finger
-   went DOWN (`lift()` reads `press.x, press.y`), so the chip appears
-   under the thumb that is not moving yet. A `DragGesture` with a zero
-   minimum distance reports `startLocation` from the first callback, which
-   is that point, so the timer is run here instead.
+   **Who keeps the time.** `HoldLiftGesture`, a UIKit long press set to
+   exactly those two numbers. It used to be a zero-distance SwiftUI
+   `DragGesture` with the timer run in here, which got the ghost's
+   position right and the scrolling wrong: that gesture recognised on
+   touch-down and kept the finger from the quadrant's scroller for the
+   whole touch, so a box that was all titles would not scroll at all. The
+   long press claims nothing until the hold is up, and it reports where
+   the finger is at that moment — within 8pt of where it went down, which
+   is the web's `press.x, press.y` for any thumb that can see the chip.
 
    **What a drop does, and does not do.** `endDrag(true)` commits only
    when the finger came up over a quadrant, and `AppStore.moveToQuadrant`
@@ -68,10 +69,6 @@ final class MatrixDrag {
     /// `drag.cell` — the quadrant under the finger, which wears the ring.
     private(set) var over: String?
 
-    @ObservationIgnored private var timer: Task<Void, Never>?
-    @ObservationIgnored private var origin: CGPoint = .zero
-    @ObservationIgnored private var held: (id: String, label: String)?
-
     /// Where each quadrant is, in `space`. Written by the cells during
     /// layout — see the file header for why it is not observed.
     @ObservationIgnored var frames: [String: CGRect] = [:]
@@ -96,73 +93,67 @@ final class MatrixDrag {
     // MARK: - the gesture
 
     /// `watchPress` — the finger is down. Nothing has been decided yet.
-    func press(_ task: TaskItem, at point: CGPoint) {
+    func touchDown(_ id: String) {
         guard pressed == nil, airborne == nil else { return }
-        pressed = task.id
-        origin = point
-        held = (task.id, Self.ghostLabel(task))
-        timer = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.lift * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            self?.raise()
-        }
+        pressed = id
     }
 
-    /// `pointermove`. Before the lift this is the only thing that can call
-    /// it off; after it, it is what moves the chip.
-    func moved(to point: CGPoint) {
-        if airborne != nil {
-            airborne?.point = point
-            over = quadrant(at: point)
-            return
-        }
-        guard pressed != nil else { return }
-        // Enough movement before the hold is up means this was a scroll.
-        if hypot(point.x - origin.x, point.y - origin.y) > Self.slop { dropPress() }
-    }
-
-    /// `dropPress` — the hold was called off. Nothing happened.
-    func dropPress() {
-        timer?.cancel()
-        timer = nil
+    /// `lift()` — held still for `lift`, without moving `slop`. The chip
+    /// appears under the thumb.
+    func raise(_ task: TaskItem, at point: CGPoint) {
+        guard airborne == nil else { return }
         pressed = nil
-        held = nil
+        airborne = Airborne(id: task.id, label: Self.ghostLabel(task), point: point)
+        over = quadrant(at: point)
+        /* `navigator.vibrate?.(8)` — only some phones on the web, every
+           phone here. The receipt for a gesture that has no other way of
+           saying it has started. */
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    /// `pointermove`, once a row is in the air. Before the lift the
+    /// recogniser is the one watching the slop.
+    func moved(to point: CGPoint) {
+        guard airborne != nil else { return }
+        airborne?.point = point
+        over = quadrant(at: point)
+    }
+
+    /// `dropPress`, or `endDrag(false)` — for this row only. A second
+    /// finger giving up on some other row must not drop the one that is
+    /// being carried.
+    func abandon(_ id: String) {
+        if pressed == id { pressed = nil }
+        if airborne?.id == id {
+            airborne = nil
+            over = nil
+        }
     }
 
     /// `pointerup` → `endDrag(true)`. Returns the quadrant the row was
     /// dropped on, or nil — which covers both "it never lifted" and
     /// "it came down over nothing".
-    func release() -> String? {
-        let landed = airborne != nil ? over : nil
+    ///
+    /// **Only for the row in the air.** With two fingers, a second row
+    /// held and let go used to take the first one's target — and cancel
+    /// the carry — because whichever `.ended` came first was handed
+    /// `over`. The two quadrants are separate scroll views, so both holds
+    /// can begin.
+    func release(_ id: String) -> String? {
+        guard airborne?.id == id else { abandon(id); return nil }
+        let landed = over
         cancel()
         return landed
     }
 
     /// `pointercancel` → `endDrag(false)`. The row goes back where it was.
     func cancel() {
-        timer?.cancel()
-        timer = nil
         pressed = nil
-        held = nil
         airborne = nil
         over = nil
     }
 
     // MARK: -
-
-    /// `lift()`. The chip appears at the point the finger went down, not
-    /// at wherever it has wandered to — it has not wandered, that is the
-    /// whole condition of getting here.
-    private func raise() {
-        guard let held, pressed == held.id else { return }
-        pressed = nil
-        airborne = Airborne(id: held.id, label: held.label, point: origin)
-        over = quadrant(at: origin)
-        /* `navigator.vibrate?.(8)` — only some phones on the web, every
-           phone here. The receipt for a gesture that has no other way of
-           saying it has started. */
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    }
 
     /// `overCell` — `elementFromPoint` closest `.quad[data-quad]`. The
     /// four never overlap, so the first hit is the only hit.

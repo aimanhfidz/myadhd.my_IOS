@@ -193,6 +193,15 @@ struct Theme: Equatable {
     static func outSheet(_ duration: Double) -> Animation {
         .timingCurve(0.33, 0, 0.68, 1, duration: duration)
     }
+    /// The web's hero entrance, `--in-ease: cubic-bezier(.16,1,.3,1)`
+    /// (chrome.css:476).
+    static func arrive(_ duration: Double) -> Animation {
+        .timingCurve(0.16, 1, 0.3, 1, duration: duration)
+    }
+    /// `--in-pop: cubic-bezier(.2,1.4,.4,1)` — the one that overshoots.
+    static func pop(_ duration: Double) -> Animation {
+        .timingCurve(0.2, 1.4, 0.4, 1, duration: duration)
+    }
 
     static let light = Theme(dark: false)
     static let night = Theme(dark: true)
@@ -267,5 +276,18 @@ extension Color {
                   green: Double((hex >> 8) & 0xFF) / 255,
                   blue: Double(hex & 0xFF) / 255,
                   opacity: opacity)
+    }
+}
+
+// MARK: - no transition
+
+extension Transaction {
+    /// A change that should happen with no animation at all — including
+    /// the system's own for a cover coming and going, which is what
+    /// `disablesAnimations` reaches and a nil animation does not.
+    static var still: Transaction {
+        var t = Transaction()
+        t.disablesAnimations = true
+        return t
     }
 }

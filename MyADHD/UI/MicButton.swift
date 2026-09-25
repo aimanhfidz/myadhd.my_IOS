@@ -53,9 +53,16 @@ import SwiftUI
 /// able to throw a hold away, and it is the only thing outside this file
 /// that does.
 @MainActor
+@Observable
 final class MicControl {
     /// Set by the button when it appears.
-    var reset: (() -> Void)?
+    @ObservationIgnored var reset: (() -> Void)?
+
+    /// A hold is live or its words are still on the way. The sheet reads
+    /// this to hold `Sort it` back: sending then wrote the buffer without
+    /// the words that were still coming, and they landed in a sheet that
+    /// had already gone.
+    fileprivate(set) var working = false
 
     func abandon() { reset?() }
 }
@@ -136,6 +143,15 @@ struct MicButton: View {
     /// only the first one is the press.
     @State private var pressing = false
 
+    /// Whether the gesture is still going at all. `onEnded` is not called
+    /// when the system CANCELS a touch — the permission alert on the very
+    /// first hold does exactly that, as do a call and Control Centre — and
+    /// then `pressing` stayed true: the mic opened after Allow and kept
+    /// recording with no finger on it, or the next hold was swallowed. A
+    /// `GestureState` resets on a cancel as well as an end, so its falling
+    /// edge is the release that `onEnded` misses.
+    @GestureState private var held = false
+
     /// app.js:5396.
     private static let tapThreshold: TimeInterval = 0.4
 
@@ -179,6 +195,12 @@ struct MicButton: View {
             }
         )
         .gesture(press)
+        .onChange(of: held) { _, down in
+            guard !down, pressing else { return }
+            pressing = false
+            micUp()
+        }
+        .onChange(of: phase) { _, now in control.working = now != .rest }
         .accessibilityLabel(Copy.Composer.micSR)
         .accessibilityHint(hint)
     }
@@ -302,6 +324,7 @@ struct MicButton: View {
     /// release and has no down edge at all.
     private var press: some Gesture {
         DragGesture(minimumDistance: 0)
+            .updating($held) { _, state, _ in state = true }
             .onChanged { _ in
                 guard !pressing else { return }
                 pressing = true
@@ -394,9 +417,14 @@ struct MicButton: View {
             rest()
 
             /* Only ever written when there is something to write —
-               nothing came back, so nothing is touched. */
+               nothing came back, so nothing is touched.
+
+               Onto what is in the box NOW, not onto `base`. The box can be
+               typed in while the words are on their way, and building on
+               the copy taken at the press threw that typing away. */
             if !out.text.isEmpty {
-                text = base.isEmpty ? out.text : base + " " + out.text
+                let now = JSText.trim(text)
+                text = now.isEmpty ? out.text : now + " " + out.text
             }
 
             if out.text.isEmpty {

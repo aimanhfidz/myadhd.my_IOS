@@ -239,9 +239,6 @@ struct CalItemRow: View {
     /// the row behaves exactly as it always has.
     var dayDrag: MonthTaskDrag? = nil
 
-    /// One touch, one press — `QuadrantCell`'s flag, for its reason.
-    @State private var gestureLive = false
-
     private var lifted: Bool { dayDrag?.isLifted(task.id) ?? false }
     private var pressed: Bool { dayDrag?.isPressed(task.id) ?? false }
 
@@ -281,8 +278,13 @@ struct CalItemRow: View {
                the line the matrix draws too (`watchPress` returns on
                `.task-check`, app.js:2748). A finished task never lifts;
                `moveToDay` would refuse it anyway. */
-            .contentShape(Rectangle())
-            .simultaneousGesture(canDrag ? hold : nil)
+            .holdToLift(in: MonthTaskDrag.space,
+                        enabled: canDrag,
+                        press: { dayDrag?.touchDown(task.id) },
+                        lift: { dayDrag?.raise(task, at: $0) },
+                        move: { dayDrag?.moved(to: $0) },
+                        end: land,
+                        cancel: { dayDrag?.abandon(task.id) })
         }
         .padding(.vertical, 13)
         .padding(.horizontal, 15)
@@ -335,28 +337,11 @@ struct CalItemRow: View {
 
     private var canDrag: Bool { dayDrag != nil && !task.done }
 
-    /// The matrix's gesture, aimed at a month instead of four quadrants.
-    private var hold: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named(MonthTaskDrag.space))
-            .onChanged { value in
-                guard let dayDrag else { return }
-                if !gestureLive {
-                    gestureLive = true
-                    dayDrag.press(task, at: value.startLocation)
-                }
-                dayDrag.moved(to: value.location)
-            }
-            .onEnded { _ in
-                gestureLive = false
-                land()
-            }
-    }
-
     /// A drop that never lifted, or that came down between the cells, is
     /// nothing. A drop onto the day the task is already on is refused by
     /// the store and says nothing either.
     private func land() {
-        guard let dayDrag, let to = dayDrag.release() else { return }
+        guard let dayDrag, let to = dayDrag.release(task.id) else { return }
         let id = task.id
         let from = task.when
         guard store.moveToDay(id, to: to) else { return }

@@ -45,8 +45,43 @@ struct SnapProvider: TimelineProvider {
        item away from TaskBridge — so the tick lives as an overlay until
        the app drains it, at which point the op vanishes and the fresh
        snapshot says the same thing anyway. */
-    static func current() -> TaskSnapshot? {
-        TaskStore.read()?.applying(OpQueue.peek().map(\.op))
+    static func current() -> TaskSnapshot? { read().snapshot }
+
+    /* The same read, plus how soon to try again when it failed — nil when
+       it did not, and the provider's ordinary schedule applies.
+
+       A failed read used to take that ordinary schedule too, and the
+       ordinary schedule is long: six hours here, midnight in DayProvider.
+       The commonest failure is a phone that rebooted overnight for an
+       update and has not been unlocked yet — the snapshot is
+       AfterFirstUnlock — so every tile drew its empty state in the small
+       hours and was not asked again for six hours, long after the phone
+       had been unlocked and the item was readable. The empty state itself is
+       unavoidable (this process has nothing to remember yesterday's data
+       in; see the header), so the fix is to not leave it there.
+
+       Two minutes for a locked keychain, which is the only failure that
+       fixes itself on a clock. WidgetKit treats the date as a floor and
+       rations the reloads anyway, so a long locked night spends reload
+       budget rather than anything the person would notice; once it is
+       spent WidgetKit just spaces the reloads out, and whatever TaskBridge
+       writes from the foreground still reloads every timeline unrationed.
+       A quarter of an hour for a read that failed some other way: short
+       enough that a passing keychain error costs minutes rather than a
+       morning, long enough that a blob this build can never decode does
+       not spend the day polling it. No item at all is no retry: the app
+       has never written one, and its first write asks for the reload. */
+    static func read() -> (snapshot: TaskSnapshot?, retry: TimeInterval?) {
+        switch TaskStore.load() {
+        case .success(let snapshot):
+            return (snapshot.applying(OpQueue.peek().map(\.op)), nil)
+        case .failure(.locked):
+            return (nil, 2 * 60)
+        case .failure(.unreadable):
+            return (nil, 15 * 60)
+        case .failure(.absent):
+            return (nil, nil)
+        }
     }
 
     /* The now-line has to move, and a provider gets called something like
@@ -59,7 +94,7 @@ struct SnapProvider: TimelineProvider {
        point and a half a step and reads as continuous. A quarter of an
        hour after that, where nobody is looking closely. */
     func getTimeline(in context: Context, completion: @escaping (Timeline<SnapEntry>) -> Void) {
-        let snapshot = Self.current()
+        let (snapshot, retry) = Self.read()
         let now = Date()
 
         var dates: [Date] = [now]
@@ -76,6 +111,14 @@ struct SnapProvider: TimelineProvider {
         }
 
         let entries = dates.map { SnapEntry(date: $0, snapshot: snapshot, isSample: false) }
+
+        /* A read that failed and will not stay failed is asked again soon,
+           rather than drawn empty until the six-hour term below. See
+           read() for the intervals. */
+        if let retry {
+            completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(retry))))
+            return
+        }
 
         /* Midnight flips the day for free. The six-hour term is for a phone
            nobody opens: a Shortcut or the share extension may have moved
@@ -213,6 +256,27 @@ struct TodayTimelineView: View {
         }
     }
 
+    /* The day this entry is drawn FOR, which is the entry's clock and not
+       the snapshot's `day`. The provider lays a whole day of entries over
+       one snapshot and the snapshot is allowed to be yesterday's — the app
+       not opened between midnight and breakfast is the ordinary case, not
+       an edge — so a band keyed on `day` drew last night's meetings at
+       07:00 and filed this morning's under "Tomorrow". effectiveDay is the
+       rule every other tile already used. */
+    private var today: String? { entry.snapshot?.effectiveDay(entry.date) }
+
+    /// Today's timed tasks: what the band is for.
+    private var timed: [SnapTask] {
+        guard let snap = entry.snapshot, let today else { return [] }
+        return snap.timed(on: today)
+    }
+
+    /// The day after `today`, for the strip under the large tile.
+    private var tomorrow: [SnapTask] {
+        guard let snap = entry.snapshot, let today else { return [] }
+        return snap.tasks(on: DayKey.adding(1, to: today))
+    }
+
     /* The band answers "when", the rows answer "now", and the strip at the
        bottom answers "what about tomorrow". Until this, systemLarge was
        the one family nothing in the bundle claimed. */
@@ -230,11 +294,11 @@ struct TodayTimelineView: View {
                 .invalidatableContent()
             }
 
-            if let snap = entry.snapshot, !snap.tomorrowTasks.isEmpty {
+            if let day = today, !tomorrow.isEmpty {
                 Divider()
                 TaskColumn(title: "Tomorrow",
-                           tasks: snap.tomorrowTasks,
-                           day: snap.effectiveDay(entry.date),
+                           tasks: tomorrow,
+                           day: day,
                            limit: 2, titleSize: 12,
                            emptyLine: "Nothing booked yet.",
                            showDay: false)
@@ -263,8 +327,8 @@ struct TodayTimelineView: View {
 
             Spacer(minLength: 8)
 
-            if let snap = entry.snapshot, !snap.timed.isEmpty {
-                TimelineBand(tasks: snap.todayTasks, now: entry.date)
+            if let snap = entry.snapshot, let today, !timed.isEmpty {
+                TimelineBand(tasks: snap.tasks(on: today), now: entry.date)
                     .opacity(snap.isStale(now: entry.date) ? 0.45 : 1)
             } else {
                 emptyBand
@@ -306,13 +370,13 @@ struct TodayTimelineView: View {
     private var rectangular: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(dayLine).font(.system(size: 12, weight: .bold))
-            if let snap = entry.snapshot, !snap.timed.isEmpty {
+            if !timed.isEmpty {
                 /* minBlock: 0 — the proportional band, on purpose. A
                    160x72pt lock-screen tile has no room for a label at
                    all (the lane is nine points high), so widening blocks
                    to fit one would buy nothing and overflow most of the
                    day into a pip. Shape is the whole message here. */
-                TimelineBand(tasks: nearby(snap), now: entry.date,
+                TimelineBand(tasks: nearby, now: entry.date,
                              laneHeight: 9, laneGap: 2, maxLanes: 2,
                              showTicks: false, minBlock: 0)
             } else {
@@ -325,9 +389,9 @@ struct TodayTimelineView: View {
     /// Today's timed tasks within the six hours around now. `timed`, not
     /// `tasks`: the snapshot also carries tomorrow, and tomorrow's nine
     /// o'clock drawn on this morning's band is a meeting that is not there.
-    private func nearby(_ snap: TaskSnapshot) -> [SnapTask] {
+    private var nearby: [SnapTask] {
         let now = TimelineBand.minutesOfDay(entry.date)
-        return snap.timed.filter { t in
+        return timed.filter { t in
             guard let s = TimelineBand.minutes(of: t.at) else { return false }
             return s + t.minutes >= now - 60 && s <= now + 5 * 60
         }

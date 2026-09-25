@@ -22,8 +22,12 @@
    - it says what it did and offers an Undo, like every other commit here;
    - a finished task refuses, so it cannot rewrite what already happened.
 
-   Anything past that — a time, a title, a duration — still belongs to the
-   editor and not to this screen. See `MonthTaskDrag`.
+   Anything past that — a title, a duration, a new time for a task that
+   already has one — still belongs to the editor and not to this screen.
+   The one clock it writes is 8am, on a task that had no day at all and is
+   dropped on one from the tray under the grid: the day is the decision,
+   and the start of it is where a thing with no time belongs. See
+   `MonthTaskDrag` and `UndatedTray`.
 
    **Two pieces of state, and neither is data.** `calPicked` is the day
    you are looking at and `calCursor` is the month on screen. The web
@@ -89,9 +93,17 @@ final class CalendarSession {
         persist()
     }
 
-    /// A cell was tapped.
+    /// A day was chosen: a cell, the week strip, the day swipe, a drop.
+    ///
+    /// **The month follows it.** Day and 3-day draw from `picked` but the
+    /// header reads `cursor`, and the swipe and the strip used to move only
+    /// `picked` — so swiping from the 30th to the 1st left the header on
+    /// the old month, and the arrows then stepped from that month rather
+    /// than the one on screen. In Month view every pick is a cell of the
+    /// month already showing, so this changes nothing there.
     func pick(_ key: String) {
         picked = key
+        cursor = MonthRef(dayKey: key)
         persist()
     }
 
@@ -186,9 +198,12 @@ struct CalendarScreen: View {
 
     private var tasks: [TaskItem] { store.doc.tasks }
 
-    /// `!done && !when` — on no day at all, and so on no calendar.
-    private var undated: Int {
-        tasks.filter { !$0.done && !(($0.when.map { !$0.isEmpty }) ?? false) }.count
+    /// `!done && !when` — on no day at all, and so on no calendar. In the
+    /// lists' `No date yet` order, because the tray under the grid shows
+    /// them and not just the count.
+    private var undated: [TaskItem] {
+        Ordering.sortBucket("someday",
+                            tasks.filter { !$0.done && !(($0.when.map { !$0.isEmpty }) ?? false) })
     }
 
     var body: some View {
@@ -389,6 +404,15 @@ struct CalendarScreen: View {
                 .padding(.top, 14)
             }
 
+            /* The foot line, moved up to where its tasks can reach a
+               day — see `UndatedTray`. List keeps it at the foot. */
+            UndatedTray(tasks: undated,
+                        today: today,
+                        store: store,
+                        toasts: toasts,
+                        drag: taskDrag,
+                        landed: { session.pick($0) })
+
             CalendarAgenda(tasks: tasks,
                            picked: session.picked,
                            today: today,
@@ -397,8 +421,6 @@ struct CalendarScreen: View {
                            dayDrag: taskDrag,
                            meetings: meetings)
                 .padding(.top, 14)
-
-            undatedLine
         }
         /* **The space the grid and the agenda agree in.** It has to be
            out here and not on the pager, because a task lifted out of the
@@ -438,11 +460,11 @@ struct CalendarScreen: View {
         }
     }
 
-    /// `#cal-undated`. Hidden at zero, and it is the one thing the List
-    /// view keeps that Day and Week drop.
+    /// `#cal-undated`. Hidden at zero. The List view keeps it at the foot,
+    /// Day and Week drop it, and Month has it as `UndatedTray` instead.
     @ViewBuilder
     private var undatedLine: some View {
-        if let line = Copy.Calendar.undated(undated) {
+        if let line = Copy.Calendar.undated(undated.count) {
             Text(line)
                 .font(Font.baloo(13))
                 .lineSpacing(13 * 0.55)

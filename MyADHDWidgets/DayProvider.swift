@@ -29,16 +29,24 @@ struct DayProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<SnapEntry>) -> Void) {
         let now = Date()
         let midnight = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 60 * 60)
-        let snapshot = SnapProvider.current()
+        let (snapshot, retry) = SnapProvider.read()
 
         /* Two entries: now, and the moment the date changes. The second is
            what rolls the grid over to a new month at 00:00 without waiting
            for anybody to open the app. Fresh data otherwise arrives by
-           TaskBridge calling reloadAllTimelines(). */
+           TaskBridge calling reloadAllTimelines().
+
+           Unless the read failed. Midnight is the right next wake for a
+           grid that has its data and the wrong one for a grid that could
+           not get it: a phone rebooted at three and unlocked at seven would
+           otherwise show an empty month and an empty done graph until
+           midnight, or until somebody happened to open the app.
+           SnapProvider.read() says how soon to ask again. */
+        let next = retry.map { min(midnight, now.addingTimeInterval($0)) } ?? midnight
         completion(Timeline(
             entries: [SnapEntry(date: now, snapshot: snapshot, isSample: false),
                       SnapEntry(date: midnight, snapshot: snapshot, isSample: false)],
-            policy: .after(midnight)
+            policy: .after(next)
         ))
     }
 }

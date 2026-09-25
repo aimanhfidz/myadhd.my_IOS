@@ -393,9 +393,15 @@ struct WebSide {
     private let names: JSValue
 
     /// The three slices of app.js, by 1-based line number.
+    ///
+    /// Each runs from the opening line of the comment above its code to
+    /// the closing brace. The last two were re-cut for the web's
+    /// 6d797f2, which put a comment over `knownNames` and grew the
+    /// typing preview's; a slice that starts inside a comment is read as
+    /// code and throws.
     static let parserLines = 637...1070
-    static let previewLines = 5018...5057
-    static let namesLines = 5308...5322
+    static let previewLines = 5011...5062
+    static let namesLines = 5306...5327
 
     /// What each slice has to still contain.
     ///

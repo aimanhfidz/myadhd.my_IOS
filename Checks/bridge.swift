@@ -493,6 +493,144 @@ func fingerprint(_ items: [(id: String, fire: Date, title: String, body: String)
         .joined(separator: "\n")
 }
 
+// MARK: - regressions
+
+/* Not old-against-new like everything above: these are the live code held
+   to a rule it once broke, one case per bug, so the bug cannot come back
+   quietly. They run AFTER the comparisons on purpose — the ledger cases
+   rewrite DoneLedger's tally and the zone case moves this process's
+   clock, and neither may leak into a comparison's two sides. */
+enum Regressions {
+
+    static func run() -> (checked: Int, failures: Int) {
+        print("\n=== regressions ===")
+        var checked = 0, failures = 0
+        func expect(_ ok: Bool, _ what: String, _ detail: @autoclosure () -> String = "") {
+            checked += 1
+            if ok {
+                print("  ok    \(what)")
+            } else {
+                failures += 1
+                print("  FAIL  \(what)  \(detail())")
+            }
+        }
+
+        stamp(expect)
+        ledger(expect)
+        day(expect)
+        zone(expect)
+        return (checked, failures)
+    }
+
+    typealias Expect = (Bool, String, @autoclosure () -> String) -> Void
+
+    /* TaskBridge's change stamp used to hash the wire blob, which carries
+       `generated` — the time of the call — so it never matched and every
+       push paid for a keychain write and a reload of every timeline. */
+    static func stamp(_ expect: Expect) {
+        let today = DayKey.of(Date())
+        let store = Synthetic.store(today: today)
+        guard let morning = DayKey.date(today).map({ $0.addingTimeInterval(8 * 3600) }),
+              let a = TaskBridge.packed(from: store, now: morning),
+              let b = TaskBridge.packed(from: store, now: morning.addingTimeInterval(6 * 3600)),
+              let tomorrow = DayKey.date(DayKey.adding(1, to: today))
+                  .map({ $0.addingTimeInterval(8 * 3600) }),
+              let c = TaskBridge.packed(from: store, now: tomorrow)
+        else { return expect(false, "stamp: packed the synthetic store", "packed() returned nil") }
+
+        let sa = TaskBridge.stamp(of: a.snapshot), sb = TaskBridge.stamp(of: b.snapshot)
+        expect(a.snapshot.generated != b.snapshot.generated && sa != nil && sa == sb,
+               "stamp: same list six hours apart, same stamp",
+               "\(sa ?? "nil") vs \(sb ?? "nil")")
+        let again = (0..<12).compactMap { _ in TaskBridge.stamp(of: a.snapshot) }
+        expect(again.count == 12 && Set(again).count == 1,
+               "stamp: stable across twelve encodes of one value",
+               "\(Set(again).count) distinct")
+        expect(TaskBridge.stamp(of: c.snapshot) != sa,
+               "stamp: a new day still changes it", "same stamp on two days")
+    }
+
+    /* DoneLedger: an undone tick stayed counted, and `from` was always six
+       months back whatever the ledger actually knew. */
+    static func ledger(_ expect: Expect) {
+        let key = "myadhd.done.ledger"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+
+        let t = "2027-03-10"
+        let first = DoneLedger.merge([t: 1], today: t)
+        expect(first.from == t && first.values == [1],
+               "ledger: first day starts today, not six months back",
+               "from \(first.from), \(first.values.count) values")
+
+        let undone = DoneLedger.merge([:], today: t)
+        expect(undone.values.last == 0,
+               "ledger: tick then undo leaves today at zero",
+               "today = \(undone.values.last.map(String.init) ?? "nil")")
+
+        let week = DoneLedger.merge([DayKey.adding(-3, to: t): 2], today: t)
+        expect(week.from == DayKey.adding(-3, to: t) && week.values == [2, 0, 0, 0],
+               "ledger: a handed-over week starts where it starts",
+               "from \(week.from), \(week.values)")
+
+        let old = DoneLedger.merge([DayKey.adding(-300, to: t): 5], today: t)
+        expect(old.from == DayKey.adding(-(DoneLedger.span - 1), to: t)
+                   && old.values.count == DoneLedger.span,
+               "ledger: still capped at span",
+               "from \(old.from), \(old.values.count) values")
+    }
+
+    /* The Today Timeline read the snapshot's own `day`, so a snapshot
+       written last night and drawn at 07:00 put yesterday on the band and
+       today under "Tomorrow". */
+    static func day(_ expect: Expect) {
+        let d = "2026-09-23", next = DayKey.adding(1, to: d)
+        let mk = { (id: String, when: String, at: String?) in
+            SnapTask(id: id, title: id, minutes: 30, when: when, at: at, category: "work",
+                     energy: "medium", urgency: 3, importance: nil, firstStep: nil, done: false)
+        }
+        let snap = TaskSnapshot(generated: Date(), day: d,
+                                tasks: [mk("last-night", d, "09:00"),
+                                        mk("this-morning", next, "10:00"),
+                                        mk("this-anytime", next, nil)],
+                                dropped: 0)
+        guard let seven = DayKey.date(next).map({ $0.addingTimeInterval(7 * 3600) }) else {
+            return expect(false, "day: built the clock", "")
+        }
+        let today = snap.effectiveDay(seven)
+        expect(snap.timed(on: today).map(\.id) == ["this-morning"],
+               "day: at 07:00 the band is today's, not the snapshot's",
+               "\(snap.timed(on: today).map(\.id))")
+        expect(snap.tasks(on: DayKey.adding(1, to: today)).isEmpty,
+               "day: today's tasks are not filed under Tomorrow",
+               "\(snap.tasks(on: DayKey.adding(1, to: today)).map(\.id))")
+    }
+
+    /* DayKey.calendar froze the zone the process started in. Moves this
+       process's zone and puts it back; nothing runs after it. */
+    static func zone(_ expect: Expect) {
+        expect(DayKey.calendar.firstWeekday == 1,
+               "zone: DayKey.calendar is Sunday-first, as MonthGrid's letters assume",
+               "firstWeekday \(DayKey.calendar.firstWeekday)")
+
+        let saved = ProcessInfo.processInfo.environment["TZ"]
+        defer {
+            if let saved { setenv("TZ", saved, 1) } else { unsetenv("TZ") }
+            NSTimeZone.resetSystemTimeZone()
+        }
+        // 20:00 UTC on the 24th: already the 25th in Kuala Lumpur, still
+        // the 24th in New York.
+        let instant = Date(timeIntervalSince1970: 1_790_280_000)
+        setenv("TZ", "Asia/Kuala_Lumpur", 1); NSTimeZone.resetSystemTimeZone()
+        let kl = DayKey.of(instant)
+        setenv("TZ", "America/New_York", 1); NSTimeZone.resetSystemTimeZone()
+        let ny = DayKey.of(instant)
+        expect(kl == "2026-09-25" && ny == "2026-09-24",
+               "zone: DayKey follows the device's zone when it changes",
+               "Kuala Lumpur \(kl), New York \(ny)")
+    }
+}
+
 @main
 struct BridgeCheck {
     static func main() {
@@ -630,6 +768,10 @@ struct BridgeCheck {
             }
         }
     }
+
+    let regressions = Regressions.run()
+    checked += regressions.checked
+    failures += regressions.failures
 
     print("\n---")
     print("checked \(checked) comparisons, \(failures) failed")

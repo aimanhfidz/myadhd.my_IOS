@@ -76,9 +76,26 @@ struct SnapTask: Codable, Identifiable, Equatable {
    is scheduled centuries off. The zone is still the device's own. */
 enum DayKey {
 
+    /* The device's zone as it is NOW, not as it was when the process
+       started. `.current` is a copy taken at the moment it is read, so a
+       `static let` built from it froze the zone for the life of the
+       process: fly Kuala Lumpur to London with the app suspended and every
+       day key, every "late" and every reminder's `parts.calendar` stayed
+       seven hours out until iOS happened to kill the process.
+       `.autoupdatingCurrent` is the zone that follows the device, and a
+       calendar holding it answers in whatever zone the phone is in when it
+       is asked — checked by resetting the system zone under a running
+       process: this one moved, the `.current` one did not. That is what
+       lets it stay a `static let` rather than being rebuilt on every call.
+
+       Also why `firstWeekday` is 1 here whatever the region says. A
+       calendar made from an identifier carries the root locale, not the
+       user's, so it is Sunday-first in Malaysia and the UK alike —
+       MonthGrid's Sunday-first letters lean on exactly that, and
+       Checks/bridge.swift holds it there. */
     static let calendar: Calendar = {
         var c = Calendar(identifier: .gregorian)
-        c.timeZone = .current
+        c.timeZone = .autoupdatingCurrent
         return c
     }()
 
@@ -223,20 +240,27 @@ struct TaskSnapshot: Codable, Equatable {
 
     // MARK: what the day is made of
 
-    var tomorrow: String { DayKey.adding(1, to: day) }
-
     /// Dated before the day this snapshot describes, and still open. Kept
     /// by TaskBridge on purpose — late is the one thing that must not fall
     /// off the bottom of a tile.
     var overdue: [SnapTask] { tasks.filter { $0.isOverdue(on: day) } }
 
-    var todayTasks: [SnapTask] { tasks.filter { $0.when == day } }
-    var tomorrowTasks: [SnapTask] { tasks.filter { $0.when == tomorrow } }
+    /* Which day is "today" is the caller's to say, and the answer is
+       effectiveDay(entry.date) — never `day`. These used to be properties
+       read off `day`, which is the day the app last ran rather than the
+       day it is: a snapshot written at 23:00 and drawn at 07:00 by a phone
+       nobody opened overnight put yesterday's meetings on this morning's
+       band and filed this morning's under "Tomorrow". Every other tile
+       already went through effectiveDay; these were the three that did
+       not, and a parameter is what stops a fourth. */
 
-    /// Everything that belongs on today's band: dated today, and nothing
-    /// else. `tasks` also carries tomorrow and whatever is late, and both
-    /// draw at the wrong place on a 24-hour band.
-    var timed: [SnapTask] { tasks.filter { $0.when == day && $0.at != nil } }
+    /// Dated to `day`, done or not.
+    func tasks(on day: String) -> [SnapTask] { tasks.filter { $0.when == day } }
+
+    /// Everything that belongs on that day's band: dated to it, with a
+    /// clock, and nothing else. `tasks` also carries tomorrow and whatever
+    /// is late, and both draw at the wrong place on a 24-hour band.
+    func timed(on day: String) -> [SnapTask] { tasks.filter { $0.when == day && $0.at != nil } }
 
     /// No clock on it. Includes things dated today with no time, which is
     /// what the band means by "N anytime".
@@ -408,7 +432,28 @@ enum TaskStore {
     /// nil means "I could not read it", never "there is nothing". Every
     /// caller treats nil as keep-showing-what-you-had, because the phone
     /// being locked since boot looks exactly like an empty list otherwise.
-    static func read() -> TaskSnapshot? {
+    static func read() -> TaskSnapshot? { try? load().get() }
+
+    /* Why a read came back empty, for the one caller that has to plan
+       around the answer: a widget's timeline provider, which picks when it
+       is next woken. The three have very different half-lives, and one
+       nil for all of them is how a phone rebooted overnight kept a blank
+       tile well into the morning — the provider saw "nothing", took the
+       long schedule, and was not asked again for six hours. */
+    enum Miss: Error {
+        /// The keychain is shut. The item is AfterFirstUnlock and nobody
+        /// has unlocked the phone since it booted. Minutes away, usually.
+        case locked
+        /// No item at all: the app has never written one on this phone.
+        /// Nothing to poll for — TaskBridge's first write reloads every
+        /// timeline itself.
+        case absent
+        /// An item that would not decode, or a keychain error that is
+        /// neither of the above. Might clear, might not.
+        case unreadable
+    }
+
+    static func load() -> Result<TaskSnapshot, Miss> {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -417,9 +462,16 @@ enum TaskStore {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var out: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
-              let blob = out as? Data else { return nil }
-        return decode(blob)
+        switch SecItemCopyMatching(query as CFDictionary, &out) {
+        case errSecSuccess: break
+        case errSecInteractionNotAllowed: return .failure(.locked)
+        case errSecItemNotFound: return .failure(.absent)
+        default: return .failure(.unreadable)
+        }
+        guard let blob = out as? Data, let snapshot = decode(blob) else {
+            return .failure(.unreadable)
+        }
+        return .success(snapshot)
     }
 
     @discardableResult

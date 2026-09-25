@@ -21,7 +21,8 @@
         (app.js:5667-5676) — and pruneBlankNotes() beside them, which is
         the same job for a note the editor never got to close
      4. StoreBridge starts, which pushes the widget snapshot and rebuilds
-        the notification schedule off the bytes just read
+        the notification schedule off the bytes just read — steps 3 and 4
+        only once the migration has actually finished (`wireUp`)
 
    And on every return to the foreground, OpDrain runs BEFORE the bridge
    pushes, so a tick taken on a widget and the snapshot that reflects it
@@ -65,6 +66,9 @@ struct AppShell: View {
 
     @State private var tab: AppTab = .home
     @State private var composerUp = false
+    /// The entrance. True for exactly one launch: this view is made once
+    /// per process, and a return from the background is not a launch.
+    @State private var splashUp = true
     @State private var settingsUp = false
 
     /// The loading screen. Named for what it is rather than for the
@@ -73,6 +77,9 @@ struct AppShell: View {
     @State private var sorting = false
 
     @State private var booted = false
+
+    /// Text from outside that arrived mid-sort — see `takeInbox`.
+    @State private var heldBack: String?
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -91,6 +98,15 @@ struct AppShell: View {
                 MigrationHold(retry: { importer.retry() })
             } else {
                 shell
+            }
+
+            /* Over everything, once per launch — see `SplashScreen`. */
+            if splashUp {
+                SplashScreen {
+                    withAnimation(.easeOut(duration: 0.3)) { splashUp = false }
+                }
+                .transition(.opacity)
+                .zIndex(1)
             }
         }
         .environment(\.theme, themeStore.theme)
@@ -158,12 +174,19 @@ struct AppShell: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: sorting)
-        .sheet(isPresented: $composerUp) {
+        /* A cover and not a sheet, with nothing of its own showing. The
+           composer IS a sheet — scrim, card, slide, drag — ported from the
+           web, and inside a system sheet it was a card in a card: the
+           system's ground showed as a paler band under the home indicator
+           where the composer's own stopped, and its swipe-down closed
+           the composer without going through `cancel()`. */
+        .fullScreenCover(isPresented: $composerUp) {
             Composer(buffer: buffer,
                      store: store,
                      toasts: toasts,
                      isPresented: $composerUp,
                      send: { sortIt() })
+                .presentationBackground(.clear)
         }
         .fullScreenCover(isPresented: $settingsUp) {
             SettingsScreen(store: store,
@@ -173,6 +196,12 @@ struct AppShell: View {
                            accountCard: accountCard,
                            isSignedIn: session.signedIn,
                            meetings: meetings)
+                /* The theme toggle lives on this screen, and a cover does
+                   not re-read the scheme set on the shell behind it: flip
+                   to light in here and the colours went light while the
+                   status bar and the time pickers stayed dark — white
+                   text on a pale ground. */
+                .preferredColorScheme(themeStore.colorScheme)
         }
     }
 
@@ -213,12 +242,39 @@ struct AppShell: View {
         booted = true
 
         /* Before anything is drawn from the store, and before a single
-           byte is written to it: if there is an old shell's localStorage
-           in this container, it is the person's real data and it wins
-           over the empty document AppStore booted with. */
+           byte is written OUT of it: if there is an old shell's
+           localStorage in this container, it is the person's real data and
+           it wins over the empty document AppStore booted with.
+
+           **Everything that writes out waits for the import to finish.**
+           It used to start straight after `run` whether the read had
+           landed or not, and the read can take seconds on its web-view
+           fallback. In that window the bridge pushed the EMPTY document —
+           a blank widget snapshot and every reminder cancelled, both of
+           which CLAUDE.md forbids on a read that has not come back — and
+           a hold that followed left them that way. `.holding` is not an
+           ending, so it wires nothing; `retry()` lands back here through
+           the same closure when the read finally works. */
         if importer.isNeeded(file: StoreFile()) {
-            importer.run(into: store)
+            importer.run(into: store) { phase in
+                if case .holding = phase { return }
+                wireUp()
+            }
+        } else {
+            wireUp()
         }
+
+        takeInbox()
+
+        /* A reminder tapped with the app closed: the tap got here before
+           anything was listening for it. */
+        if let next = NotificationRouter.shared.takePending() { route(to: next) }
+    }
+
+    /// The part of boot that reads what the import left and starts
+    /// everything that writes out of the store. Once per launch.
+    private func wireUp() {
+        guard bridge == nil else { return }
 
         /* app.js:5667-5676. Pruning first, because it decides what is
            still in the store; stamping second, because it only writes to
@@ -238,6 +294,12 @@ struct AppShell: View {
         wire.start()
         bridge = wire
 
+        /* The network, before the sync that asks about it. Nothing ever
+           started it, so `isOnline` was true for ever: an offline edit
+           retried a doomed pass every few seconds, the "path came back"
+           wake never fired, and `OfflineNote` never showed. */
+        Reachability.shared.start()
+
         /* The account, last. `attach()` fills the two hooks AppStore left
            empty — the cloud stamp and the debounced pass — so from here a
            `save()` schedules a sync; `wakeAtLaunch()` is `dirty = true` at
@@ -249,12 +311,6 @@ struct AppShell: View {
         sync.wakeAtLaunch()
         auth = flow
         cloud = sync
-
-        takeInbox()
-
-        /* A reminder tapped with the app closed: the tap got here before
-           anything was listening for it. */
-        if let next = NotificationRouter.shared.takePending() { route(to: next) }
     }
 
     /// Coming back to the front. The drain goes first so that the ticks a
@@ -291,11 +347,45 @@ struct AppShell: View {
 
     // MARK: - Text arriving from somewhere that is not the keyboard
 
-    /// A Shortcut, the share sheet, or a `myadhd://dump?text=` link. The
+    /// A Shortcut, a `myadhd://dump?text=` link, or the share sheet. The
     /// buffer's `deliver` is what asks for focus and clears any spoken
-    /// marker, so this only has to decide whether to open the composer.
+    /// marker, so this only has to decide where the text goes.
+    ///
+    /// **Two drawers, and the second one had been forgotten.** The share
+    /// extension cannot reach `Inbox` — it is another process — so it
+    /// leaves its text in `DumpQueue`, in the keychain. The web-view shell
+    /// drained both (`WebScreen.waiting()`); the Swift rewrite kept only
+    /// the first, so everything shared to my.adhd since sat in the
+    /// keychain and never arrived. One line each, joined, because a line
+    /// is a thought to the sorter and three things shared are three.
+    ///
+    /// **And the text is never dropped on the floor.** With the sheet
+    /// already up it is added to what is being typed there, not written
+    /// behind it into a buffer the sheet overwrites on the way out; with a
+    /// dump still being sorted it waits, because the sort ends by emptying
+    /// the buffer.
     private func takeInbox() {
-        guard let text = Inbox.take(), !text.isEmpty else { return }
+        let parts = [Inbox.take(), DumpQueue.drainedText()]
+            .compactMap { $0 }
+            .filter { !JSText.trim($0).isEmpty }
+        guard !parts.isEmpty else { return }
+        let text = parts.joined(separator: "\n")
+
+        if sorting {
+            heldBack = [heldBack, text].compactMap { $0 }.joined(separator: "\n")
+        } else if composerUp {
+            buffer.arrive(text)
+        } else {
+            buffer.deliver(text)
+            openComposer()
+        }
+    }
+
+    /// Whatever arrived while a dump was being sorted, delivered once the
+    /// sort has finished with the buffer.
+    private func deliverHeldBack() {
+        guard let text = heldBack else { return }
+        heldBack = nil
         buffer.deliver(text)
         openComposer()
     }
@@ -319,7 +409,9 @@ struct AppShell: View {
 
     private func openComposer() {
         guard !sorting else { return }
-        composerUp = true
+        /* Without the system's slide: the composer plays its own, and the
+           two together were a sheet rising inside a sheet that was rising. */
+        withTransaction(Transaction.still) { composerUp = true }
     }
 
     /// `triage()`, app.js:559-634, in the same order and with the same
@@ -355,10 +447,16 @@ struct AppShell: View {
             }
 
             sorting = false
+            defer { deliverHeldBack() }
 
             if sortedOurselves { toasts.show(Copy.Triage.offline) }
 
             guard !tasks.isEmpty else {
+                /* `applyTriage` is what clears the quadrant a matrix `+`
+                   aimed this dump at, and it never runs on this branch —
+                   so the next dump from anywhere would have landed in that
+                   box (AppStore: "Cleared either way"). */
+                store.clearPendingQuadrant()
                 tab = .home
                 toasts.show(Copy.Triage.nothingFound)
                 return

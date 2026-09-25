@@ -14,7 +14,7 @@
    So every rule below is **cut out of `cloud.js` by content** and run, and
    nothing is retyped or paraphrased for comparison.
 
-   Seven sections:
+   Nine sections:
 
    1. **`sigOf`, byte for byte**, over 220 task fixtures — unicode titles,
       emoji that straddle surrogate pairs, quotes and backslashes, control
@@ -57,7 +57,19 @@
    7. **The liveness rule**, which is the one thing here that is NOT a
       port: a transport failure and a 5xx keep the session, and only a 4xx
       from `/auth/v1/token` ends it. auth.js drops it in every one of
-      those cases, which signs somebody out on a train.
+      those cases, which signs somebody out on a train. And a refresh that
+      outlives its session — signed out, or signed in as somebody else,
+      while it was in the air — writes nothing back.
+
+   8. **The pull pages**, against `FakeRest`, a PostgREST that cuts every
+      answer at 1000 rows the way Supabase does: every row of an account
+      past the cut comes down once, a full last page is not taken for the
+      end, and a page that fails in the middle fails the whole pass —
+      nothing from the pages before it is merged and nothing is pushed.
+
+   9. **A tick made while the upsert is in the air** is still owed after
+      that pass, and still goes up once the merge's mute lifts. A `Gate`
+      holds the upsert open so the tick lands inside it on every run.
 
    `Date` is pinned on both sides to one instant, and the native clock is
    injected with the same one. Nothing here touches the network, the
@@ -549,6 +561,11 @@ final class StubProtocol: URLProtocol {
     /// Set to make the request fail the way a tunnel fails it: nothing
     /// arrives, and there is no status to read.
     nonisolated(unsafe) static var failure: URLError?
+    /// Set to answer each request on its own terms — `FakeRest`, which
+    /// pages and remembers. When it is set, `answer` is not read.
+    nonisolated(unsafe) static var responder: ((Call) -> (status: Int, body: String))?
+    /// Set to keep one request in the air until the check lets it go.
+    nonisolated(unsafe) static var gate: Gate?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -572,17 +589,26 @@ final class StubProtocol: URLProtocol {
             body = String(data: data, encoding: .utf8)
         }
 
-        Self.calls.append(Call(method: request.httpMethod ?? "",
-                               url: request.url?.absoluteString ?? "",
-                               headers: request.allHTTPHeaderFields ?? [:],
-                               body: body))
+        let call = Call(method: request.httpMethod ?? "",
+                        url: request.url?.absoluteString ?? "",
+                        headers: request.allHTTPHeaderFields ?? [:],
+                        body: body)
+        Self.calls.append(call)
+
+        /* This is URLSession's own thread, not the main one, so holding
+           it here keeps the request in the air while the check goes on
+           doing things on the main actor. */
+        let gate = Self.gate
+        let held = gate?.claim(call) ?? false
+        if held { gate?.waitForRelease() }
 
         if let failure = Self.failure {
             client?.urlProtocol(self, didFailWithError: failure)
+            if held { gate?.answered() }
             return
         }
 
-        let answer = Self.answer
+        let answer = Self.responder?(call) ?? Self.answer
         let response = HTTPURLResponse(url: request.url!,
                                        statusCode: answer.status,
                                        httpVersion: "HTTP/1.1",
@@ -592,6 +618,7 @@ final class StubProtocol: URLProtocol {
             client?.urlProtocol(self, didLoad: Data(answer.body.utf8))
         }
         client?.urlProtocolDidFinishLoading(self)
+        if held { gate?.answered() }
     }
 
     override func stopLoading() {}
@@ -606,6 +633,157 @@ final class StubProtocol: URLProtocol {
         calls = []
         answer = (status, body)
         self.failure = failure
+        responder = nil
+        gate = nil
+    }
+}
+
+/// One request held in the air. "While the upsert is in the air" and
+/// "after the refresh answered but before it was read" are the whole of
+/// two bugs, and a stub that answers at once can only hope to land in
+/// either window. One-shot: the first request with the method takes it,
+/// and every one after is answered straight away.
+final class Gate: @unchecked Sendable {
+    let method: String
+    private let lock = NSLock()
+    private let release = DispatchSemaphore(value: 0)
+    private let done = DispatchSemaphore(value: 0)
+    private var taken = false
+
+    init(method: String) { self.method = method }
+
+    /// On URLSession's thread: whether this request is the one to hold.
+    func claim(_ call: StubProtocol.Call) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !taken, call.method == method else { return false }
+        taken = true
+        return true
+    }
+
+    var arrived: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return taken
+    }
+
+    /// Timed, so a check that forgets to let go fails instead of hanging.
+    func waitForRelease() { _ = release.wait(timeout: .now() + 10) }
+    func open() { release.signal() }
+    func answered() { done.signal() }
+
+    /// Blocks the calling thread — the main one, on purpose — until the
+    /// held request has been answered in full, and a beat longer, for
+    /// URLSession to finish the task and queue its continuation behind
+    /// whatever the main actor does next.
+    func waitUntilAnswered() {
+        _ = done.wait(timeout: .now() + 10)
+        usleep(100_000)
+    }
+
+    /// Poll from the main actor until the held request has reached the
+    /// stub — the other thread, so a yield alone does not promise it.
+    @MainActor
+    func untilArrived() async -> Bool {
+        for _ in 0..<2_000 where !arrived {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return arrived
+    }
+}
+
+/// A PostgREST that pages and remembers. Rows are kept by id and served
+/// in `id` order, cut at `maxRows` the way Supabase cuts every answer
+/// whatever `limit` asked for — so a pull that does not page reads the
+/// first thousand rows and nothing past them, which is the bug this
+/// stands in for. Upserts land on merge-duplicates, so a second pass
+/// sees what the first one pushed.
+///
+/// Called from URLSession's thread through `StubProtocol.responder`,
+/// and read from the main actor between requests — hence the lock.
+final class FakeRest: @unchecked Sendable {
+
+    struct Stored {
+        var payload: JSONValue
+        var updatedAt: Int
+        var deleted: Bool
+    }
+
+    let maxRows: Int
+    private let lock = NSLock()
+    private var rows: [String: Stored] = [:]
+    /// offset → the status that page answers with instead of rows.
+    private var failing: [Int: Int] = [:]
+    /// Offsets whose page answers 200 with something that is not JSON —
+    /// a captive portal's sign-in page, say.
+    private var garbled: Set<Int> = []
+    private var log: [(method: String, url: String)] = []
+
+    init(maxRows: Int = 1000) { self.maxRows = maxRows }
+
+    func put(_ id: String, _ payload: JSONValue, at updatedAt: Int, deleted: Bool = false) {
+        lock.lock(); defer { lock.unlock() }
+        rows[id] = Stored(payload: payload, updatedAt: updatedAt, deleted: deleted)
+    }
+
+    func fail(offset: Int, status: Int) {
+        lock.lock(); defer { lock.unlock() }
+        failing[offset] = status
+    }
+
+    func garble(offset: Int) {
+        lock.lock(); defer { lock.unlock() }
+        garbled.insert(offset)
+    }
+
+    func row(_ id: String) -> Stored? {
+        lock.lock(); defer { lock.unlock() }
+        return rows[id]
+    }
+
+    var gets: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return log.filter { $0.method == "GET" }.map(\.url)
+    }
+
+    var posts: Int {
+        lock.lock(); defer { lock.unlock() }
+        return log.filter { $0.method == "POST" }.count
+    }
+
+    func answer(_ call: StubProtocol.Call) -> (status: Int, body: String) {
+        lock.lock(); defer { lock.unlock() }
+        log.append((call.method, call.url))
+
+        if call.method == "POST" {
+            let items = (try? JSONValue.parse(call.body ?? ""))?.arrayValue ?? []
+            for item in items {
+                guard let id = item["id"]?.stringValue else { continue }
+                rows[id] = Stored(payload: item["payload"] ?? .object(JSONObject()),
+                                  updatedAt: Supabase.parseTimestamp(item["updated_at"]?.stringValue),
+                                  deleted: item["deleted"]?.isTruthy == true)
+            }
+            return (201, "")
+        }
+
+        let query = URLComponents(string: call.url)?.queryItems ?? []
+        func int(_ name: String) -> Int? {
+            query.first { $0.name == name }?.value.flatMap { Int($0) }
+        }
+        let offset = int("offset") ?? 0
+        if let status = failing[offset] { return (status, "{\"message\":\"a bad minute\"}") }
+        if garbled.contains(offset) { return (200, "<html>sign in to the wifi</html>") }
+
+        let limit = min(int("limit") ?? Int.max, maxRows)
+        let ids = rows.keys.sorted()
+        let page = ids.dropFirst(offset).prefix(limit).map { id -> JSONValue in
+            let r = rows[id]!
+            var o = JSONObject()
+            o.set("id", .string(id))
+            o.set("payload", r.payload)
+            o.set("updated_at", .string(Fixture.postgrest(r.updatedAt)))
+            o.set("deleted", .bool(r.deleted))
+            return .object(o)
+        }
+        return (200, WebJSON.encode(.array(Array(page))))
     }
 }
 
@@ -658,6 +836,8 @@ struct CloudChecks {
         stamping(web, report, now: now)
         mergeAndOutbound(web, report, now: now)
         await wire(web, report, now: now)
+        await paging(report, now: now)
+        await inTheAir(report, now: now)
         await liveness(report, now: now)
         instants(web, report)
 
@@ -1089,7 +1269,10 @@ struct CloudChecks {
         }
         report.equal("pull: method", call.method, "GET")
         report.equal("pull: url", call.url,
-                     base + "/rest/v1/tasks?select=id,payload,updated_at,deleted")
+                     base + "/rest/v1/tasks?select=id,payload,updated_at,deleted"
+                         + "&order=id.asc&limit=\(Supabase.pageSize)&offset=0")
+        report.true("pull: an empty answer is one request, not a second for the next page",
+                    StubProtocol.calls.count == 1)
         report.equal("pull: apikey", call.headers["apikey"] ?? "", Supabase.anonKey)
         report.equal("pull: bearer", call.headers["Authorization"] ?? "", "Bearer jwt-for-the-stub")
         report.equal("pull: content type", call.headers["Content-Type"] ?? "", "application/json")
@@ -1172,6 +1355,210 @@ struct CloudChecks {
         signedOut.clean()
     }
 
+    // MARK: 8 — the pull pages
+
+    /// PostgREST cuts every answer at the project's max-rows — 1000 on
+    /// Supabase — and says nothing about it. Tombstones are never
+    /// hard-deleted, so an account gets there in months, and a pull that
+    /// takes the first thousand rows for the whole account pushes stale
+    /// copies over the rows past the cut, never applies the tombstones
+    /// there, and never sees the other phone's new tasks that sort after
+    /// it. `FakeRest` cuts the same way, so the one-request pull fails
+    /// every case below.
+    @MainActor
+    static func paging(_ report: Report, now: Date) async {
+        report.open("8. the pull pages, and a page that fails fails the pass")
+
+        let http = StubProtocol.session()
+        let nowMS = Int(now.timeIntervalSince1970 * 1000)
+        let T = nowMS - 100_000
+        let LATER = nowMS - 50_000
+        let size = Supabase.pageSize
+
+        report.true("a page fits under Supabase's default max-rows of 1000", size > 0 && size < 1000)
+
+        /// Zero-padded, so id order is number order on both sides.
+        func id(_ i: Int) -> String { "t_" + String(format: "%04d", i) }
+        func task(_ i: Int, _ title: String? = nil, at: Int? = nil) -> TaskItem {
+            Fixture.task(id: id(i), title: title ?? "task \(i)", updatedAt: at ?? T)
+        }
+        func server(_ count: Int) -> FakeRest {
+            let fake = FakeRest()
+            for i in 0..<count { fake.put(id(i), task(i).json, at: T) }
+            StubProtocol.reset()
+            StubProtocol.responder = { fake.answer($0) }
+            return fake
+        }
+        func offsets(_ fake: FakeRest) -> String {
+            fake.gets.map { url in
+                URLComponents(string: url)?.queryItems?.first { $0.name == "offset" }?.value ?? "none"
+            }.joined(separator: ",")
+        }
+        func pulled(_ api: Supabase) async -> (rows: [Supabase.Row], caught: String) {
+            do { return (try await api.pull(), "nothing") }
+            catch let e as SyncError { return ([], e.message) }
+            catch { return ([], "\(error)") }
+        }
+
+        let n = NativeCloud(now: now, http: http)
+        let api = Supabase(session: n.session, http: http)
+
+        // ---- more rows than one page, and more than the server sends at once
+        var fake = server(1234)
+        var got = await pulled(api)
+        report.equal("1234 rows: every one comes down", String(got.rows.count), "1234")
+        report.true("1234 rows: once each, in id order", got.rows.map(\.id) == (0..<1234).map(id))
+        report.equal("1234 rows: a page at a time", offsets(fake), "0,\(size),\(2 * size)")
+        report.true("every page is ordered by id, and none of them filters on user_id",
+                    fake.gets.allSatisfy { $0.contains("order=id.asc") && !$0.contains("user_id") })
+
+        // ---- a full last page is not the end
+        fake = server(2 * size)
+        got = await pulled(api)
+        report.equal("exactly two pages of rows: all of them", String(got.rows.count), String(2 * size))
+        report.equal("exactly two pages of rows: a third request finds the end",
+                     offsets(fake), "0,\(size),\(2 * size)")
+
+        // ---- a page in the middle fails
+        fake = server(1234)
+        fake.fail(offset: size, status: 503)
+        got = await pulled(api)
+        report.equal("a failed middle page throws, rather than hand back the page before it",
+                     got.caught, "the server answered 503")
+        report.equal("and nothing is asked after it", offsets(fake), "0,\(size)")
+
+        fake = server(1234)
+        fake.garble(offset: size)
+        got = await pulled(api)
+        report.equal("a middle page that is not JSON throws too", got.caught, "could not reach the server")
+        n.clean()
+
+        // ---- a whole pass, on an account past the cut
+        /* 1200 rows, every one already on this phone and settled. Past the
+           first thousand, one was edited on the other phone since and one
+           was deleted there. */
+        let settled = (0..<1200).map { task($0) }
+        let settledBook = Fixture.book(sigs: settled.map { ($0.id, CloudBook.sigOf($0)) })
+
+        fake = server(1200)
+        fake.put(id(1100), task(1100, "edited on the other phone", at: LATER).json, at: LATER)
+        fake.put(id(1150), .object(JSONObject()), at: LATER, deleted: true)
+        let whole = NativeCloud(now: now, http: http)
+        whole.seed(list: Fixture.list(settled), book: settledBook)
+        await whole.sync.run()
+        let after = whole.store.doc.tasks
+        report.equal("a pass over 1200 rows ends idle", whole.sync.error ?? whole.sync.phase.rawValue, "idle")
+        report.equal("an edit past the first thousand rows comes down",
+                     after.first { $0.id == id(1100) }?.title ?? "<missing>", "edited on the other phone")
+        report.true("a tombstone past the first thousand rows is applied",
+                    !after.contains { $0.id == id(1150) })
+        report.equal("nothing goes up: no row past the cut is taken for missing", String(fake.posts), "0")
+        report.equal("the deleted task stays deleted on the server",
+                     fake.row(id(1150))?.deleted == true ? "deleted" : "alive", "deleted")
+        report.equal("newestSeen is the newest row on the account, so the next probe agrees",
+                     String(whole.sync.newestSeen), String(LATER))
+        whole.clean()
+
+        // ---- the same pass, with a page failing in the middle
+        /* An edit on page one as well this time. It arrived; it must not
+           be merged, because the pages after it never did — and a partial
+           set taken for the whole account is the bug all over again. */
+        fake = server(1200)
+        fake.put(id(100), task(100, "edited on the other phone", at: LATER).json, at: LATER)
+        fake.put(id(1100), task(1100, "edited on the other phone", at: LATER).json, at: LATER)
+        fake.fail(offset: size, status: 503)
+        let broken = NativeCloud(now: now, http: http)
+        broken.seed(list: Fixture.list(settled), book: settledBook)
+        let before = broken.listJSON
+        await broken.sync.run()
+        report.equal("a pass whose middle page fails puts the error on the card",
+                     broken.sync.error ?? "none", "the server answered 503")
+        report.true("and merges nothing, not even the page that did arrive", broken.listJSON == before)
+        report.equal("and pushes nothing", String(fake.posts), "0")
+        report.true("and still owes whatever it owed", broken.sync.dirty)
+        broken.clean()
+
+        StubProtocol.reset()
+    }
+
+    // MARK: 9 — an edit made while the upsert is in the air
+
+    /// The pass used to clear `dirty` once its upsert came back, over a
+    /// tick made while that upsert was in the air — and the rerun the tick
+    /// booked was then dropped by the mute the merge had just armed. The
+    /// poll found nothing owed and a probe that matched, so the tick sat
+    /// on this phone until the next save. `Gate` holds the upsert open, so
+    /// the tick lands inside it every run rather than when timing allows.
+    @MainActor
+    static func inTheAir(_ report: Report, now: Date) async {
+        report.open("9. a tick made while the upsert is in the air still goes up")
+
+        let http = StubProtocol.session()
+        let nowMS = Int(now.timeIntervalSince1970 * 1000)
+        let T = nowMS - 100_000
+        let LATER = nowMS - 50_000
+
+        let n = NativeCloud(now: now, http: http)
+        /* The two hooks `save()` calls, and not `attach()`: that starts
+           the poll too, which would run passes of its own in the middle
+           of this one's timing. */
+        let sync = n.sync
+        n.store.stampForCloud = { sync.stamp() }
+        n.store.scheduleCloudSync = { sync.soon() }
+        defer {
+            sync.detach()
+            n.store.stampForCloud = nil
+            n.store.scheduleCloudSync = nil
+            StubProtocol.reset()
+            n.clean()
+        }
+
+        /* Something to push (a task the server has never had) and
+           something to merge (one from the other phone), so the pass both
+           upserts and arms the mute — the two halves of the bug. */
+        let mine = Fixture.task(id: "t_tick", title: "tick me", updatedAt: T)
+        n.seed(list: Fixture.list([mine]), book: Fixture.book(sigs: [("t_tick", CloudBook.sigOf(mine))]))
+        let fake = FakeRest()
+        fake.put("t_other",
+                 Fixture.task(id: "t_other", title: "from the other phone", updatedAt: LATER).json,
+                 at: LATER)
+        StubProtocol.reset()
+        StubProtocol.responder = { fake.answer($0) }
+        let gate = Gate(method: "POST")
+        StubProtocol.gate = gate
+
+        let pass = Task { @MainActor in await sync.run() }
+        guard await gate.untilArrived() else {
+            gate.open()
+            await pass.value
+            report.equal("the upsert went out and was held", "never", "held")
+            return
+        }
+
+        // The upsert is in the air. The task gets ticked.
+        n.store.markDone("t_tick")
+        gate.open()
+        await pass.value
+
+        func tickedOnServer() -> Bool { fake.row("t_tick")?.payload["done"]?.isTruthy == true }
+
+        report.true("the upsert that was in the air went without the tick",
+                    fake.row("t_tick") != nil && !tickedOnServer())
+        report.true("so the pass leaves it owed, instead of clearing dirty over it", sync.dirty)
+
+        /* The mute lifts after a quarter of a second and the debounce
+           runs a second and a half after that. Waited for, not slept
+           through, so a slow machine is slower and not red. */
+        var landed = false
+        for _ in 0..<160 {
+            if tickedOnServer() && !sync.dirty { landed = true; break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        report.true("and it reaches the server once the merge's mute has lifted", landed)
+        report.equal("in exactly one more upsert", String(fake.posts), "2")
+        report.equal("and that pass ends idle", sync.error ?? sync.phase.rawValue, "idle")
+    }
+
 
     // MARK: 7 — the liveness rule
 
@@ -1191,7 +1578,7 @@ struct CloudChecks {
         let http = StubProtocol.session()
         let nowMS = Int(now.timeIntervalSince1970 * 1000)
 
-        func expiredSession(refresh: String? = "r1") -> Session {
+        func expiredRecord(refresh: String? = "r1") -> Data {
             var record = JSONObject()
             record.set("access_token", .string("stale"))
             record.set("refresh_token", refresh.map { .string($0) } ?? .null)
@@ -1199,8 +1586,12 @@ struct CloudChecks {
             record.set("user", .object(JSONObject([
                 ("id", .string("u1")), ("email", .string("someone@example.com")), ("name", .null),
             ])))
-            return Session(store: MemorySessionStore(Data(WebJSON.encode(.object(record)).utf8)),
-                           http: http, clock: { now })
+            return Data(WebJSON.encode(.object(record)).utf8)
+        }
+
+        func expiredSession(refresh: String? = "r1", in store: MemorySessionStore? = nil) -> Session {
+            Session(store: store ?? MemorySessionStore(expiredRecord(refresh: refresh)),
+                    http: http, clock: { now })
         }
 
         func attempt(_ s: Session) async -> SessionError? {
@@ -1298,6 +1689,56 @@ struct CloudChecks {
         report.equal("two callers, one refresh", String(StubProtocol.calls.count), "1")
         report.equal("and both get the same token",
                      (pair.0 ?? "a") + "/" + (pair.1 ?? "b"), "once/once")
+
+        // ---- a refresh that outlives the session it was for
+        /* Signed out after the answer had already arrived but before the
+           refresh read it. It used to write the new tokens back with no
+           account on them — `signedIn` true, `user` nil, in the keychain,
+           across launches. The main actor is held while the answer lands,
+           so the sign-out always gets in first. */
+        StubProtocol.reset(status: 200,
+                           body: "{\"access_token\":\"too-late\",\"refresh_token\":\"r2\",\"expires_in\":3600}")
+        var gate = Gate(method: "POST")
+        StubProtocol.gate = gate
+        let keychain = MemorySessionStore(expiredRecord())
+        let leaving = expiredSession(in: keychain)
+        let late = Task { @MainActor in await attempt(leaving) }
+        if await gate.untilArrived() {
+            gate.open()
+            gate.waitUntilAnswered()
+            leaving.clear()
+            why = await late.value
+            report.true("signed out after the refresh answered: still signed out", !leaving.signedIn)
+            report.true("and nothing is written back to the keychain", keychain.data == nil)
+            report.true("and its caller is told it is signed out", why?.isSignedOut == true)
+        } else {
+            gate.open()
+            _ = await late.value
+            report.equal("the refresh went out and was held", "never", "held")
+        }
+
+        /* Signed in again — a new session — while the old one's refresh
+           was in the air. Its answer is for an account that is no longer
+           the one on the device, and must not overwrite the one that is. */
+        StubProtocol.reset(status: 200,
+                           body: "{\"access_token\":\"old-account\",\"refresh_token\":\"r2\",\"expires_in\":3600}")
+        gate = Gate(method: "POST")
+        StubProtocol.gate = gate
+        let replaced = expiredSession()
+        let stale = Task { @MainActor in await attempt(replaced) }
+        if await gate.untilArrived() {
+            replaced.begin(accessToken: "new-account", refreshToken: "rB", expiresIn: 3600)
+            gate.open()
+            why = await stale.value
+            report.equal("signed in again mid-refresh: the new session stands",
+                         replaced.record?.accessToken ?? "none", "new-account")
+            report.true("and the old refresh's caller is told it is signed out", why?.isSignedOut == true)
+        } else {
+            gate.open()
+            _ = await stale.value
+            report.equal("the refresh went out and was held", "never", "held")
+        }
+        StubProtocol.reset()
 
         report.note("auth.js:159-165 drops the session in every case above. "
                     + "An offline-first app must not: that is a sign-out on a train.")

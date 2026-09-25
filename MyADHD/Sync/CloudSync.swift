@@ -102,7 +102,8 @@ final class CloudSync {
     /// here the repaint is SwiftUI's and happens after this turn, so the
     /// window is a short wall-clock one. It suppresses only the automatic
     /// debounce — never `now()`, and never the stamping that decides what
-    /// is owed.
+    /// is owed — and it only delays that: whatever is still owed when it
+    /// lifts is booked then (`mute()`).
     static let muteAfterMerge: TimeInterval = 0.25
 
     // MARK: - What the card reads
@@ -130,6 +131,13 @@ final class CloudSync {
     /// app that has just launched cannot know — a task edited offline
     /// yesterday is still owed a push (cloud.js:144).
     private(set) var dirty = true
+
+    /// Moves on every local change that makes something owed. A pass
+    /// reads it just before it works out what to send, and clears `dirty`
+    /// afterwards only if it has not moved since — a task ticked while the
+    /// upsert is in the air is not in that upsert, and a `dirty = false`
+    /// written when it comes back would say it was.
+    @ObservationIgnored private var generation = 0
 
     private var lastPullAt = 0
 
@@ -212,8 +220,16 @@ final class CloudSync {
     /// hash per task with no network.
     func stamp() {
         guard stampMoving() else { return }
-        dirty = true
+        markDirty()
         book.write(to: bookURL)
+    }
+
+    /// The only way anything becomes owed. Never set `dirty` on its own:
+    /// a pass in flight could not tell that change from the ones it is
+    /// already carrying.
+    private func markDirty() {
+        dirty = true
+        generation &+= 1
     }
 
     /// The half that touches the document, without the persisting. The
@@ -351,7 +367,7 @@ final class CloudSync {
 
             if stampMoving() {
                 store.persistOnly()
-                dirty = true
+                markDirty()
                 book.write(to: bookURL)
             }
 
@@ -376,6 +392,10 @@ final class CloudSync {
                 book.write(to: bookURL)
             }
 
+            /* Taken in the same turn as `outbound` reads the list, so every
+               change up to here is in `out` and every change after it is
+               not. */
+            let sending = generation
             let out = outbound(rows, userID: user.id)
             if !out.isEmpty {
                 try await api.upsert(out)
@@ -386,8 +406,12 @@ final class CloudSync {
                 for r in out { newestSeen = max(newestSeen, r.updatedAt) }
             }
 
-            // Everything owed is now sent.
-            dirty = false
+            /* Everything owed is now sent — unless something was saved
+               while the upsert was in the air. That change is not in
+               `out`, and clearing `dirty` over it would leave the poll
+               with nothing owed and a probe that matches our own write,
+               so it would sit here until the next save. */
+            if generation == sending { dirty = false }
             lastPullAt = nowMS
             setPhase(.idle)
 
@@ -417,8 +441,16 @@ final class CloudSync {
         muteTask?.cancel()
         muteTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.muteAfterMerge * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            self?.muted = false
+            guard !Task.isCancelled, let self else { return }
+            self.muted = false
+
+            /* The window cannot tell a repaint's save from a real one, so
+               it swallows both — including the `again` a tick made while
+               the upsert was in the air, since that pass armed this. A
+               repaint's save moves no signature and leaves nothing owed;
+               a real change does. So whatever is still owed as the window
+               closes is booked now, and a repaint's never is. */
+            if self.dirty { self.soon() }
         }
     }
 
@@ -550,7 +582,7 @@ final class CloudSync {
         book = CloudBook(user: .string(userID))
         book.reseal(store.doc.tasks)
         book.write(to: bookURL)
-        dirty = true
+        markDirty()
     }
 
     /// Only for `Checks/cloud.sh`, which drives the merge and the

@@ -145,10 +145,21 @@ private struct NotePicturePicker: ViewModifier {
             kept.append(NoteFile(id: Normalize.newFileID(), src: src))
         }
 
+        /* `room` was counted before the loads, which can take seconds for
+           a picture still in iCloud — and the picker can be opened again
+           and used meanwhile. So the cap is applied again at the moment of
+           writing, against the note as it is now; otherwise two batches
+           could both fit "the room" and the note would hold six, cut back
+           to three without a word on the next launch. */
+        var dropped = items.count > room
         if !kept.isEmpty {
-            store.editNote(note.id) { $0.files.append(contentsOf: kept) }
+            store.editNote(note.id) { n in
+                let space = max(0, NoteItem.fileMax - n.files.count)
+                if kept.count > space { dropped = true }
+                n.files.append(contentsOf: kept.prefix(space))
+            }
         }
-        if items.count > room {
+        if dropped {
             toasts.show(Copy.Note.Pictures.full(NoteItem.fileMax))
         }
     }

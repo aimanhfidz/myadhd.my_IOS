@@ -47,20 +47,51 @@ enum DoneLedger {
     static func merge(_ fresh: [String: Int], today: String) -> (from: String, values: [Int]) {
         var stored = (UserDefaults.standard.dictionary(forKey: key) as? [String: Int]) ?? [:]
 
-        for (day, n) in fresh {
-            stored[day] = day == today ? n : max(stored[day] ?? 0, n)
+        for (day, n) in fresh where day != today {
+            stored[day] = max(stored[day] ?? 0, n)
         }
+
+        /* Today is overwritten whether or not `fresh` mentions it. It used
+           to be overwritten only when it did — and `fresh` only has an
+           entry for a day with something done on it, so ticking one thing
+           off and undoing it left today at 1 for good: the undo emptied
+           the store's count and the ledger never heard about it, and the
+           square, the streak and "this week" all kept the tick. Absent
+           means nothing done today, and that is a number: zero.
+
+           It is also, as a side effect worth having, what marks the first
+           day the ledger ran — see `from` below. */
+        stored[today] = fresh[today] ?? 0
 
         let floor = DayKey.adding(-keep, to: today)
         stored = stored.filter { $0.key >= floor && $0.key <= today }
         UserDefaults.standard.set(stored, forKey: key)
 
-        /* An anchored array rather than the dictionary itself: measured,
+        /* From the first day there is anything to say about, not from half
+           a year ago regardless. This used to hand back `today - 181`
+           every time, so DoneGraph — which sizes itself to the history it
+           is given and says "Since <date>" underneath precisely so that it
+           never draws months nobody was counting — always got six months,
+           always drew eighteen weeks, and always claimed to have been
+           counting since the spring, a week after it shipped.
+
+           The earliest key the ledger holds is the honest start: the first
+           day it ran (today is always written, above), or earlier when the
+           store handed over a week of done tasks or the page's own pruned
+           counts on that first run. Capped at `span` as before. `from` is
+           counted back from today rather than taken from the key itself,
+           so the array always ends on today whatever that key looks like —
+           TaskBridge.shrink and TaskSnapshot.completed(on:) both rely on
+           the last value being today's.
+
+           An anchored array rather than the dictionary itself: measured,
            the same information costs about a quarter as much once zlib has
            had it, because a run of zeros compresses to nothing and a
            thousand near-identical date strings do not. */
-        let from = DayKey.adding(-(span - 1), to: today)
-        let values = (0..<span).map { stored[DayKey.adding($0, to: from)] ?? 0 }
+        let reach = stored.keys.min().flatMap { DayKey.between($0, today) } ?? 0
+        let count = min(span, max(0, reach) + 1)
+        let from = DayKey.adding(-(count - 1), to: today)
+        let values = (0..<count).map { stored[DayKey.adding($0, to: from)] ?? 0 }
         return (from, values)
     }
 }

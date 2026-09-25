@@ -65,6 +65,13 @@ enum Copy {
         static let notes = "Notes"        // BridgeScript.swift:146
     }
 
+    /// The wordmark, in its two colours: "my" in ink and ".adhd" in the
+    /// accent. `SplashScreen` sets them side by side.
+    enum Brand {
+        static let my = "my"            // app.html:203 `.wordmark`
+        static let adhd = ".adhd"       // app.html:203 `.wordmark .accent`
+    }
+
     // MARK: - Theme toggle (app.html:216; theme.js paint)
 
     enum Theme {
@@ -1045,9 +1052,8 @@ enum Copy {
         static let outTitle = "Just this device"       // app.html:718, app.js:3610
         static let outState = "Not signed in"          // app.html:719, app.js:3611
         static let outNote =
-            "Your lists live in this browser alone, so your phone and your laptop "
-            + "each keep a separate one. Sign in and they become the same list — and "
-            + "the calendar link stops asking you to reconnect."   // app.js:3613-3615
+            "Your lists stay on this device. Sign in and your phone and laptop "
+            + "share one list, with the calendar still connected."   // app.js:3613-3614
         static let signIn = "Sign in with Google"      // app.html:723, app.js:3616
         /// The button while Safari is opening — the same words the signup
         /// offer writes (app.js:5559).

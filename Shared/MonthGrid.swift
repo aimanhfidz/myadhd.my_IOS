@@ -40,7 +40,14 @@ struct MonthGrid: View {
 
     private var today: String { DayKey.of(now) }
 
-    /// Sunday-first, which is what app.js's DAY_NAMES assumes.
+    /// Sunday-first, which is what app.js's DAY_NAMES assumes. These are
+    /// written out while `cells` below offsets by `calendar.firstWeekday`,
+    /// and the two agree only because that is 1: DayKey.calendar is made
+    /// from an identifier, so it has the root locale rather than the
+    /// region's and stays Sunday-first in Malaysia and the UK — where
+    /// Calendar.current would say Monday and put every date one column
+    /// off. Checks/bridge.swift holds it at 1. Swap the calendar here for
+    /// one with a locale and these letters have to rotate with it.
     private var weekdayInitials: [String] { ["S", "M", "T", "W", "T", "F", "S"] }
 
     private var monthStart: Date {

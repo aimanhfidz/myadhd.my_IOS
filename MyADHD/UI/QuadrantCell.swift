@@ -241,11 +241,6 @@ struct QuadrantTaskRow: View {
     let toasts: ToastCenter
     let drag: MatrixDrag
 
-    /// One touch, one press. Without it a move past the slop would drop
-    /// the press and the very next callback would start a fresh one,
-    /// which is a hold that can never be called off.
-    @State private var gestureLive = false
-
     private var lifted: Bool { drag.isLifted(task.id) }
     private var pressed: Bool { drag.isPressed(task.id) }
 
@@ -274,11 +269,15 @@ struct QuadrantTaskRow: View {
                 .foregroundStyle(theme.ink)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
                 /* The hold is bound here and not on the whole row, because
                    `watchPress` returns on `.task-check`: ticking off is not
                    dragging (app.js:2748). */
-                .simultaneousGesture(hold)
+                .holdToLift(in: MatrixDrag.space,
+                            press: { drag.touchDown(task.id) },
+                            lift: { drag.raise(task, at: $0) },
+                            move: { drag.moved(to: $0) },
+                            end: land,
+                            cancel: { drag.abandon(task.id) })
         }
         .padding(.vertical, 5)
         .padding(.leading, 1)
@@ -298,26 +297,11 @@ struct QuadrantTaskRow: View {
 
     // MARK: hold, then drag
 
-    private var hold: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named(MatrixDrag.space))
-            .onChanged { value in
-                if !gestureLive {
-                    gestureLive = true
-                    drag.press(task, at: value.startLocation)
-                }
-                drag.moved(to: value.location)
-            }
-            .onEnded { _ in
-                gestureLive = false
-                land()
-            }
-    }
-
     /// `endDrag(true)`. A drop that never lifted, or that came down over
     /// nothing, is nothing; a drop onto the quadrant the task already
     /// resolves to is refused by the store and says nothing either.
     private func land() {
-        guard let to = drag.release() else { return }
+        guard let to = drag.release(task.id) else { return }
         guard store.moveToQuadrant(task.id, to: to) else { return }
         toasts.show(Copy.Quadrants.movedTo(label: Copy.Quadrants.label(to)))
     }

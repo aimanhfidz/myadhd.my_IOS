@@ -65,7 +65,11 @@ final class MonthDrag {
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var origin: CGPoint = .zero
     @ObservationIgnored private var held: String?
-    @ObservationIgnored private var dragging = false
+    /// Observed, unlike the three above. The calendar's scroller stands
+    /// still on `isDragging`, and with this ignored nothing told it the
+    /// scrub was over: after a drag across the days the page would not
+    /// scroll again until something else happened to redraw it.
+    private var dragging = false
 
     /// Where each day cell is, in `space`. Written by the cells during
     /// layout — see the file header for why it is not observed.
@@ -204,6 +208,14 @@ struct MonthFramesKey: PreferenceKey {
 /// moving a task to a day is the whole of what it can do, the day it lands
 /// on is the day you dropped it on, and there is an Undo on the toast.
 /// Nothing else about a task is reachable from here.
+///
+/// **One task gets a time as well: one that had no day at all**, carried
+/// up from the undated tray under the grid. It lands at `undatedAt`, 8am,
+/// so a thing that was waiting on the lists turns up at the start of the
+/// day it was given instead of floating in it. A task that already had a
+/// day keeps whatever clock it had, or none — `AppStore.moveToDay`.
+///
+/// Both kinds are carried by `HoldLiftGesture`.
 @MainActor
 @Observable
 final class MonthTaskDrag {
@@ -213,6 +225,9 @@ final class MonthTaskDrag {
     static let space = MonthDrag.space
     static let lift: TimeInterval = MatrixDrag.lift
     static let slop: CGFloat = MatrixDrag.slop
+
+    /// The clock an undated task is given when it is dropped on a day.
+    static let undatedAt = "08:00"
 
     struct Airborne: Equatable {
         var id: String
@@ -225,10 +240,6 @@ final class MonthTaskDrag {
     /// The day cell under the finger, which wears the ring.
     private(set) var over: String?
 
-    @ObservationIgnored private var timer: Task<Void, Never>?
-    @ObservationIgnored private var origin: CGPoint = .zero
-    @ObservationIgnored private var held: (id: String, label: String)?
-
     @ObservationIgnored var frames: [String: CGRect] = [:]
 
     init() {}
@@ -238,58 +249,50 @@ final class MonthTaskDrag {
     var isDragging: Bool { airborne != nil }
     func isOver(_ key: String) -> Bool { airborne != nil && over == key }
 
-    func press(_ task: TaskItem, at point: CGPoint) {
+    /// The hold's timing is `HoldLiftGesture`'s, as it is for the matrix —
+    /// see `MatrixDrag`'s header for why it moved out of here.
+    func touchDown(_ id: String) {
         guard pressed == nil, airborne == nil else { return }
-        pressed = task.id
-        origin = point
-        held = (task.id, MatrixDrag.ghostLabel(task))
-        timer = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.lift * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            self?.raise()
-        }
+        pressed = id
+    }
+
+    func raise(_ task: TaskItem, at point: CGPoint) {
+        guard airborne == nil else { return }
+        pressed = nil
+        airborne = Airborne(id: task.id, label: MatrixDrag.ghostLabel(task), point: point)
+        over = cell(at: point)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     func moved(to point: CGPoint) {
-        if airborne != nil {
-            airborne?.point = point
-            over = cell(at: point)
-            return
-        }
-        guard pressed != nil else { return }
-        if hypot(point.x - origin.x, point.y - origin.y) > Self.slop { dropPress() }
+        guard airborne != nil else { return }
+        airborne?.point = point
+        over = cell(at: point)
     }
 
-    func dropPress() {
-        timer?.cancel()
-        timer = nil
-        pressed = nil
-        held = nil
+    /// This task only — see `MatrixDrag.abandon`.
+    func abandon(_ id: String) {
+        if pressed == id { pressed = nil }
+        if airborne?.id == id {
+            airborne = nil
+            over = nil
+        }
     }
 
     /// The day it came down on, or nil — which covers both "it never
-    /// lifted" and "it came down over no cell at all".
-    func release() -> String? {
-        let landed = airborne != nil ? over : nil
+    /// lifted" and "it came down over no cell at all". Only for the task
+    /// that is actually in the air: see `MatrixDrag.release`.
+    func release(_ id: String) -> String? {
+        guard airborne?.id == id else { abandon(id); return nil }
+        let landed = over
         cancel()
         return landed
     }
 
     func cancel() {
-        timer?.cancel()
-        timer = nil
         pressed = nil
-        held = nil
         airborne = nil
         over = nil
-    }
-
-    private func raise() {
-        guard let held, pressed == held.id else { return }
-        pressed = nil
-        airborne = Airborne(id: held.id, label: held.label, point: origin)
-        over = cell(at: origin)
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     private func cell(at point: CGPoint) -> String? {

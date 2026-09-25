@@ -155,53 +155,6 @@ struct HomeHeader: View {
     }
 }
 
-/// `#logo-mark`: a four-ray asterisk in Vivid Orange with one short ray,
-/// and the capsule's stroke in violet. Four rectangles and a line, at the
-/// coordinates app.html:171-179 gives them in a 100-unit box.
-///
-/// **Nothing draws this any more.** It came out of the header when the
-/// screen's own name took that place. It is the mark, written down once in
-/// SwiftUI, and it is kept for the next thing that needs it — not dead code
-/// somebody forgot.
-struct LogoMark: View {
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        GeometryReader { geo in
-            let s = min(geo.size.width, geo.size.height) / 100
-            ZStack {
-                ray(64, angle: 0, s: s)
-                ray(64, angle: 90, s: s)
-                ray(64, angle: 45, s: s)
-                /* the short one: half the length, and it is what stops the
-                   mark reading as a snowflake */
-                ray(32, angle: -45, s: s)
-
-                Path { p in
-                    p.move(to: CGPoint(x: 64.5 * s, y: 64.5 * s))
-                    p.addLine(to: CGPoint(x: 71.5 * s, y: 71.5 * s))
-                }
-                .stroke(theme.violet, style: StrokeStyle(lineWidth: 7 * s, lineCap: .round))
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-        }
-    }
-
-    /// `<rect x="46.5" y="18" width="7" height="h" transform="rotate(a 50 50)">`
-    ///
-    /// `position` places the bar's own centre in the 100-unit box; the
-    /// rotation is then about the centre of the box itself, which is the
-    /// 50,50 the SVG rotates about.
-    private func ray(_ height: CGFloat, angle: Double, s: CGFloat) -> some View {
-        Rectangle()
-            .fill(theme.orange)
-            .frame(width: 7 * s, height: height * s)
-            .position(x: 50 * s, y: (18 + height / 2) * s)
-            .rotationEffect(.degrees(angle), anchor: .center)
-    }
-}
-
 // MARK: - the cold start
 
 /// app.html:241-254. The meme, the question, the promise, one button.

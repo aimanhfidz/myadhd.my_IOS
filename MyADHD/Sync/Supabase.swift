@@ -15,6 +15,15 @@
      ends up quietly reading nothing when the column name or the policy
      moves under it — and it always sends `user_id` on the way UP, where
      it is required (inventory §2.6).
+   - **The pull is paged, and one failed page fails all of it.**
+     PostgREST cuts every answer at the project's max-rows — 1000 on
+     Supabase — and says nothing, and tombstones are never hard-deleted,
+     so an account gets past that in months. A pull that takes the first
+     thousand rows for the whole account reads every row past the cut as
+     missing: the pass pushes stale copies over the other phones' edits,
+     never applies the tombstones there, and never sees their new tasks.
+     This is a divergence: cloud.js:384 is still one request, and has
+     the same bug.
    - The upsert body is an **array**, `on_conflict=id,user_id` names the
      composite key, and `Prefer: resolution=merge-duplicates,return=minimal`
      is what turns a conflict into an update instead of a 409 and stops
@@ -122,6 +131,13 @@ struct Supabase {
 
     private static let log = Logger(subsystem: "my.adhd", category: "cloud")
 
+    /// Rows per page of the pull. Half of Supabase's default max-rows
+    /// (1000), and it has to stay under whatever that setting is: the
+    /// server trims a larger `limit` down to it without a word, the page
+    /// comes back short, and a short page is how the pull knows it has
+    /// reached the end.
+    static let pageSize = 500
+
     // MARK: - A row
 
     /// `select=id,payload,updated_at,deleted`.
@@ -227,11 +243,67 @@ struct Supabase {
         return data
     }
 
-    /// Every row on the account. No `user_id` filter — see the header.
+    /// Every row on the account, a page at a time. No `user_id` filter —
+    /// see the header.
+    ///
+    /// **All of it or nothing.** A page that fails throws, and the pages
+    /// already read go with it: the pass reads a row that is missing here
+    /// as "the server has not got this", so half an account merged as if
+    /// it were the whole one is the truncation bug all over again.
     func pull() async throws -> [Row] {
-        guard let data = try await rest("tasks?select=id,payload,updated_at,deleted") else { return [] }
-        guard let parsed = try? JSONValue.parse(data), let rows = parsed.arrayValue else { return [] }
-        return rows.compactMap { Row($0) }
+        var rows: [Row] = []
+        var slot: [String: Int] = [:]
+        var offset = 0
+
+        while true {
+            let page = try await pullPage(offset: offset)
+
+            /* A task created on another phone while the pages are being
+               read slides every row after it along by one, so the row on
+               the seam between two pages can come back twice. The later
+               copy is what the server holds now; it takes the first one's
+               place. Nothing can slide the other way and be skipped,
+               because rows are never hard-deleted — tombstones stay. */
+            var fresh = 0
+            for item in page {
+                guard let row = Row(item) else { continue }
+                if let i = slot[row.id] {
+                    rows[i] = row
+                } else {
+                    slot[row.id] = rows.count
+                    rows.append(row)
+                    fresh += 1
+                }
+            }
+
+            /* Counted before `Row` drops anything, so one unreadable row
+               cannot make a full page look like the last one. */
+            if page.count < Self.pageSize { return rows }
+
+            /* A full page with nothing new on it is a server that is not
+               honouring `offset`. Asking again would be asking for ever,
+               with `running` held and sync stopped behind it. */
+            guard fresh > 0 else { throw SyncError.transport(URLError(.cannotParseResponse)) }
+            offset += page.count
+        }
+    }
+
+    /// One page, in `id` order. The order is what makes `offset` mean
+    /// anything: without it PostgREST pages over whatever order the table
+    /// happens to be in this time.
+    ///
+    /// A body that is not an array is a failed page, not an empty one — a
+    /// captive portal's sign-in page arrives with a 200, and "the server
+    /// has no rows" is the one reading of it that pushes every task up
+    /// over the other phones' newer copies.
+    private func pullPage(offset: Int) async throws -> [JSONValue] {
+        let path = "tasks?select=id,payload,updated_at,deleted&order=id.asc"
+            + "&limit=\(Self.pageSize)&offset=\(offset)"
+        guard let data = try await rest(path) else { return [] }
+        guard let parsed = try? JSONValue.parse(data), let page = parsed.arrayValue else {
+            throw SyncError.transport(URLError(.cannotParseResponse))
+        }
+        return page
     }
 
     /// "Has anybody written anything since we last looked?" — a few dozen

@@ -131,6 +131,24 @@ final class DumpBuffer {
         defer { wantsComposer = false }
         return wantsComposer
     }
+
+    /// Text from outside that landed while the sheet was already up — the
+    /// web's "text that lands while the sheet is already up" (app.js:5611).
+    /// The sheet adds it to what is being typed rather than having it
+    /// written behind it into this buffer, which the sheet then overwrites
+    /// with its own copy on Cancel or Sort it.
+    private(set) var arrived: String?
+
+    func arrive(_ value: String) {
+        guard !JSText.trim(value).isEmpty else { return }
+        spoken = nil
+        arrived = value
+    }
+
+    func takeArrived() -> String? {
+        defer { arrived = nil }
+        return arrived
+    }
 }
 
 // MARK: - the sheet
@@ -166,10 +184,6 @@ struct Composer: View {
     // MARK: the drag
 
     @State private var drag = DragState()
-    /// Where the text sits inside the sheet, so a touch that starts on it
-    /// can be told from one that starts anywhere else.
-    @State private var inputFrame: CGRect = .zero
-    @State private var bodyScrolledDown = false
 
     @State private var input = ComposerInput()
 
@@ -194,12 +208,12 @@ struct Composer: View {
     // app.js:2057-2079
     private static let dismissPX: CGFloat = 120
     private static let dismissSpeed: CGFloat = 0.55      // px per ms
-    private static let flickWindow: Double = 0.120       // seconds
     private static let flickMinPX: CGFloat = 40
-    private static let speedSmoothing: CGFloat = 0.4
-    private static let claimPX: CGFloat = 8
     private static let keyboardPX: CGFloat = 24
     private static let settleMS: Double = 280
+    /* The web's `SLOP` 8 and its hand-rolled speed are gone with the
+       DragGesture: `UIPanGestureRecognizer` has its own movement threshold
+       and reports velocity itself. See `SheetPanGesture`. */
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -207,15 +221,42 @@ struct Composer: View {
             sheet
         }
         .coordinateSpace(name: Self.space)
-        .onPreferenceChange(InputFrame.self) { inputFrame = $0 }
+        /* The pull-down. Behind everything and untouchable; the points it
+           reports are in this view's space, which is `Self.space`. */
+        .background {
+            SheetPanGesture(shouldClaim: mayPull,
+                            onBegan: pullBegan,
+                            onChanged: pullMoved,
+                            onEnded: pullEnded,
+                            onCancelled: pullCancelled)
+        }
         .onPreferenceChange(MicButtonFrame.self) { micFrame = $0 }
         /* Carries over whatever is sitting in the dump box, so a
            half-written thought is not lost by reaching for the + instead of
            the dump screen (app.js:1913). */
         .onAppear { text = buffer.text }
+        /* Text from Siri, a link or the share sheet while the sheet is up:
+           added on its own line, where the caret then goes. */
+        .onChange(of: buffer.arrived) { _, new in
+            guard new != nil, let more = buffer.takeArrived() else { return }
+            let now = JSText.trim(text)
+            text = now.isEmpty ? more : now + "\n" + more
+            input.focusAtEnd()
+        }
+        /* Its own layer. The shell's is under this cover, so the mic's
+           toasts — no mic access, the two-minute cap, a transcriber that
+           could not be reached — were raised behind the sheet and expired
+           unseen. Settings, feedback and the note editor each have one for
+           the same reason. */
+        .toastLayer(toasts, hasTabBar: false)
     }
 
     private static let space = "composer"
+
+    /// Round at the top only: the bottom is the edge of the screen.
+    private static let card = UnevenRoundedRectangle(topLeadingRadius: 22,
+                                                     topTrailingRadius: 22,
+                                                     style: .continuous)
 
     // MARK: scrim
 
@@ -247,20 +288,27 @@ struct Composer: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .bottom) { voice }
+        /* The content is clipped to the card and the card is drawn AFTER
+           that, in that order on purpose. The other way round the clip
+           took the card's ground back off at the safe-area edge, and the
+           sheet stopped a home indicator's height short of the screen —
+           rounded corners, a hairline, and a paler strip under it. The
+           ground is what runs under the home indicator (`env(safe-area-
+           inset-bottom)` on the web), so only its top corners are round,
+           and it reaches 2pt past the bottom so the hairline's bottom
+           edge is off the glass. */
+        .clipShape(Self.card)
         .background {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            Self.card
                 .fill(theme.surface)
                 /* On a dark page the sheet and the screen behind it are the
                    same value, and a shadow alone does not separate them —
                    the hairline does. */
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(theme.line, lineWidth: 1.5)
-                )
+                .overlay(Self.card.strokeBorder(theme.line, lineWidth: 1.5))
                 .shadow(color: Color(hex: 0x101018, opacity: 0.45), radius: 20, y: -6)
+                .padding(.bottom, -2)
                 .ignoresSafeArea(.container, edges: .bottom)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         /* just clear of the status bar, so the screen underneath still shows
            as a sliver and the sheet reads as sitting on top of it */
         .padding(.top, 10)
@@ -275,7 +323,6 @@ struct Composer: View {
             }
         )
         .offset(y: offsetY)
-        .simultaneousGesture(dragGesture)
     }
 
     private var offsetY: CGFloat {
@@ -332,7 +379,8 @@ struct Composer: View {
     }
 
     /// `el.compPost.disabled = value.trim().length === 0` (app.js:1894).
-    private var canSend: Bool { !JSText.trim(text).isEmpty }
+    /// Something to send, and no words still on their way from the mic.
+    private var canSend: Bool { !JSText.trim(text).isEmpty && !mic.working }
 
     // MARK: the mic
 
@@ -340,6 +388,9 @@ struct Composer: View {
     /// both the body's bottom padding and the drag's exclusion zone
     /// actually depend on.
     private var micIsUp: Bool { VoiceRecorder.available && !typing }
+
+    /// What sits under the mic's hint, above the safe area.
+    private static let micFloor: CGFloat = 12
 
     /// `#composer-voice` (app.html:1118-1127, styles.css:2152-2165).
     /// Absent, not disabled, when there is no microphone to open.
@@ -358,11 +409,14 @@ struct Composer: View {
                           buffer.spoke(source: source, lang: lang)
                       },
                       toast: { toasts.show($0) })
-                /* `bottom: calc(30px + env(safe-area-inset-bottom))`. The
-                   sheet's background is the thing that runs under the home
-                   indicator; its content stops at the safe area, so this is
-                   measured from there. */
-                .padding(.bottom, 30)
+                /* The web's `bottom: calc(30px + env(safe-area-inset-
+                   bottom))`, cut to 12. The sheet's ground runs under the
+                   home indicator and its content stops at the safe area,
+                   so this is measured from there — and on a phone that
+                   inset is already 34pt of the same ground, so the full
+                   30 on top of it left the hint floating over an empty
+                   band. */
+                .padding(.bottom, Self.micFloor)
                 /* The keyboard and the mic cannot both have the bottom of
                    the screen. */
                 .opacity(typing ? 0 : 1)
@@ -401,18 +455,6 @@ struct Composer: View {
                                         the bottom of the screen. */
                                      onFocus: { typing = $0 })
                         .frame(height: max(26, textHeight))
-                        /* Where the box is, so a touch that starts on it can
-                           be told from one that starts anywhere else — the
-                           claim rule below needs the answer, and the web got
-                           it from `e.target.closest('.composer-input')`. */
-                        .background(
-                            GeometryReader { g in
-                                Color.clear.preference(
-                                    key: InputFrame.self,
-                                    value: g.frame(in: .named(Self.space))
-                                )
-                            }
-                        )
 
                     DateChips(text: value)
                         .padding(.top, 16)
@@ -423,24 +465,12 @@ struct Composer: View {
             .padding(.top, 16)
             /* `.composer-body { padding-bottom: 150px }`, which clears the
                mic so a long dump never ends up underneath it — and 24 once
-               the keyboard has taken the mic's place. */
-            .padding(.bottom, micIsUp ? 150 : 24)
-            .background(
-                GeometryReader { g in
-                    Color.clear.preference(
-                        key: ScrollTop.self,
-                        value: -g.frame(in: .named(Self.space)).minY
-                    )
-                }
-            )
+               the keyboard has taken the mic's place. The 150 was sized
+               against the web's 30 under the mic, so it gives back the
+               same 18 the mic did. */
+            .padding(.bottom, micIsUp ? 150 - (30 - Self.micFloor) : 24)
         }
         .scrollDismissesKeyboard(.interactively)
-        .onPreferenceChange(ScrollTop.self) { top in
-            /* "a body scrolled off its top is being read, not dragged"
-               (app.js:2148). The number itself is noisy, so only the answer
-               is kept. */
-            bodyScrolledDown = top > 1
-        }
         /* Anywhere in the empty space under the text raises the keyboard.
            iOS only does that for a focus it believes came from a tap, and
            this one did. */
@@ -448,19 +478,6 @@ struct Composer: View {
         .onTapGesture { input.focusAtEnd() }
     }
 
-    private struct ScrollTop: PreferenceKey {
-        static var defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-            value = nextValue()
-        }
-    }
-
-    private struct InputFrame: PreferenceKey {
-        static var defaultValue: CGRect = .zero
-        static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-            value = nextValue()
-        }
-    }
 
     // MARK: - opening and closing
 
@@ -478,7 +495,7 @@ struct Composer: View {
         guard canSend else { input.focusAtEnd(); return }
         buffer.write(text)          // untrimmed, exactly as typed
         input.blur()
-        isPresented = false         // no slide: the morph is what comes up
+        dismissNow()                // no slide: the morph is what comes up
         send()
     }
 
@@ -495,7 +512,7 @@ struct Composer: View {
     /// rather than restarting it.
     private func close() {
         input.blur()
-        guard phase == .home else { isPresented = false; return }
+        guard phase == .home else { dismissNow(); return }
 
         let travel = max(1, sheetHeight - drag.dy)
         let speed = min(max(drag.speed, 0.9), 3.2)              // px per ms
@@ -508,8 +525,15 @@ struct Composer: View {
            the same safety net (app.js:2037). */
         let wait = (stillMotion ? 1 : ms) + 150
         DispatchQueue.main.asyncAfter(deadline: .now() + wait / 1000) {
-            isPresented = false
+            dismissNow()
         }
+    }
+
+    /// The cover goes with no transition of its own. Either the sheet has
+    /// already played its way down, or it is `Sort it` and the morph is
+    /// what should come up — never a card sliding down in front of it.
+    private func dismissNow() {
+        withTransaction(Transaction.still) { isPresented = false }
     }
 
     /// `prefers-reduced-motion: reduce` → every animation 1 ms.
@@ -517,89 +541,46 @@ struct Composer: View {
         stillMotion ? .linear(duration: 0.001) : animation
     }
 
-    // MARK: - the drag
+    // MARK: - the pull
 
+    /// `dy` is how far the sheet has been pulled, and what `offsetY` and
+    /// the scrim read; `from` is where the finger was when it was claimed.
     private struct DragState {
         var active = false
-        /// Touched the text and has not committed yet.
-        var pending = false
-        /// Went sideways or upwards from the text: not ours, and it does not
-        /// get a second chance this gesture.
-        var dead = false
         var from: CGFloat = 0
-        var x0: CGFloat = 0
         var dy: CGFloat = 0
-        var lastY: CGFloat = 0
-        var lastT: Date = .distantPast
         var speed: CGFloat = 0
-        var started = false
     }
 
-    private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
-            .onChanged { g in dragChanged(g) }
-            .onEnded { g in dragEnded(g) }
+    /// `startDrag`'s rules (app.js:2083-2110), asked once and before
+    /// anything is claimed — see `SheetPanGesture` for why that matters.
+    ///
+    /// - Down, and only down. Sideways is the text's (a selection) and up
+    ///   is the scroller's; dragging up could never lift the sheet anyway.
+    /// - Not on the mic: a hold there lasts half a minute, and the sheet
+    ///   would follow the thumb for all of it (app.js:2091).
+    /// - Not with the body scrolled off its top: that is somebody reading
+    ///   back up through a long dump (app.js:2148).
+    private func mayPull(_ start: CGPoint, _ t: CGSize) -> Bool {
+        guard phase == .home else { return false }
+        guard t.height > abs(t.width) else { return false }
+        if micIsUp && micFrame.contains(start) { return false }
+        if input.bodyScrolled { return false }
+        return true
     }
 
-    private func dragChanged(_ g: DragGesture.Value) {
-        if !drag.started {
-            drag.started = true
-            drag.from = g.startLocation.y
-            drag.x0 = g.startLocation.x
-            drag.lastY = g.startLocation.y
-            drag.lastT = Date()
-            drag.speed = 0
+    private func pullBegan(_ y: CGFloat) {
+        drag.active = true
+        // from where the finger is now, so committing does not jump the
+        // sheet by the distance it took to decide
+        drag.from = y
+        drag.speed = 0
+    }
 
-            /* A body scrolled off its top is being read, not dragged. */
-            if bodyScrolledDown { drag.dead = true; return }
-
-            /* `if (e.target.closest('button')) return;` (app.js:2091). The
-               mic is the one button inside the sheet's own drag area, and
-               a hold on it lasts half a minute — without this the sheet
-               would follow the thumb for the whole recording. */
-            if micIsUp && micFrame.contains(g.startLocation) {
-                drag.dead = true
-                return
-            }
-
-            /* The text is the one surface with something else to do with a
-               touch — a tap has to land a caret, a sideways drag has to
-               select — so it waits to see which way the finger goes. The
-               header, the avatar and the whole empty page below take the
-               gesture immediately. */
-            if inputFrame.contains(g.startLocation) {
-                drag.pending = true
-            } else {
-                claim(at: g.location.y)
-            }
-        }
-
-        guard !drag.dead else { return }
-
-        if drag.pending {
-            let dy = g.location.y - drag.from
-            let dx = abs(g.location.x - drag.x0)
-            if dy > Self.claimPX && dy > dx {
-                claim(at: g.location.y)          // down: ours
-            } else if dx > Self.claimPX || dy < -Self.claimPX {
-                drag.pending = false             // sideways: theirs
-                drag.dead = true
-            }
-            return
-        }
-
+    private func pullMoved(_ y: CGFloat) {
         guard drag.active else { return }
-
         // down only: dragging up must not lift the sheet off the top
-        let dy = max(0, g.location.y - drag.from)
-        let now = Date()
-        let gap = now.timeIntervalSince(drag.lastT)
-        if gap > 0 {
-            let instant = (g.location.y - drag.lastY) / CGFloat(gap * 1000)
-            drag.speed += (instant - drag.speed) * Self.speedSmoothing
-            drag.lastY = g.location.y
-            drag.lastT = now
-        }
+        let dy = max(0, y - drag.from)
 
         /* Past a real movement this is a drag, not a tap — and dragging a
            sheet down is how the platform puts a keyboard away anyway. iOS
@@ -610,29 +591,14 @@ struct Composer: View {
         drag.dy = dy
     }
 
-    private func claim(at y: CGFloat) {
-        drag.active = true
-        drag.pending = false
-        // rebased to where the finger is now, so committing does not jump
-        // the sheet by the distance it took to decide
-        drag.from = y
-        drag.lastY = y
-        drag.lastT = Date()
-        drag.speed = 0
-    }
-
-    private func dragEnded(_ g: DragGesture.Value) {
-        let wasActive = drag.active
-        let dy = max(0, g.location.y - drag.from)
-        let fresh = Date().timeIntervalSince(drag.lastT) < Self.flickWindow
-        let speed = fresh ? drag.speed : 0
-
-        drag.started = false
-        drag.pending = false
-        drag.dead = false
+    /// `endDrag` (app.js:2112-2140): far enough, or a real flick, and it
+    /// goes the way Cancel goes — the text is kept; otherwise it springs
+    /// back.
+    private func pullEnded(_ y: CGFloat, _ velocity: CGFloat) {
+        guard drag.active else { return }
         drag.active = false
-
-        guard wasActive else { drag.dy = 0; return }
+        let dy = max(0, y - drag.from)
+        let speed = velocity / 1000                     // pt/s → px per ms
 
         let flicked = dy > Self.flickMinPX && speed > Self.dismissSpeed
         if dy > Self.dismissPX || flicked {
@@ -642,9 +608,17 @@ struct Composer: View {
             return
         }
 
-        // not far enough — put it back
         withAnimation(still(Theme.settle(Self.settleMS / 1000))) { drag.dy = 0 }
         drag.speed = 0
+    }
+
+    /// The system took the touch. Nobody let go, so nothing is decided:
+    /// the sheet goes back where it was.
+    private func pullCancelled() {
+        guard drag.active else { return }
+        drag.active = false
+        drag.speed = 0
+        withAnimation(still(Theme.settle(Self.settleMS / 1000))) { drag.dy = 0 }
     }
 }
 
@@ -677,11 +651,36 @@ final class ComposerInput {
     func focusAtEnd() {
         guard let view else { return }
         view.becomeFirstResponder()
-        let end = view.text?.count ?? 0
+        /* UTF-16 units, which is what an NSRange counts — `count` is
+           characters, and an emoji is one of those and two of these, so the
+           caret landed short of the end, inside the last emoji if it ended
+           on one. */
+        let end = (view.text ?? "").utf16.count
         view.selectedRange = NSRange(location: end, length: 0)
     }
 
     func blur() { view?.resignFirstResponder() }
+
+    /// The body is scrolled off its top.
+    ///
+    /// **Read off UIKit, not measured in SwiftUI.** It used to be a
+    /// `GeometryReader` preference inside the `ScrollView`, and in this
+    /// cover that value never moved — not for a scroll the caret made, not
+    /// for one a finger made — so it said "at the top" with thirty lines
+    /// scrolled away, and a drag meant to scroll a long dump back down was
+    /// taken by the sheet and closed it. The scroller the box sits in is a
+    /// real `UIScrollView`, and its offset is the answer. The first one
+    /// ABOVE the box: a `UITextView` is a scroll view itself.
+    var bodyScrolled: Bool {
+        var candidate = view?.superview
+        while let v = candidate {
+            if let scroll = v as? UIScrollView {
+                return scroll.contentOffset.y + scroll.adjustedContentInset.top > 1
+            }
+            candidate = v.superview
+        }
+        return false
+    }
 }
 
 struct ComposerTextView: UIViewRepresentable {
@@ -706,6 +705,11 @@ struct ComposerTextView: UIViewRepresentable {
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = false
+        /* A text view that does not scroll wants its longest line on one
+           line, and will say so as an intrinsic width. Nothing here is
+           allowed to ask for width. */
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
         view.spellCheckingType = .no
         view.autocorrectionType = .default
         view.font = Self.font
@@ -740,6 +744,25 @@ struct ComposerTextView: UIViewRepresentable {
         context.coordinator.measure(view)
     }
 
+    /// SwiftUI sizes a representable from its intrinsic size unless it is
+    /// given a better answer, and the intrinsic width of a non-scrolling
+    /// `UITextView` is the whole dump on one line. That width went up
+    /// through the body, the scroll view and the sheet until the bar itself
+    /// hung off both edges of the screen — `Cancel` cut off on the left
+    /// while `Sort it` ran off the right. Take the width the sheet proposes
+    /// and only ever answer with a height.
+    func sizeThatFits(_ proposal: ProposedViewSize,
+                      uiView: UITextView,
+                      context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0, width < .infinity else {
+            return nil
+        }
+        let wanted = uiView.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude)
+        ).height
+        return CGSize(width: width, height: max(26, wanted))
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     private static var font: UIFont {
@@ -769,9 +792,23 @@ struct ComposerTextView: UIViewRepresentable {
 
         /// `growComposer()` (app.js:1888-1892): reset, then take the height
         /// the content actually wants. A text view will not size itself.
-        func measure(_ view: UITextView) {
+        func measure(_ view: UITextView, tries: Int = 8) {
             let width = view.bounds.width
-            guard width > 0 else { return }
+            /* Not laid out yet. The first update of a sheet that opens with
+               a long dump already in it comes before the view has a width,
+               and nothing asked again until the text changed — so the box
+               sat at its 26pt floor with thirty lines spilling out of it
+               over the name above, until somebody touched it. Ask again on
+               the next turns of the run loop, a few times, once there is a
+               width to measure against. */
+            guard width > 0 else {
+                guard tries > 0 else { return }
+                DispatchQueue.main.async { [weak self, weak view] in
+                    guard let self, let view else { return }
+                    self.measure(view, tries: tries - 1)
+                }
+                return
+            }
             let wanted = view.sizeThatFits(
                 CGSize(width: width, height: .greatestFiniteMagnitude)
             ).height

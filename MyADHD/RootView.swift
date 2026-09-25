@@ -19,13 +19,30 @@ import SwiftUI
 
 struct RootView: View {
 
-    @State private var showingWallpaper = false
-
+    /* **No state here, on purpose.** A `@State` on this view made its body
+       run again every time the sheet opened or closed, and every run
+       called `AppShell()` — whose `@State` initialisers are evaluated on
+       every init even though SwiftUI keeps the first set. Each open of the
+       wallpaper sheet built and threw away an `AppStore` (a synchronous
+       read of the whole store file), a `Session` (a keychain read) and a
+       `MeetingReader` (a second `EKEventStore`, an observer and a calendar
+       query). The flag lives in a modifier instead, whose body can re-run
+       without building the shell again. */
     var body: some View {
         AppShell()
-            .sheet(isPresented: $showingWallpaper) { WallpaperSetup() }
+            .modifier(WallpaperSheet())
+    }
+}
+
+private struct WallpaperSheet: ViewModifier {
+
+    @State private var showing = false
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showing) { WallpaperSetup() }
             .onReceive(NotificationCenter.default.publisher(for: .myadhdWallpaper)) { _ in
-                showingWallpaper = true
+                showing = true
             }
     }
 }

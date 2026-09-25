@@ -498,15 +498,29 @@ extension AgendaEntry {
     /// Meetings that have not already been turned into a task. Once one
     /// has, the task is the row — showing both would be the same hour
     /// twice, and the tickable copy is the useful one.
+    ///
+    /// **One occurrence, not the series.** `fromEvent` holds the event's
+    /// identifier, which every occurrence of a repeating meeting shares —
+    /// matched on that alone, making a task of this Monday's stand-up hid
+    /// every stand-up there was. So a claim is the event AND the day the
+    /// task is on. (A task dragged to another day lets its meeting show
+    /// again on the day it really is, which is true.)
     static func unclaimed(_ meetings: [Meeting], by tasks: [TaskItem]) -> [Meeting] {
         guard !meetings.isEmpty else { return [] }
-        var claimed = Set<String>()
-        for t in tasks {
-            if let from = t.fromEvent { claimed.insert(from) }
-        }
+        let claimed = claims(tasks)
         guard !claimed.isEmpty else { return meetings }
-        return meetings.filter { !claimed.contains($0.id) }
+        return meetings.filter { !claimed.contains(claim($0.id, $0.when)) }
     }
+
+    private static func claims(_ tasks: [TaskItem]) -> Set<String> {
+        var out = Set<String>()
+        for t in tasks {
+            if let from = t.fromEvent { out.insert(claim(from, t.when ?? "")) }
+        }
+        return out
+    }
+
+    private static func claim(_ event: String, _ day: String) -> String { event + "@" + day }
 
     /// The same, for a caller holding the whole window — the month grid,
     /// which would otherwise rebuild the claimed set once per cell.
@@ -514,12 +528,9 @@ extension AgendaEntry {
                           by tasks: [TaskItem]) -> [String: [Meeting]]
     {
         guard !byDay.isEmpty else { return [:] }
-        var claimed = Set<String>()
-        for t in tasks {
-            if let from = t.fromEvent { claimed.insert(from) }
-        }
+        let claimed = claims(tasks)
         guard !claimed.isEmpty else { return byDay }
-        return byDay.mapValues { day in day.filter { !claimed.contains($0.id) } }
+        return byDay.mapValues { day in day.filter { !claimed.contains(claim($0.id, $0.when)) } }
     }
 }
 

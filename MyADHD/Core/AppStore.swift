@@ -243,6 +243,29 @@ final class AppStore {
         return true
     }
 
+    /// A tick taken on a widget, landing when the app next comes up.
+    ///
+    /// **Not `markDone`**, which is the web's and stamps `doneAt` with now
+    /// — right for a tap in the app, wrong here. A tick taken at ten to
+    /// midnight and landed at breakfast was credited to the wrong day in
+    /// the Done graph and its streak, and `pruneDone` aged it from the
+    /// wrong moment; and a task finished on another device in between had
+    /// its `doneAt` dragged forward. So this uses the tap's own time (never
+    /// later than now, in case a clock was wrong) and leaves a task that
+    /// is already done exactly as it is.
+    ///
+    /// nil when the id is not on the store; false when it was already
+    /// done, which is handled but not news; true when it was ticked here.
+    func landTick(_ id: String, at when: Date) -> Bool? {
+        guard let i = doc.index(ofTask: id) else { return nil }
+        guard !doc.tasks[i].done else { return false }
+        let at = min(when, clock())
+        doc.tasks[i].done = true
+        doc.tasks[i].doneAt = Int((at.timeIntervalSince1970 * 1000).rounded(.down))
+        save()
+        return true
+    }
+
     /// The Undo behind that toast, and the same one the done pile
     /// carries: back on the lists, and no longer ageing out.
     @discardableResult
@@ -370,6 +393,43 @@ final class AppStore {
         let next = (day?.isEmpty ?? true) ? nil : day
         guard doc.tasks[i].when != next else { return false }
         doc.tasks[i].when = next
+        save()
+        return true
+    }
+
+    /// Give a task that has no day one, and a clock to go with it — what
+    /// dropping a chip from the month's undated tray does.
+    ///
+    /// **The clock is only written where there was none.** In practice an
+    /// undated task never has one (`stampTimeOnly` dates a bare time at
+    /// boot), but if one ever arrives it is the user's and it stays.
+    ///
+    /// Returns what the task had before, so the Undo can put both halves
+    /// back through `restoreTiming` — `moveToDay(id, to: nil)` would leave
+    /// the 8am behind on a task with no day, which nothing else in the app
+    /// can produce. nil when nothing was written: a finished task, a task
+    /// that turned out to be dated already, or one that has gone.
+    func scheduleUndated(_ id: String, on day: String, at clock: String)
+        -> (when: String?, at: String?)?
+    {
+        guard !day.isEmpty, let i = doc.index(ofTask: id) else { return nil }
+        guard !doc.tasks[i].done else { return nil }
+        let was = (when: doc.tasks[i].when, at: doc.tasks[i].at)
+        guard (was.when ?? "").isEmpty else { return nil }
+        doc.tasks[i].when = day
+        if (was.at ?? "").isEmpty { doc.tasks[i].at = clock }
+        save()
+        return was
+    }
+
+    /// Both halves of a task's timing, back to exactly what they were.
+    @discardableResult
+    func restoreTiming(_ id: String, when: String?, at: String?) -> Bool {
+        guard let i = doc.index(ofTask: id) else { return false }
+        guard !doc.tasks[i].done else { return false }
+        guard doc.tasks[i].when != when || doc.tasks[i].at != at else { return false }
+        doc.tasks[i].when = when
+        doc.tasks[i].at = at
         save()
         return true
     }

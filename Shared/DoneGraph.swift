@@ -120,6 +120,12 @@ struct DoneGraph: View {
         }
         let span = DayKey.between(from, day) ?? 0
         if span >= 360 { return "Last twelve months." }
+        /* Reachable now that DoneLedger starts `from` at the first day it
+           has anything for rather than six months back: on the ledger's
+           first day dayLabel would say "Since Today.", and the day after
+           "Since Yesterday." with a capital in the middle of a sentence. */
+        if span <= 0 { return "Counting from today." }
+        if span == 1 { return "Since yesterday." }
         return "Since \(DayKey.dayLabel(from, today: day))."
     }
 }
