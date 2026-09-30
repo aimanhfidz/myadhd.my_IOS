@@ -120,6 +120,7 @@ struct NudgeChecks {
 
         saysWhatIsNext(r)
         ringsAsOftenAsAsked(r)
+        takesTurns(r)
         staysQuietWhenItShould(r)
         ringsNotes(r)
         startsAndEndsRepeatsRight(r)
@@ -161,7 +162,7 @@ struct NudgeChecks {
                 tomorrow?.body ?? "-", Copy.Home.todayTitle(late: 2, today: 0) + ": Pay the bill")
 
         r.yes("only the last slot of each day carries the lists' line",
-              plan.allSatisfy { $0.body.contains("\n") == $0.id.hasSuffix(".17:00") })
+              plan.filter { !$0.asks }.allSatisfy { $0.body.contains("\n") == $0.id.hasSuffix(".17:00") })
         r.yes("every id is its own",
               Set(plan.map(\.id)).count == plan.count)
         r.yes("soonest first",
@@ -235,10 +236,12 @@ struct NudgeChecks {
                 "11:00,12:00,14:00,15:00,16:00,17:00,18:00,19:00,20:00,21:00,22:00")
         r.equal("and the limit runs out tomorrow evening",
                 help.last?.id ?? "-", "myadhd.nudge.2026-09-25.20:00")
-        r.yes("every one titled by the level, with the name",
-              help.allSatisfy { $0.title == "Aiman, let's do this one now" })
+        r.yes("every one that tells is titled by the level, with the name",
+              help.filter { !$0.asks }.allSatisfy { $0.title == "Aiman, let's do this one now" })
+        r.yes("and every one that asks, asks by name",
+              help.filter(\.asks).allSatisfy { $0.title == "Aiman, is this one urgent?" })
         r.yes("only ten at night carries the lists' line today",
-              help.filter { $0.id.contains("2026-09-24.") }
+              help.filter { $0.id.contains("2026-09-24.") && !$0.asks }
                   .allSatisfy { $0.body.contains("\n") == $0.id.hasSuffix(".22:00") })
         r.yes("soonest first",
               zip(help, help.dropFirst()).allSatisfy { $0.fire < $1.fire })
@@ -248,6 +251,83 @@ struct NudgeChecks {
                   let m = (c.hour ?? 0) * 60 + (c.minute ?? 0)
                   return m >= 8 * 60 && m <= 22 * 60
               })
+    }
+
+    static func takesTurns(_ r: Report) {
+        r.open("taking turns, and asking")
+
+        /* The screenshot's list: one urgent thing and a pile of undated
+           ones. It used to be the urgent one in every slot. */
+        let list = StoreDocument.load(text: """
+            {"tasks":[
+             {"id":"walik","title":"Send business idea to Walik","urgency":5,"done":false},
+             {"id":"a","title":"Schedule monthly integrasi session","done":false},
+             {"id":"b","title":"Set monthly external speaker","done":false},
+             {"id":"c","title":"Plan jaulah","done":false},
+             {"id":"d","title":"Build comparison","done":false},
+             {"id":"e","title":"Study Loyverse","done":false},
+             {"id":"f","title":"Create pitch deck","urgency":5,"done":false},
+             {"id":"g","title":"Learn Threads","done":false},
+             {"id":"z","title":"Finished","done":true}
+            ]}
+            """).tasks
+        let hourly = NudgePlanner.slots(every: 1, from: "08:00", until: "22:00")
+        let morning = at("2026-09-25", "07:00")
+        let plan = NudgePlanner.plan(tasks: list, slots: hourly, level: .help,
+                                     name: "Aiman", now: morning)
+        let day = plan.filter { $0.id.contains("2026-09-25.") }
+        let told = day.filter { !$0.asks }
+        let asked = day.filter(\.asks)
+
+        r.equal("a whole hourly day is fifteen", "\(day.count)", "15")
+        r.equal("eight tell and seven ask, in turns",
+                "\(told.count)/\(asked.count)", "8/7")
+        r.yes("the odd hours are the questions",
+              day.enumerated().allSatisfy { i, p in p.asks == (i % 2 == 1) })
+        r.yes("the urgent thing no longer takes every slot",
+              told.filter { $0.body.hasSuffix("Send business idea to Walik") }.count < told.count)
+        r.equal("but the day still opens on the card's first thing",
+                told.first?.body ?? "-", "Next up: Send business idea to Walik")
+
+        let askedIDs = asked.compactMap(\.taskID)
+        r.yes("every question names a task", askedIDs.count == asked.count)
+        r.yes("never an urgent one, a finished one, or one the card already rings",
+              Set(askedIDs).isDisjoint(with: ["walik", "f", "z"]))
+        r.equal("and no task is asked twice before every other has been asked once",
+                "\(Set(askedIDs.prefix(5)).count)", "5")
+        r.equal("the question is the task, then how to answer",
+                asked.first.map { $0.body.components(separatedBy: "\n").last ?? "-" } ?? "-",
+                Copy.Nudges.askHint)
+        r.equal("with no name it asks plainly",
+                NudgePlanner.askTitle(name: "  "), "Is this one urgent?")
+
+        let again = NudgePlanner.plan(tasks: list, slots: hourly, level: .help,
+                                      name: "Aiman", now: morning)
+        r.yes("rebuilt the same day, it asks in the same order",
+              again.map(\.taskID) == plan.map(\.taskID))
+        let order = { (d: String) in
+            plan.filter { $0.asks && $0.id.contains(d + ".") }.compactMap(\.taskID)
+        }
+        r.yes("another day shuffles again", order("2026-09-25") != order("2026-09-26"))
+
+        let lonely = StoreDocument.load(text: """
+            {"tasks":[{"id":"u","title":"Only thing","urgency":5,"done":false}]}
+            """).tasks
+        r.yes("nothing to ask about, and every slot tells",
+              NudgePlanner.plan(tasks: lonely, slots: hourly, now: morning).allSatisfy { !$0.asks })
+
+        let dated = StoreDocument.load(text: """
+            {"tasks":[
+             {"id":"x","title":"Top","urgency":5,"done":false},
+             {"id":"y","title":"Second","urgency":5,"done":false},
+             {"id":"w","title":"Third","urgency":5,"done":false},
+             {"id":"due","title":"Due today","when":"2026-09-25","done":false},
+             {"id":"later","title":"Next week","when":"2026-10-02","done":false}
+            ]}
+            """).tasks
+        r.equal("a task due that day is urgent already and is not asked about",
+                Set(NudgePlanner.askable(dated, today: "2026-09-25", besides: []).map(\.id))
+                    .sorted().joined(separator: ","), "later")
     }
 
     static func staysQuietWhenItShould(_ r: Report) {

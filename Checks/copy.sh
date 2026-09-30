@@ -163,6 +163,11 @@ Let's do this one now
 Reminding you
 Just so you know,
 Just so you know
+, is this one urgent?
+Is this one urgent?
+Press and hold to answer.
+Yes, it's urgent
+It can wait
 NATIVE_ONLY
 
 checked=0

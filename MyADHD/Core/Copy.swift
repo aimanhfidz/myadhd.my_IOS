@@ -622,6 +622,15 @@ enum Copy {
         static func okayTitle(name: String) -> String { "Just so you know, \(name)" }
         static let okayTitlePlain = "Just so you know"
 
+        /// The other kind of nudge: one of the tasks that is not on the
+        /// Today card, asked about. The two answers are the notification's
+        /// buttons, which iOS shows on a press and hold — hence the hint.
+        static func askTitle(name: String) -> String { "\(name), is this one urgent?" }
+        static let askTitlePlain = "Is this one urgent?"
+        static let askHint = "Press and hold to answer."
+        static let askUrgent = "Yes, it's urgent"
+        static let askWait = "It can wait"
+
         /// The same way back as `Meetings.deniedNote`, for the same reason:
         /// iOS asks once and never again.
         static let deniedNote = "my.adhd cannot send you notifications. iOS only asks once, so Settings is the way back."

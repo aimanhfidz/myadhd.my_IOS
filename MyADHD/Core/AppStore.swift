@@ -370,6 +370,25 @@ final class AppStore {
         return true
     }
 
+    /// "Yes, it's urgent", answered on a nudge. Urgency 5 is what the
+    /// lists' orange edge and chip mean; a matrix placement the person
+    /// made by hand moves to its urgent row too, or the two screens would
+    /// disagree about the answer just given. A finished task, or one
+    /// already urgent, is left alone.
+    @discardableResult
+    func markUrgent(_ id: String) -> Bool {
+        guard let i = doc.index(ofTask: id), !doc.tasks[i].done else { return false }
+        guard doc.tasks[i].urgency < 5 else { return false }
+        doc.tasks[i].urgency = 5
+        switch Ordering.storedQuadrant(doc.tasks[i]) {
+        case "plan": doc.tasks[i].quadrant = "do"
+        case "drop": doc.tasks[i].quadrant = "delegate"
+        default: break
+        }
+        save()
+        return true
+    }
+
     /// Move a task to a day — the whole of what the month grid's drag can
     /// do to one.
     ///

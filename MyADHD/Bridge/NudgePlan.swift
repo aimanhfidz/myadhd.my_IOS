@@ -13,6 +13,18 @@
    today, then whatever is most due — asked as of the day the nudge rings
    on.
 
+   **Two kinds of nudge, taking turns.** Every other slot is the Today
+   card's pick — and not always its first thing: the card holds up to
+   three, and the slots walk through them, so an urgent task at the top no
+   longer takes every buzz of the day. The slots between them ASK about
+   one of the other open tasks, chosen in a shuffled order: "is this one
+   urgent?", with a button that says it is and one that says it can wait.
+   Somebody whose list has one urgent thing in it was hearing about that
+   one thing fifteen times a day while the rest went unmentioned, and
+   some of the rest may be urgent too — nobody has said. The shuffle is
+   seeded by the day, so rebuilding the schedule on every write does not
+   reshuffle it.
+
    **The body is the screen's own words.** The card's title ("2 late",
    "Today", "Next up"), then the first thing on it; the last nudge of the
    day also carries the calendar's line about the things waiting on your
@@ -44,6 +56,10 @@ struct NudgePlan: Equatable {
     let body: String
     let fire: Date
     let parts: DateComponents
+    /// The "is this one urgent?" kind, which carries the two answers.
+    var asks = false
+    /// The task it asks about. Only set when `asks` is.
+    var taskID: String? = nil
 }
 
 /// How hard the person asked to be nudged. The raw values are what
@@ -132,6 +148,48 @@ enum NudgePlanner {
         return hour * 60 + minute
     }
 
+    /// The question's title. One tone for all three levels: it is a
+    /// question, not a push, and the level already set how often it comes.
+    static func askTitle(name: String) -> String {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? Copy.Nudges.askTitlePlain : Copy.Nudges.askTitle(name: name)
+    }
+
+    /// What a question can be about: open, not already on the card, and
+    /// not already urgent by the matrix's own rule — urgency 5, or due on
+    /// or before the day. Asking whether an urgent thing is urgent is
+    /// noise, and the card already rings about it.
+    static func askable(_ tasks: [TaskItem], today: String, besides card: [TaskItem]) -> [TaskItem] {
+        let onCard = Set(card.map(\.id))
+        return tasks.filter { t in
+            guard !t.done, !onCard.contains(t.id), t.urgency < 5 else { return false }
+            if let when = t.when, !when.isEmpty, when <= today { return false }
+            return true
+        }
+    }
+
+    /// A Fisher–Yates shuffle driven by the day, so the order is random
+    /// across days and the same all day long. `hashValue` would not do:
+    /// Swift seeds it per launch, and the schedule is rebuilt constantly.
+    static func shuffled(_ items: [TaskItem], seed: String) -> [TaskItem] {
+        var state: UInt64 = 0xcbf29ce484222325
+        for byte in seed.utf8 { state = (state ^ UInt64(byte)) &* 0x100000001b3 }
+        func next() -> UInt64 {
+            state &+= 0x9e3779b97f4a7c15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
+            z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
+            return z ^ (z >> 31)
+        }
+        var out = items
+        guard out.count > 1 else { return out }
+        for i in stride(from: out.count - 1, to: 0, by: -1) {
+            let j = Int(next() % UInt64(i + 1))
+            out.swapAt(i, j)
+        }
+        return out
+    }
+
     static func plan(tasks: [TaskItem],
                      slots: [String] = defaultSlots,
                      level: NudgeLevel = .okay,
@@ -150,12 +208,19 @@ enum NudgePlanner {
         let today = DayKey.of(now)
         let undated = tasks.filter { !$0.done && !Ordering.scheduled($0) }.count
         let title = level.title(name: name)
+        let askTitle = askTitle(name: name)
         var out: [NudgePlan] = []
 
         for offset in 0..<max(0, days) {
             let day = DayKey.adding(offset, to: today)
             let card = Ordering.homeToday(tasks, today: day)
-            guard let first = card.next.first else { continue }
+            guard !card.next.isEmpty else { continue }
+            let asking = shuffled(askable(tasks, today: day, besides: card.next), seed: day)
+
+            /* Counted over the slots that actually ring, so the first one
+               left in a day is always the card's first thing. */
+            var told = 0
+            var asked = 0
 
             for (i, clock) in clocks.enumerated() {
                 guard let stamp = ReminderPlanner.components(day: day, at: clock),
@@ -165,14 +230,33 @@ enum NudgePlanner {
                     continue
                 }
 
-                var body = card.title + ": " + first.title
+                var parts = stamp.parts
+                parts.calendar = DayKey.calendar
+                let id = idPrefix + day + "." + clock
+
+                /* The odd slots ask, whenever there is something to ask
+                   about. A list with nothing but the card's three on it
+                   rings the card every time, as it always did. */
+                if i % 2 == 1, !asking.isEmpty {
+                    let task = asking[asked % asking.count]
+                    asked += 1
+                    out.append(NudgePlan(id: id,
+                                         title: askTitle,
+                                         body: task.title + "\n" + Copy.Nudges.askHint,
+                                         fire: fire,
+                                         parts: parts,
+                                         asks: true,
+                                         taskID: task.id))
+                    continue
+                }
+
+                let task = card.next[told % card.next.count]
+                told += 1
+                var body = card.title + ": " + task.title
                 if i == clocks.count - 1, let line = Copy.Calendar.undated(undated) {
                     body += "\n" + line
                 }
-
-                var parts = stamp.parts
-                parts.calendar = DayKey.calendar
-                out.append(NudgePlan(id: idPrefix + day + "." + clock,
+                out.append(NudgePlan(id: id,
                                      title: title,
                                      body: body,
                                      fire: fire,

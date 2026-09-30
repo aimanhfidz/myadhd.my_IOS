@@ -142,6 +142,12 @@ struct AppShell: View {
         .onReceive(NotificationCenter.default.publisher(for: .myadhdOpenTab)) { _ in
             if let next = NotificationRouter.shared.takePending() { route(to: next) }
         }
+        /* "Yes, it's urgent" on a nudge, while the app is alive behind the
+           lock screen. Only once the store is wired — before that,
+           `wireUp()` lands it. */
+        .onReceive(NotificationCenter.default.publisher(for: .myadhdUrgentAnswer)) { _ in
+            if bridge != nil { UrgentAnswers.drain(into: store) }
+        }
     }
 
     private var shell: some View {
@@ -301,6 +307,11 @@ struct AppShell: View {
         wire.start()
         bridge = wire
 
+        /* Answers given on a nudge while the app was not running. After
+           the bridge, so the save they make rebuilds the schedule without
+           the question that was just answered. */
+        UrgentAnswers.drain(into: store)
+
         /* The network, before the sync that asks about it. Nothing ever
            started it, so `isOnline` was true for ever: an offline edit
            retried a doomed pass every few seconds, the "path came back"
@@ -331,6 +342,8 @@ struct AppShell: View {
     /// the snapshot that is supposed to reflect them.
     private func returned() {
         store.reloadIfChangedOnDisk()
+
+        if bridge != nil { UrgentAnswers.drain(into: store) }
 
         let landed = OpDrain.drain(into: store)
         if landed > 0 {

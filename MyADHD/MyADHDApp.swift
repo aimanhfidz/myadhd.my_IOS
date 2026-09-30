@@ -21,6 +21,7 @@ struct MyADHDApp: App {
     /// heard — see `NotificationRouter`.
     init() {
         UNUserNotificationCenter.current().delegate = NotificationRouter.shared
+        Reminders.registerCategories()
     }
 
     var body: some Scene {

@@ -70,6 +70,31 @@ enum Reminders {
     /// Which screen a tap on each kind opens. Read by `NotificationRouter`.
     static let tabKey = "myadhd.tab"
 
+    /// The task an "is this one urgent?" nudge asks about.
+    static let taskKey = "myadhd.taskID"
+
+    /// The question's two buttons. Neither opens the app: the answer is
+    /// the whole of the job, and "it can wait" is a dismissal that says so.
+    static let askCategory = "myadhd.nudge.ask"
+    static let urgentAction = "myadhd.nudge.urgent"
+    static let waitAction = "myadhd.nudge.wait"
+
+    /// Once, at launch — before a notification with the category arrives,
+    /// or iOS draws it with no buttons.
+    static func registerCategories() {
+        let urgent = UNNotificationAction(identifier: urgentAction,
+                                          title: Copy.Nudges.askUrgent,
+                                          options: [])
+        let wait = UNNotificationAction(identifier: waitAction,
+                                        title: Copy.Nudges.askWait,
+                                        options: [])
+        let ask = UNNotificationCategory(identifier: askCategory,
+                                         actions: [urgent, wait],
+                                         intentIdentifiers: [],
+                                         options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([ask])
+    }
+
     /// Which tasks ring and when. `ReminderPlanner.parse` is this file's
     /// old `parse()`, moved rather than rewritten — see that file's header.
     static func parse(_ json: String?, now: Date = Date()) -> [ReminderPlan] {
@@ -221,7 +246,14 @@ enum Reminders {
                 content.body = item.body
                 content.sound = .default
                 content.threadIdentifier = "myadhd.nudges"
-                content.userInfo = [tabKey: AppTab.home.rawValue]
+                if item.asks, let task = item.taskID {
+                    content.categoryIdentifier = askCategory
+                    /* A tap on the question itself opens the lists, where
+                       the task it names is. */
+                    content.userInfo = [tabKey: AppTab.lists.rawValue, taskKey: task]
+                } else {
+                    content.userInfo = [tabKey: AppTab.home.rawValue]
+                }
                 let trigger = UNCalendarNotificationTrigger(dateMatching: item.parts, repeats: false)
                 requests.append(UNNotificationRequest(identifier: item.id,
                                                       content: content, trigger: trigger))
@@ -297,4 +329,40 @@ enum NudgeSettings {
     static var slots: [String] {
         NudgePlanner.slots(every: level.hours, from: window.from, until: window.until)
     }
+}
+
+// MARK: - answers from the lock screen
+
+/// "Yes, it's urgent", pressed on a notification. iOS may have woken the
+/// app in the background just to hear it — before the shell or its store
+/// exist — so the answer is written down here first and landed in the
+/// store by `AppShell` whenever it next can: straight away if it is
+/// running, otherwise when it next comes to the front. The same shape as
+/// the widget's ticks (OpDrain.swift), kept in the app's own defaults
+/// because nothing outside the app writes it.
+enum UrgentAnswers {
+
+    static let key = "myadhd.native.urgentAnswers"
+
+    static func add(_ taskID: String) {
+        var ids = UserDefaults.standard.stringArray(forKey: key) ?? []
+        if !ids.contains(taskID) { ids.append(taskID) }
+        UserDefaults.standard.set(ids, forKey: key)
+    }
+
+    /// Lands every answer, and forgets them all — one naming a task that
+    /// has since gone has nothing to land on and never will.
+    @MainActor
+    @discardableResult
+    static func drain(into store: AppStore) -> Int {
+        let ids = UserDefaults.standard.stringArray(forKey: key) ?? []
+        guard !ids.isEmpty else { return 0 }
+        UserDefaults.standard.removeObject(forKey: key)
+        return ids.filter { store.markUrgent($0) }.count
+    }
+}
+
+extension Notification.Name {
+    /// An urgent answer was written down while the app was running.
+    static let myadhdUrgentAnswer = Notification.Name("myadhd.urgentAnswer")
 }

@@ -52,7 +52,30 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler done: @escaping () -> Void)
     {
-        let raw = response.notification.request.content.userInfo[Reminders.tabKey] as? String
+        let info = response.notification.request.content.userInfo
+
+        /* The question's two buttons. Neither brings the app forward, so
+           neither is a tab to open. "It can wait" asks nothing of us. */
+        switch response.actionIdentifier {
+        case Reminders.urgentAction:
+            if let task = info[Reminders.taskKey] as? String {
+                UrgentAnswers.add(task)
+                Task { @MainActor in
+                    NotificationCenter.default.post(name: .myadhdUrgentAnswer, object: nil)
+                    done()
+                }
+            } else {
+                done()
+            }
+            return
+        case Reminders.waitAction, UNNotificationDismissActionIdentifier:
+            done()
+            return
+        default:
+            break
+        }
+
+        let raw = info[Reminders.tabKey] as? String
         let tab = raw.flatMap(AppTab.init(rawValue:)) ?? .home
         Task { @MainActor in
             self.pending = tab
