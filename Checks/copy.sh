@@ -43,11 +43,10 @@
 # punctuation, are skipped — there is no sense asserting that a full stop
 # appears in app.js.
 #
-# Two blocks are exempt, by name. Copy.Meetings: the app reads the meetings
-# already on the phone through EventKit, which is a thing the website
-# cannot do at all — the scope its Google link holds is allowed to touch
-# only the calendar it made itself — so there is no web original to grep
-# and no paraphrase to catch. Copy.Nudges: the website sends no
+# Two blocks are exempt, by name. Copy.Meetings: the app reads your
+# Google Calendar with a read scope only the iPhone asks for — the
+# website's link touches only the calendar it made itself — so there is no
+# web original to grep and no paraphrase to catch. Copy.Nudges: the website sends no
 # notifications (its README leaves them out of the beta on purpose), so
 # the switch that governs the phone's has no sentence to copy either — nor
 # the three levels, which are the user's own words (HELP ME!!, Please
@@ -135,8 +134,10 @@ NATIVE="$WORK/native-only.txt"
 # where it happens.
 cat > "$NATIVE" <<'NATIVE_ONLY'
 Show my meetings
-Meetings already on this phone show up beside your tasks.
-my.adhd cannot see your calendar. iOS only asks once, so Settings is the way back.
+Meetings on your Google Calendar show up beside your tasks.
+Sign in with Google to see the meetings on your calendar.
+Google has not let my.adhd read your calendar yet. Connect it again and tick the box that allows it.
+Connect Google Calendar
 Open Settings
 Make this a task
 All day
@@ -145,6 +146,7 @@ Reading
 1 meeting
 meetings
 in the next 60 days.
+All-day events always show. Otherwise only busy time does: events marked Free, declined invites, birthdays and holidays stay out.
 Reminders
 Nudge me through the day
 The next thing to do, as often as you ask. Tasks with a time still ring at their time.

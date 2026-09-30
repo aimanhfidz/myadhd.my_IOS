@@ -80,11 +80,19 @@ enum AuthError: Error, CustomStringConvertible {
 @MainActor
 final class AuthFlow {
 
-    /// The calendar scope, asked for during sign-in so there is one
+    /// The calendar scopes, asked for during sign-in so there is one
     /// consent screen rather than two (auth.js:43). `nonisolated` because
     /// it is a default argument of `authorizeURL`, which is evaluated in
     /// the caller's context.
-    nonisolated static let scopes = "https://www.googleapis.com/auth/calendar.app.created"
+    ///
+    /// Two, where the web asks for one. `calendar.app.created` is the
+    /// push to the my.adhd calendar; `calendar.readonly` is what lets
+    /// `GoogleMeetings` read the rest of the diary. It is a sensitive
+    /// scope — Google shows an unverified-app screen for it until the
+    /// consent screen passes verification.
+    nonisolated static let scopes =
+        "https://www.googleapis.com/auth/calendar.app.created"
+        + " https://www.googleapis.com/auth/calendar.readonly"
 
     let session: Session
 
@@ -116,6 +124,12 @@ final class AuthFlow {
             + "&redirect_to=" + encode(AppConfig.callbackURL)
         if let scopes, !scopes.isEmpty { url += "&scopes=" + encode(scopes) }
         if offline { url += "&access_type=offline&prompt=consent" }
+        /* The server keeps ONE refresh token per account, and a sign-in
+           on the web asks for the push scope alone. Without this, that
+           sign-in's token replaces the phone's and the diary read stops;
+           with it, Google folds every scope granted before into the new
+           grant. */
+        url += "&include_granted_scopes=true"
         return URL(string: url)
     }
 

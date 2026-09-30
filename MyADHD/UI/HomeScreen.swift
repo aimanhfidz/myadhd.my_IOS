@@ -46,6 +46,9 @@ struct HomeScreen: View {
     /// Settings is on, and the card is then exactly what it was.
     var meetings: MeetingReader? = nil
 
+    /// Pulling the card down — see `CalendarScreen.onRefresh`.
+    var onRefresh: (() async -> Void)? = nil
+
     /// `#btn-settings`, `#btn-start-dump` / `#tab-add`, and the row tap
     /// (`goToNext`). Handed in because none of the three is home's to do.
     var openSettings: () -> Void
@@ -74,6 +77,7 @@ struct HomeScreen: View {
                     .frame(maxWidth: .infinity)
                 }
                 .scrollIndicators(.hidden)
+                .refreshable { await onRefresh?() }
             }
         }
         .padding(.horizontal, Theme.gutter(UIScreen.main.bounds.width))

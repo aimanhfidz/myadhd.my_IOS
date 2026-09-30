@@ -6,15 +6,12 @@
 
        Checks/meetings.sh
 
-   **What this can check and what it deliberately cannot.** An `EKEvent`
-   cannot be built by hand: its identifier and its attendee list are
-   read-only and arrive from a saved row, so the five guards in
-   `EventKitMeetings.meeting(from:)` — cancelled, marked free, declined,
-   the birthday and subscription calendars, and the app's own mirrored
-   calendar — are only ever exercised against a real event store. They
-   are one line each and they are assertions about Apple's API rather
-   than about arithmetic. Everything below them is arithmetic, and that
-   is what is here.
+   **What this can check and what it deliberately cannot.** Everything
+   `GoogleEvents` decides is here, fed JSON in the shape the Calendar API
+   sends — cancelled, marked free, declined, working location, the
+   series id, a day against an instant, and which calendars are read at
+   all. The network half (`Sync/GoogleMeetings.swift`) needs a session,
+   our server and Google, and is not.
 
    There is no app.js to hold this against. The website cannot read a
    diary at all — the Google scope its calendar link holds is allowed to
@@ -83,8 +80,12 @@ final class Report {
 
 /// A source that answers from a fixture, so the reader can be driven with
 /// no event store anywhere near it.
-struct FakeMeetings: MeetingSource {
+final class FakeMeetings: MeetingSource {
     var all: [Meeting]
+    init(all: [Meeting], calendars: Int = 1) {
+        self.all = all
+        self.calendars = calendars
+    }
     /// What the phone would say it is reading. Set per fixture, because
     /// the interesting case is a healthy count beside an empty `all`.
     var calendars = 1
@@ -162,6 +163,7 @@ struct MeetingChecks {
         dropsWhatHasBecomeATask(r)
         readsOnlyWhenItMay(r)
         becomesAnOrdinaryTask(r)
+        readsWhatGoogleSends(r)
 
         print("\n---")
         if r.failures.isEmpty {
@@ -179,7 +181,7 @@ struct MeetingChecks {
         r.open("the local day and the local clock")
 
         let start = local(2026, 9, 24, 9, 30)
-        let made = EventKitMeetings.make(id: "e1",
+        let made = GoogleEvents.make(id: "e1",
                                          title: "Sprint review",
                                          start: start,
                                          end: start.addingTimeInterval(3600),
@@ -195,7 +197,7 @@ struct MeetingChecks {
            everywhere east of Greenwich, and gets right here — so it is
            the one worth stating. */
         let early = local(2026, 9, 24, 0, 30)
-        let atMidnight = EventKitMeetings.make(id: "e2", title: "Oncall handover",
+        let atMidnight = GoogleEvents.make(id: "e2", title: "Oncall handover",
                                                start: early,
                                                end: early.addingTimeInterval(1800),
                                                isAllDay: false,
@@ -203,7 +205,7 @@ struct MeetingChecks {
         r.equal("00:30 is on its own local day", atMidnight?.when ?? "nil", "2026-09-24")
         r.equal("and reads as half past midnight", atMidnight?.at ?? "nil", "00:30")
 
-        let allDay = EventKitMeetings.make(id: "e3", title: "Offsite",
+        let allDay = GoogleEvents.make(id: "e3", title: "Offsite",
                                            start: local(2026, 9, 25),
                                            end: local(2026, 9, 26),
                                            isAllDay: true,
@@ -212,14 +214,14 @@ struct MeetingChecks {
         r.yes("and says so", allDay?.isAllDay ?? false)
 
         r.equal("the title is trimmed the way a task's is",
-                EventKitMeetings.make(id: "e4", title: "   Standup  ",
+                GoogleEvents.make(id: "e4", title: "   Standup  ",
                                       start: start, end: nil, isAllDay: false,
                                       calendarTitle: "Work")?.title ?? "nil",
                 "Standup")
 
         let long = String(repeating: "a", count: 300)
         r.equal("and capped at normalizeTask's 160",
-                String(EventKitMeetings.make(id: "e5", title: long, start: start,
+                String(GoogleEvents.make(id: "e5", title: long, start: start,
                                              end: nil, isAllDay: false,
                                              calendarTitle: "Work")?.title.count ?? -1),
                 "160")
@@ -235,7 +237,7 @@ struct MeetingChecks {
 
         let start = local(2026, 9, 24, 9, 0)
         func length(_ minutes: Double?, allDay: Bool = false) -> Int {
-            EventKitMeetings.length(start: start,
+            GoogleEvents.length(start: start,
                                     end: minutes.map { start.addingTimeInterval($0 * 60) },
                                     isAllDay: allDay)
         }
@@ -256,7 +258,7 @@ struct MeetingChecks {
         r.open("what never becomes a row")
 
         let start = local(2026, 9, 24, 9, 0)
-        let blank = EventKitMeetings.make(id: "e6", title: "   ", start: start,
+        let blank = GoogleEvents.make(id: "e6", title: "   ", start: start,
                                           end: nil, isAllDay: false,
                                           calendarTitle: "Work")
         /* A nameless block on an hour grid says nothing and cannot be
@@ -264,7 +266,7 @@ struct MeetingChecks {
         r.equal("an event with no title at all", blank == nil ? "nil" : "drawn", "nil")
 
         r.equal("the calendar the web app writes to is named here once",
-                EventKitMeetings.ownCalendarTitle, "my.adhd")
+                GoogleEvents.ownCalendarTitle, "my.adhd")
     }
 
     // MARK: - 4. the day is one list
@@ -392,7 +394,7 @@ struct MeetingChecks {
                 String(fixture.log.calls.count), "0")
         r.equal("so a day is empty", String(off.on(today).count), "0")
 
-        let denied = reader(.denied)
+        let denied = reader(.needsGoogle)
         denied.enabled = true
         r.equal("a refusal reads nothing either", String(fixture.log.calls.count), "0")
         r.equal("and draws nothing", String(denied.on(today).count), "0")
@@ -436,10 +438,132 @@ struct MeetingChecks {
         r.equal("and forgets the count of what it found",
                 String(counting.found), "0")
 
-        let shut = reader(.denied)
+        let shut = reader(.needsGoogle)
         shut.enabled = true
         r.equal("a refusal counts no calendars", String(shut.calendars), "0")
         r.equal("and no meetings", String(shut.found), "0")
+    }
+
+    // MARK: - 8. what Google sends
+
+    static func readsWhatGoogleSends(_ r: Report) {
+        r.open("what Google sends")
+
+        func event(_ json: String) -> GoogleEvents.Event {
+            try! JSONDecoder().decode(GoogleEvents.Event.self, from: Data(json.utf8))
+        }
+        func read(_ json: String) -> Meeting? {
+            GoogleEvents.meeting(from: event(json), calendarTitle: "me@gmail.com")
+        }
+
+        let timed = read("""
+            {"id":"abc","status":"confirmed","summary":"Test 1",
+             "start":{"dateTime":"2026-10-03T22:00:00+08:00"},
+             "end":{"dateTime":"2026-10-03T23:00:00+08:00"}}
+            """)
+        /* The same instant written in UTC, formatted in this run's own
+           zone by Foundation rather than by the code under test. */
+        let wall = DateFormatter()
+        wall.locale = Locale(identifier: "en_US_POSIX")
+        wall.timeZone = .current
+        wall.dateFormat = "yyyy-MM-dd HH:mm"
+        r.equal("a timed event is drawn", timed?.title ?? "nil", "Test 1")
+        r.equal("for an hour", String(timed?.minutes ?? -1), "60")
+        r.equal("on its local day and clock",
+                "\(timed?.when ?? "nil") \(timed?.at ?? "nil")",
+                wall.string(from: GoogleEvents.parseInstant("2026-10-03T14:00:00Z")!))
+        r.equal("an instant is the same moment in any zone",
+                String(GoogleEvents.parseInstant("2026-10-03T22:00:00+08:00")!.timeIntervalSince1970),
+                String(GoogleEvents.parseInstant("2026-10-03T14:00:00Z")!.timeIntervalSince1970))
+        r.yes("fractional seconds still parse",
+              GoogleEvents.parseInstant("2026-10-03T14:00:00.000Z") != nil)
+
+        let allDay = read("""
+            {"id":"d1","summary":"Offsite","transparency":"opaque",
+             "start":{"date":"2026-10-05"},"end":{"date":"2026-10-06"}}
+            """)
+        r.equal("an all-day event lands on its own date in every zone",
+                allDay?.when ?? "nil", "2026-10-05")
+        r.yes("with no clock", allDay?.at == nil && allDay?.isAllDay == true)
+
+        /* Google's own default for a new all-day event is Free. */
+        let freeDay = read("""
+            {"id":"d2","summary":"Day off","transparency":"transparent",
+             "start":{"date":"2026-10-03"},"end":{"date":"2026-10-04"}}
+            """)
+        r.equal("an all-day event marked Free still draws",
+                freeDay?.when ?? "nil", "2026-10-03")
+
+        func spread(_ json: String) -> [Meeting] {
+            GoogleEvents.meetings(from: event(json), calendarTitle: "me@gmail.com")
+        }
+        let trip = spread("""
+            {"id":"t","summary":"Trip","transparency":"transparent",
+             "start":{"date":"2026-10-05"},"end":{"date":"2026-10-08"}}
+            """)
+        r.equal("a three-day event is on all three days",
+                trip.map(\.when).joined(separator: ","),
+                "2026-10-05,2026-10-06,2026-10-07")
+        r.equal("and each day is its own row",
+                String(Set(trip.map(\.occurrenceID)).count), "3")
+        r.equal("a one-day event is one row", String(spread("""
+            {"id":"o","summary":"One","start":{"date":"2026-10-05"},"end":{"date":"2026-10-06"}}
+            """).count), "1")
+        r.equal("a timed event is never spread", String(spread("""
+            {"id":"l","summary":"Long","start":{"dateTime":"2026-10-05T20:00:00Z"},
+             "end":{"dateTime":"2026-10-07T09:00:00Z"}}
+            """).count), "1")
+
+        let occurrence = read("""
+            {"id":"weekly_20261008T130000Z","recurringEventId":"weekly",
+             "summary":"Standup","start":{"dateTime":"2026-10-08T21:00:00+08:00"}}
+            """)
+        r.equal("an occurrence answers to its series",
+                occurrence?.id ?? "nil", "weekly")
+
+        r.yes("a cancelled event is not drawn", read("""
+            {"id":"c","status":"cancelled","summary":"Gone",
+             "start":{"dateTime":"2026-10-03T09:00:00Z"}}
+            """) == nil)
+        r.yes("nor a timed one marked Free", read("""
+            {"id":"f","transparency":"transparent","summary":"Maybe",
+             "start":{"dateTime":"2026-10-03T09:00:00Z"}}
+            """) == nil)
+        r.yes("nor one you declined", read("""
+            {"id":"n","summary":"Their meeting","start":{"dateTime":"2026-10-03T09:00:00Z"},
+             "attendees":[{"email":"a@x","responseStatus":"accepted"},
+                          {"self":true,"responseStatus":"declined"}]}
+            """) == nil)
+        r.yes("but one somebody else declined still is", read("""
+            {"id":"y","summary":"Ours","start":{"dateTime":"2026-10-03T09:00:00Z"},
+             "attendees":[{"email":"a@x","responseStatus":"declined"},
+                          {"self":true,"responseStatus":"accepted"}]}
+            """) != nil)
+        r.yes("nor where you are working from", read("""
+            {"id":"w","eventType":"workingLocation","summary":"Home",
+             "start":{"date":"2026-10-03"}}
+            """) == nil)
+
+        func cal(_ json: String) -> GoogleEvents.CalendarEntry {
+            try! JSONDecoder().decode(GoogleEvents.CalendarEntry.self, from: Data(json.utf8))
+        }
+        let own = "abc123@group.calendar.google.com"
+        r.yes("your primary calendar is read",
+              GoogleEvents.reads(cal(#"{"id":"me@gmail.com","summary":"me@gmail.com","accessRole":"owner","selected":true}"#), own: own))
+        r.yes("a calendar with no selected flag is read",
+              GoogleEvents.reads(cal(#"{"id":"work@group.calendar.google.com","summary":"Work"}"#), own: own))
+        r.yes("the my.adhd calendar is not, by id",
+              !GoogleEvents.reads(cal(#"{"id":"abc123@group.calendar.google.com","summary":"Renamed"}"#), own: own))
+        r.yes("nor by name",
+              !GoogleEvents.reads(cal(#"{"id":"zzz@group.calendar.google.com","summary":"my.adhd"}"#), own: nil))
+        r.yes("nor one unticked in Google Calendar",
+              !GoogleEvents.reads(cal(#"{"id":"x@group.calendar.google.com","summary":"X","selected":false}"#), own: own))
+        r.yes("nor holidays",
+              !GoogleEvents.reads(cal(#"{"id":"en.malaysia#holiday@group.v.calendar.google.com","summary":"Holidays"}"#), own: own))
+        r.yes("nor free/busy only",
+              !GoogleEvents.reads(cal(#"{"id":"boss@x.com","summary":"Boss","accessRole":"freeBusyReader"}"#), own: own))
+        r.equal("a renamed calendar shows the name you gave it",
+                cal(#"{"id":"a","summary":"Theirs","summaryOverride":"Mine"}"#).title, "Mine")
     }
 
     // MARK: - 7. the task it becomes

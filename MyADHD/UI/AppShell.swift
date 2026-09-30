@@ -42,17 +42,24 @@ struct AppShell: View {
     @State private var buffer = DumpBuffer()
     @State private var importer = LegacyImport()
 
-    /// The meetings already on this phone. One reader for the whole app,
-    /// so home and the calendar agree about the day and only one
-    /// `EKEventStore` is ever built. It reads nothing at all until the
-    /// switch in Settings is on.
-    @State private var meetings = MeetingReader()
+    /// The meetings on your Google Calendar. One reader for the whole
+    /// app, so home and the calendar agree about the day. It asks Google
+    /// nothing at all until the switch in Settings is on. Built in `init`
+    /// because it asks with the same `Session` the account uses — two
+    /// sessions would each rotate the refresh token under the other.
+    @State private var meetings: MeetingReader
 
     /// The account. `Session` is the Keychain record and can be built
     /// straight away; the other two need `store`, so they are made in
     /// `boot()` like the bridge. Signed out, all three are inert — the
     /// app works exactly the same, which is the point.
-    @State private var session = Session()
+    @State private var session: Session
+
+    init() {
+        let session = Session()
+        _session = State(initialValue: session)
+        _meetings = State(initialValue: MeetingReader(source: GoogleMeetings(session: session)))
+    }
     @State private var auth: AuthFlow?
     @State private var cloud: CloudSync?
 
@@ -117,12 +124,9 @@ struct AppShell: View {
             if phase == .active {
                 returned()
                 cloud?.sceneBecameActive()
-                /* A refusal can be taken back in Settings, and an
-                   invitation can arrive while the app is in the
-                   background on a phone that then does not fire
-                   EKEventStoreChanged at us. Coming back to the front is
-                   the cheapest moment to ask again. */
-                meetings.refresh()
+                /* Google tells us nothing when an event moves, so coming
+                   back to the front is the moment to ask again. */
+                meetings.fetchRemote()
             } else {
                 cloud?.sceneResigned()
             }
@@ -195,7 +199,8 @@ struct AppShell: View {
                            onClose: { settingsUp = false },
                            accountCard: accountCard,
                            isSignedIn: session.signedIn,
-                           meetings: meetings)
+                           meetings: meetings,
+                           connectGoogle: { await connectGoogle() })
                 /* The theme toggle lives on this screen, and a cover does
                    not re-read the scheme set on the shell behind it: flip
                    to light in here and the colours went light while the
@@ -215,11 +220,13 @@ struct AppShell: View {
             HomeScreen(store: store,
                        themeStore: themeStore,
                        meetings: meetings,
+                       onRefresh: { await pullToRefresh() },
                        openSettings: { settingsUp = true },
                        openComposer: { openComposer() },
                        goToLists: { go(to: .lists) })
         case .calendar:
-            CalendarScreen(store: store, toasts: toasts, meetings: meetings)
+            CalendarScreen(store: store, toasts: toasts, meetings: meetings,
+                           onRefresh: { await pullToRefresh() })
         case .lists:
             if store.doc.view == "matrix" {
                 MatrixScreen(store: store,
@@ -311,6 +318,12 @@ struct AppShell: View {
         sync.wakeAtLaunch()
         auth = flow
         cloud = sync
+
+        /* Signing in is what gives the calendar read a token, and signing
+           out takes it away — either way, the meetings on screen belong
+           to the account that was there before. */
+        session.onChange { _ in Task { await meetings.pull() } }
+        meetings.fetchRemote()
     }
 
     /// Coming back to the front. The drain goes first so that the ticks a
@@ -331,6 +344,16 @@ struct AppShell: View {
         takeInbox()
     }
 
+    /// Pulling a screen down. Both halves at once, because neither waits
+    /// on the other: the lists from the other devices, and the meetings
+    /// from this phone's calendar accounts. `CloudSync` sits still when
+    /// nobody is signed in, so there is nothing to guard.
+    private func pullToRefresh() async {
+        let phone = Task { await meetings.pull() }
+        await cloud?.now()
+        await phone.value
+    }
+
     /// Settings draws the card; the shell owns the objects behind it.
     /// Nil until `boot()` has run, which is the one frame where settings
     /// cannot be open anyway.
@@ -341,7 +364,8 @@ struct AppShell: View {
                                 session: session,
                                 auth: auth,
                                 cloud: cloud,
-                                toasts: toasts))
+                                toasts: toasts,
+                                meetings: meetings))
         }
     }
 
@@ -394,6 +418,18 @@ struct AppShell: View {
 
     private func go(to next: AppTab) {
         tab = next
+        if next == .calendar { meetings.fetchRemote() }
+    }
+
+    /// The Settings card's way to Google: the same sign-in the account
+    /// card starts, which now carries the calendar read scope. The
+    /// session's change hook does the fetch when the tokens land.
+    private func connectGoogle() async {
+        guard let auth else { return }
+        if await auth.signIn() {
+            toasts.show(Copy.Account.signedIn)
+            await cloud?.now()
+        }
     }
 
     /// A tapped notification. Settings is a cover over the tabs, so a tab

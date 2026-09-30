@@ -529,22 +529,28 @@ enum Copy {
     /// sentence says what happens rather than what the feature is called.
     enum Meetings {
         static let switchTitle = "Show my meetings"
-        static let switchNote = "Meetings already on this phone show up beside your tasks."
+        static let switchNote = "Meetings on your Google Calendar show up beside your tasks."
 
-        /// iOS shows its prompt once and never again, so a refusal is a
-        /// dead end unless the row says where the way back is.
-        static let deniedNote = "my.adhd cannot see your calendar. iOS only asks once, so Settings is the way back."
+        /// On, and nobody signed in: there is no Google account to ask.
+        static let signedOutNote = "Sign in with Google to see the meetings on your calendar."
+
+        /// Signed in on a grant that cannot read the diary — linked before
+        /// the read scope was asked for, or revoked since. Google's consent
+        /// screen shows the calendar permission as a box of its own, and
+        /// leaving it unticked lands here too.
+        static let needsGoogleNote = "Google has not let my.adhd read your calendar yet. Connect it again and tick the box that allows it."
+        static let connect = "Connect Google Calendar"
+
+        /// The way back to Settings, which `RemindersCard` still uses.
         static let openSettings = "Open Settings"
 
         /// What the switch cannot say on its own: it is on, so why is the
         /// day still empty? Two numbers separate the two answers.
         ///
-        /// No calendars means this phone has nothing to read — a Google
-        /// account that lives only in the Google Calendar app and was
-        /// never added under iOS Settings is invisible to every other app
-        /// on the phone, this one included. Calendars but no meetings
-        /// means the read worked and the window or the filters are what
-        /// to look at next.
+        /// No calendars means Google gave us nothing to read — every one
+        /// hidden, or only holidays and birthdays. Calendars but no
+        /// meetings means the read worked and the window or the filters
+        /// are what to look at next.
         static func readNote(_ calendars: Int, _ meetings: Int) -> String {
             let seen = calendars == 1 ? "1 calendar" : "\(calendars) calendars"
             let got = meetings == 1 ? "1 meeting" : "\(meetings) meetings"
@@ -572,6 +578,10 @@ enum Copy {
         /// An all-day meeting has no length worth printing, so the line
         /// is only where it came from.
         static func allDayMeta(calendar: String) -> String { calendar }
+
+        /// Under the counts, because the filters are the next thing to
+        /// look at when a meeting you expected is not there.
+        static let footnote = "All-day events always show. Otherwise only busy time does: events marked Free, declined invites, birthdays and holidays stay out."
     }
 
     // MARK: - Nudges and reminders (Reminders.swift, NudgePlan.swift)

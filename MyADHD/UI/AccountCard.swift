@@ -75,6 +75,11 @@ struct AccountCard: View {
     /// nil until the calendar phase exists — see the file header.
     var calendar: AccountCalendar?
 
+    /// The meetings on this phone. `Sync now` fetches them too — a
+    /// Google event added or deleted elsewhere is otherwise only seen
+    /// when iOS gets round to fetching the account on its own.
+    var meetings: MeetingReader? = nil
+
     /// `el.acctBtn.disabled = true; textContent = 'Taking you to Google…'`
     /// (app.js:3699-3700). Session-lived and deliberately not on the
     /// store: it describes one press.
@@ -398,10 +403,16 @@ struct AccountCard: View {
         let before = store.doc.tasks.count
         let linked = calendar?.connected == true
 
+        /* The meetings run beside the lists, not after them: they come
+           off this phone's own calendar accounts, and nothing the lists
+           bring down changes what they find. */
+        let phone = Task { await meetings?.pull() }
+
         await cloud.now()
 
         let listsBroke = cloud.phase == .error
         if linked, !listsBroke { await calendar?.syncNow() }
+        await phone.value
 
         if listsBroke {
             toasts.show(Copy.Account.listsUnreachable)

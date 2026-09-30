@@ -170,6 +170,10 @@ struct CalendarScreen: View {
     /// panes then draw exactly as they did before it existed.
     var meetings: MeetingReader? = nil
 
+    /// Pulling the scroller down. Handed in because what a refresh
+    /// reaches — the account, the phone's calendars — is the shell's.
+    var onRefresh: (() async -> Void)? = nil
+
     var today: String = WebDates.dayKey()
 
     /// Whether this screen draws its own header — the name and the pill.
@@ -244,6 +248,7 @@ struct CalendarScreen: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .scrollIndicators(.hidden)
+                .refreshable { await onRefresh?() }
                 /* Once a day is airborne the finger belongs to the grid.
                    The 320ms hold and its 8pt of slop mean a flick was
                    already read as a scroll and called the lift off, so

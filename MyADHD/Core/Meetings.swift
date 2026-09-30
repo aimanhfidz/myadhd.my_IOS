@@ -6,33 +6,34 @@
    an hour of Thursday is gone. The lists never knew about any of that,
    so a day that was full could still read as empty.
 
-   **Why this is EventKit and not Google.** The web app's calendar link
-   asks for `calendar.app.created`, a scope that can only touch the
-   secondary `my.adhd` calendar it made — Google will not serve it a read
-   of a real diary, by design. Reading one from a browser means a
-   sensitive scope, a verification review, a hundred-user cap and a
-   diary-reading token sitting in `localStorage`. None of that applies
-   here: the account is already in iOS Settings, the invitation is
-   already in the phone's own calendar database, and one system prompt
-   reads it. It also picks up iCloud, Exchange and work calendars, which
-   the Google path never could.
+   **Why this is Google and not the phone's calendar.** It used to be
+   EventKit, which reads the iPhone's own calendar database — and that
+   database only hears about a Google change when iOS next fetches the
+   account, on a schedule the app cannot see or hurry. An event added in
+   Google Calendar did not appear, and a deleted one stayed drawn, until
+   iOS got round to it. So this asks Google itself, over the Calendar
+   API, every time a refresh is asked for.
+
+   **The token is the one the calendar link already holds.** Signing in
+   hands Google's refresh token to `/api/link-google`, and it never comes
+   back to this device; `/api/gcal-token` spends it and returns an access
+   token that dies in an hour. Reading a diary needs `calendar.readonly`
+   on that grant as well as the `calendar.app.created` the push uses
+   (`AuthFlow.scopes`). A grant from before that scope was added answers
+   403, and the Settings card asks for one more sign-in.
 
    **Nothing here is stored.** Meetings are not tasks, are not written to
    `myadhd.v1`, are not synced to Supabase and are not in the widget
-   snapshot. EventKit is local and instant, so a cache buys nothing; and
-   the store round-trips to the web app and to every other device, where
-   this phone's diary has no business going.
+   snapshot. They live in memory for as long as the app does, and a cold
+   launch asks Google again.
 
-   **EventKit stays behind `MeetingSource`.** The views take meetings,
-   never an event store, so they can still be rendered to a PNG on a Mac
-   by `swiftc` and `ImageRenderer` with a fixture source — which is how
-   every widget tile in this project was checked. A view that reached for
-   `EKEventStore` would take the whole calendar screen out of that
-   harness.
+   **Google stays behind `MeetingSource`.** The views take meetings,
+   never a network client, so they can still be rendered to a PNG on a
+   Mac by `swiftc` and `ImageRenderer` with a fixture source — which is
+   how every widget tile in this project was checked.
    ============================================================ */
 
 import Foundation
-import EventKit
 import Observation
 
 // MARK: - one meeting
@@ -44,9 +45,9 @@ import Observation
 /// without learning a second date format.
 struct Meeting: Equatable, Identifiable {
 
-    /// `EKEvent.eventIdentifier`. Stable for the event, and the same for
-    /// every occurrence of a repeating one — so it is a handle on the
-    /// series, not on the Thursday.
+    /// Google's `recurringEventId` for an occurrence of a repeating
+    /// event, its own `id` otherwise — so it is a handle on the series,
+    /// not on the Thursday, and a task made from one claims by day.
     var id: String
 
     var title: String
@@ -77,155 +78,192 @@ struct Meeting: Equatable, Identifiable {
 
 // MARK: - where meetings come from
 
-/// The seam. `EventKitMeetings` is the real one; a check or a PNG render
+/// The seam. `GoogleMeetings` is the real one; a check or a PNG render
 /// hands in a fixture instead.
-protocol MeetingSource {
-    /// Every meeting between two day keys, inclusive.
+///
+/// A read is two halves on purpose. `fetch` goes to the network and
+/// keeps what it found; `meetings(from:to:)` answers from that, at once,
+/// so a view never waits on Google to draw.
+@MainActor
+protocol MeetingSource: AnyObject {
+    /// Every meeting between two day keys, inclusive, from the last fetch.
     func meetings(from: String, to: String) -> [Meeting]
 
-    /// How many of this phone's calendars a read actually draws from.
-    /// Nothing decides anything on it — it is the number the switch
-    /// shows, so that "on, and still empty" can be told apart from "on,
-    /// and there is nothing on this phone to read". The second is an
-    /// account missing from iOS Settings and not a fault in here, and
-    /// until this line existed there was no way to see which one it was.
+    /// How many calendars the last fetch drew from. Nothing decides
+    /// anything on it — it is the number the switch shows, so that "on,
+    /// and still empty" can be told apart from "on, and there is nothing
+    /// to read".
     func calendarsRead() -> Int
+
+    /// What the last fetch was allowed to do.
+    var access: MeetingAccess { get }
+
+    /// Go and ask. Returns when the answer is in, or when it failed.
+    func fetch(from: String, to: String) async
 }
 
-/// What iOS will let us do, flattened to the three cases the UI has a
-/// different sentence for.
-enum MeetingAccess {
-    /// Never asked. The switch may still ask.
-    case notDetermined
+extension MeetingSource {
+    /// A fixture has nothing to ask and is always allowed.
+    var access: MeetingAccess { .granted }
+    func fetch(from: String, to: String) async {}
+}
+
+/// What Google will let us do, flattened to the cases the Settings card
+/// has a different sentence for.
+enum MeetingAccess: Equatable {
+    /// Nobody is signed in, so there is no Google account to ask.
+    case signedOut
+    /// Signed in, and Google will not let us read the diary: the account
+    /// never linked a calendar, revoked it, or signed in before the read
+    /// scope was asked for. One more sign-in fixes all three.
+    case needsGoogle
     /// Asked and given.
     case granted
-    /// Asked and refused, or refused by a profile. iOS will not show the
-    /// prompt a second time, so the only way back is Settings.
-    case denied
 }
 
-// MARK: - EventKit
+// MARK: - Google's shapes, and what counts
 
-struct EventKitMeetings: MeetingSource {
+/// Everything about a Google event that is judgement or arithmetic rather
+/// than network, apart from `GoogleMeetings` (Sync/GoogleMeetings.swift)
+/// so `Checks/meetings.sh` can reach it with no session, no server and no
+/// Google. The check decodes real API-shaped JSON into these types and
+/// holds each rule to it.
+enum GoogleEvents {
 
-    /// The calendar the web app writes YOUR OWN dated tasks to. Reading
-    /// it back in would turn every task into a meeting and draw the whole
-    /// list twice — once as itself and once as somebody else's booking.
-    /// It is matched by name because that is all EventKit can see of it:
-    /// the `myadhdId` the web app stamps on each event lives in
-    /// `extendedProperties`, which is Google's API and not the phone's.
+    /// The calendar the app writes YOUR OWN dated tasks to. Reading it
+    /// back in would turn every task into a meeting and draw the whole
+    /// list twice. Matched by the id `/api/gcal-token` returns, and by
+    /// name as well for an account where that id was never settled.
     static let ownCalendarTitle = "my.adhd"
 
-    /// Built once. `EKEventStore` is expensive to make and holds the
-    /// change notification we listen to.
-    let store: EKEventStore
-
-    init(store: EKEventStore) { self.store = store }
-
-    static func authorization() -> MeetingAccess {
-        switch EKEventStore.authorizationStatus(for: .event) {
-        case .fullAccess:              return .granted
-        case .notDetermined:           return .notDetermined
-        /* `.writeOnly` is a real answer on iOS 17 and it is a no for us:
-           it can add an event and cannot see one. Treated as a refusal
-           rather than as "ask again", because asking again shows
-           nothing. */
-        default:                       return .denied
-        }
+    struct CalendarEntry: Decodable {
+        var id: String
+        var summary: String?
+        var summaryOverride: String?
+        var accessRole: String?
+        var selected: Bool?
+        var hidden: Bool?
+        var title: String { summaryOverride ?? summary ?? id }
     }
 
-    /// There is no read-only request. Full access IS the read one on
-    /// iOS 17 — write-only is the lesser grant, and it cannot read.
-    static func requestAccess() async -> MeetingAccess {
-        let store = EKEventStore()
-        do {
-            let ok = try await store.requestFullAccessToEvents()
-            return ok ? .granted : .denied
-        } catch {
-            return .denied
-        }
-    }
+    /// Whether this app looks at a calendar at all. Its own function so
+    /// the count in Settings and the read cannot disagree.
+    static func reads(_ c: CalendarEntry, own: String?) -> Bool {
+        // Your own tasks, mirrored out by the calendar push. See above.
+        if c.id == own || c.title == ownCalendarTitle { return false }
 
-    func meetings(from: String, to: String) -> [Meeting] {
-        guard Self.authorization() == .granted,
-              let start = WebDates.keyToDate(from),
-              let endDay = WebDates.keyToDate(to) else { return [] }
+        /* Unticked or hidden in Google Calendar: you have already said
+           you do not want to look at it. */
+        if c.selected == false || c.hidden == true { return false }
 
-        /* The predicate's end is an instant, and `to` is a whole day, so
-           it runs to the start of the day after — otherwise everything
-           after midnight on the last day is missed. */
-        let end = WebDates.addDays(endDay, 1)
+        /* Holidays, birthdays, week numbers — Google's own subscribed
+           calendars, all under this domain. Facts about the date, not
+           things on your day, and they would dot every square. */
+        if c.id.hasSuffix("@group.v.calendar.google.com") { return false }
 
-        let found = store.events(
-            matching: store.predicateForEvents(withStart: start, end: end, calendars: nil)
-        )
-
-        var out: [Meeting] = []
-        for event in found {
-            guard let one = Self.meeting(from: event) else { continue }
-            out.append(one)
-        }
-        return out
-    }
-
-    func calendarsRead() -> Int {
-        guard Self.authorization() == .granted else { return 0 }
-        return store.calendars(for: .event).filter(Self.reads).count
-    }
-
-    /// Whether this app looks at a calendar at all — the judgement that
-    /// is about the calendar rather than about one event on it.
-    ///
-    /// It is its own function so that the count above and the filter
-    /// below cannot disagree. A diagnostic that counts a calendar this
-    /// app then ignores is worse than no diagnostic: it says the phone
-    /// is being read when it is not.
-    static func reads(_ calendar: EKCalendar) -> Bool {
-        // Your own tasks, mirrored back by the web app. See above.
-        if calendar.title == ownCalendarTitle { return false }
-
-        /* Birthdays and a subscribed holiday feed are facts about the
-           date, not things on your day. They are also the two that would
-           put something on every single square of the month. */
-        if calendar.type == .birthday || calendar.type == .subscription { return false }
+        /* Free/busy only: Google sends no title, and a row with no title
+           is not a row (see `make`). */
+        if c.accessRole == "freeBusyReader" { return false }
 
         return true
     }
 
-    /// The filter, and the whole of the judgement in this file.
-    ///
-    /// nil means "this is not a commitment and should not draw". Each
-    /// case is a different kind of not-a-commitment, and the order is
-    /// cheapest first.
-    static func meeting(from event: EKEvent) -> Meeting? {
-        guard let calendar = event.calendar, reads(calendar) else { return nil }
+    struct Event: Decodable {
+        struct When: Decodable { var date: String?; var dateTime: String? }
+        struct Attendee: Decodable { var `self`: Bool?; var responseStatus: String? }
+        var id: String?
+        var recurringEventId: String?
+        var status: String?
+        var summary: String?
+        var transparency: String?
+        var eventType: String?
+        var start: When?
+        var end: When?
+        var attendees: [Attendee]?
+    }
 
-        if event.status == .canceled { return nil }
+    /// The filter, and the whole of the judgement about one event. Empty
+    /// means "this is not a commitment and should not draw"; more than one
+    /// is an all-day event that runs over several days, one per day.
+    static func meetings(from e: Event, calendarTitle: String) -> [Meeting] {
+        guard let first = meeting(from: e, calendarTitle: calendarTitle) else { return [] }
+        guard first.isAllDay,
+              let s = e.start?.date, let startDay = WebDates.keyToDate(s),
+              let t = e.end?.date, let endDay = WebDates.keyToDate(t)
+        else { return [first] }
 
-        // Marked Free: on the calendar, deliberately not blocking time.
-        if event.availability == .free { return nil }
+        /* Google's end date is exclusive: a one-day event on the 5th ends
+           on the 6th. Each day it covers gets a row of its own, so a
+           three-day trip is on all three squares rather than only the
+           first. Capped at `longestSpread`. */
+        var out = [first]
+        var day = WebDates.addDays(startDay, 1)
+        while day < endDay && out.count < Self.longestSpread {
+            var next = first
+            next.when = WebDates.dayKey(day)
+            out.append(next)
+            day = WebDates.addDays(day, 1)
+        }
+        return out
+    }
+
+    /// A year of days. Counted from the event's own start, not the
+    /// window's, so a term that began in the summer still reaches this
+    /// week; the reader drops whatever falls outside its window.
+    static let longestSpread = 366
+
+    /// One event, on the day it starts. nil means it does not draw.
+    static func meeting(from e: Event, calendarTitle: String) -> Meeting? {
+        if e.status == "cancelled" { return nil }
+
+        /* Marked Free: on the calendar, deliberately not blocking time —
+           for a timed event. **Not for an all-day one.** Google marks
+           every new all-day event Free unless you change it, so reading
+           that as a choice hid almost every all-day event anybody made.
+           A day off, a trip, a deadline: all of those are things on the
+           day, whatever the availability says. */
+        if e.transparency == "transparent" && e.start?.dateTime != nil { return nil }
+
+        /* Where you are working from, and a contact's birthday: Google
+           keeps both as events, and neither is a thing on your day. */
+        if e.eventType == "workingLocation" || e.eventType == "birthday" { return nil }
 
         // Invited and declined. It is not your Thursday any more.
-        if let me = event.attendees?.first(where: { $0.isCurrentUser }),
-           me.participantStatus == .declined { return nil }
+        if e.attendees?.first(where: { $0.`self` == true })?.responseStatus == "declined" { return nil }
 
-        guard let start = event.startDate else { return nil }
-        guard let id = event.eventIdentifier, !id.isEmpty else { return nil }
+        guard let id = e.recurringEventId ?? e.id, !id.isEmpty else { return nil }
 
-        return make(id: id,
-                    title: event.title ?? "",
-                    start: start,
-                    end: event.endDate,
-                    isAllDay: event.isAllDay,
-                    calendarTitle: calendar.title)
+        let isAllDay: Bool
+        let start: Date
+        let end: Date?
+        if let s = e.start?.dateTime, let d = parseInstant(s) {
+            isAllDay = false
+            start = d
+            end = e.end?.dateTime.flatMap(parseInstant)
+        } else if let s = e.start?.date, let d = WebDates.keyToDate(s) {
+            /* A day, not an instant — read as local midnight so it lands
+               on the same square it has in Google whatever the zone. */
+            isAllDay = true
+            start = d
+            end = e.end?.date.flatMap(WebDates.keyToDate)
+        } else {
+            return nil
+        }
+
+        return make(id: id, title: e.summary ?? "", start: start, end: end,
+                    isAllDay: isAllDay, calendarTitle: calendarTitle)
+    }
+
+    static func parseInstant(_ s: String) -> Date? {
+        let plain = ISO8601DateFormatter()
+        if let d = plain.date(from: s) { return d }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: s)
     }
 
     /// The half of the mapping that is arithmetic rather than API
     /// semantics, over plain values so `Checks/meetings.sh` can reach it.
-    /// An `EKEvent` cannot be built by hand — its identifier and its
-    /// attendees are read-only and arrive from a saved row — so the guards
-    /// above are only ever exercised against a real store, and everything
-    /// that could be quietly wrong lives down here instead.
     static func make(id: String,
                      title rawTitle: String,
                      start: Date,
@@ -255,12 +293,8 @@ struct EventKitMeetings: MeetingSource {
 
     /// Clamped 2...240 like a task's, for the same reason: the hour grid
     /// draws a block this tall, and neither a zero nor a fortnight is a
-    /// height. A meeting that really does run all afternoon is drawn as a
-    /// long one rather than as the rest of the week.
-    ///
-    /// 20 is `normalizeTask`'s own default, used here for an event with
-    /// no end at all — the same number the app already means by we were
-    /// not told.
+    /// height. 20 is `normalizeTask`'s own default, for an event with no
+    /// end at all.
     static func length(start: Date, end: Date?, isAllDay: Bool) -> Int {
         guard !isAllDay, let end else { return 20 }
         let minutes = Int((end.timeIntervalSince(start) / 60).rounded())
@@ -274,47 +308,47 @@ struct EventKitMeetings: MeetingSource {
 
 // MARK: - what the screens hold
 
-/// One of these lives on the calendar screen and one on home. It holds
-/// the window it has read, re-reads when iOS says the database moved, and
-/// answers by day.
-///
-/// **A read only happens when it can succeed.** `refresh()` returns
-/// before asking whenever the switch is off or the permission is not
-/// there, so an empty answer from the source is never ambiguous: it comes
-/// from a store we were allowed to read, and it means there is nothing in
-/// the window. That is what makes it safe to write straight over what was
-/// held — the widget snapshot's never clear on a failed read rule exists
-/// because a keychain read cannot tell those two apart, and this can.
+/// One of these lives in the shell and is handed to home, the calendar
+/// and Settings. It holds the window the source last fetched and answers
+/// by day.
 @MainActor
 @Observable
 final class MeetingReader {
 
     /// How far back and forward a read goes. Yesterday, because the
-    /// agenda's overdue group rides on today and a meeting you missed is
-    /// worth the same glance; sixty days forward, because the month
-    /// pager can be swiped and an empty month you have scrolled to reads
-    /// as a bug.
+    /// agenda's overdue group rides on today; sixty days forward, because
+    /// the month pager can be swiped and an empty month you have
+    /// scrolled to reads as a bug.
     static let daysBack = 1
     static let daysForward = 60
 
-    /// Private, so nothing can read the window without going through a
-    /// guard. `days`, `on(_:)` and the rest are the way in.
+    /// A fetch nobody asked for — launch, the front, the calendar tab —
+    /// is skipped if the last one is younger than this. A pull or `Sync
+    /// now` always goes.
+    static let quietInterval: TimeInterval = 60
+
     private var byDay: [String: [Meeting]] = [:]
     private(set) var access: MeetingAccess
 
     /// How many calendars the last read drew from. Zero until a read has
-    /// happened, and zero again the moment the switch goes off, so it is
-    /// never a number left over from a state the app is no longer in.
+    /// happened, and zero again the moment the switch goes off.
     private(set) var calendars = 0
 
+    /// A fetch is out. Settings shows it rather than a stale number.
+    private(set) var fetching = false
+
     /// Off until somebody turns it on. Persisted beside the calendar's
-    /// other per-phone preferences — which view you like is not a task
-    /// and neither is this (CalendarModes.swift:10-16).
+    /// other per-phone preferences (CalendarModes.swift:10-16).
     var enabled: Bool {
         didSet {
             guard enabled != oldValue else { return }
             defaults.set(enabled, forKey: Self.key)
-            if enabled { refresh() } else { byDay = [:]; calendars = 0 }
+            if enabled {
+                refresh()
+                Task { await pull() }
+            } else {
+                byDay = [:]; calendars = 0
+            }
         }
     }
 
@@ -324,81 +358,64 @@ final class MeetingReader {
     @ObservationIgnored private let clock: () -> Date
     @ObservationIgnored private let authorize: () -> MeetingAccess
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var watching: NSObjectProtocol?
+    @ObservationIgnored private var lastFetch: Date?
 
-    /// `authorize` and `defaults` are seams for `Checks/meetings.sh`,
-    /// which has no event store to ask and no business writing this
-    /// machine's preferences. Everything else uses the defaults and is
-    /// the real thing.
-    init(source: MeetingSource = EventKitMeetings(store: EKEventStore()),
+    /// `authorize` and `defaults` are seams for `Checks/meetings.sh`.
+    /// Left out, `authorize` is whatever the source last found.
+    init(source: MeetingSource,
          clock: @escaping () -> Date = Date.init,
-         authorize: @escaping () -> MeetingAccess = EventKitMeetings.authorization,
+         authorize: (() -> MeetingAccess)? = nil,
          defaults: UserDefaults = .standard)
     {
         self.source = source
         self.clock = clock
-        self.authorize = authorize
+        self.authorize = authorize ?? { [source] in source.access }
         self.defaults = defaults
         self.enabled = defaults.bool(forKey: Self.key)
-        self.access = authorize()
-
-        /* iOS tells us when anything in the database moved — an invitation
-           arriving, an organiser moving the hour, another app writing.
-           That is the whole refresh story; there is nothing to poll. */
-        watching = NotificationCenter.default.addObserver(
-            forName: .EKEventStoreChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
-        }
-
-        /* **The first read has to happen here.** Everything else that
-           triggers one is a change: the switch moving, the event store
-           telling us it moved, the scene becoming active. A cold launch
-           with the switch already on is none of those — `onChange(of:
-           scenePhase)` does not fire for the value a scene starts in — so
-           without this line the day draws empty until something else
-           happens to it, which is the failure that looks like nothing. */
+        self.access = self.authorize()
         refresh()
     }
 
-    deinit {
-        if let watching { NotificationCenter.default.removeObserver(watching) }
-    }
-
-    /// Re-read the window. Cheap enough to call on every foreground: it
-    /// is a local database query, not a network round trip.
+    /// Re-read what the source holds. No network — see `pull()`.
     func refresh() {
         access = authorize()
-        /* Off or refused draws nothing, so it counts nothing either — a
-           leftover count under a switch that is doing nothing would be
-           the one lie this line exists to prevent. */
         guard enabled, access == .granted else { calendars = 0; return }
 
-        let today = WebDates.dayKey(clock())
-        let from = WebDates.addDays(-Self.daysBack, toKey: today)
-        let to = WebDates.addDays(Self.daysForward, toKey: today)
-
+        let (from, to) = window()
         calendars = source.calendarsRead()
         byDay = Dictionary(grouping: source.meetings(from: from, to: to)) { $0.when }
     }
 
-    /// Ask for the permission, then read. Returns what iOS decided, so
-    /// the switch can put itself back if the answer was no.
-    @discardableResult
-    func requestAccess() async -> MeetingAccess {
-        let answer = await EventKitMeetings.requestAccess()
-        access = answer
-        if answer == .granted { refresh() }
-        return answer
+    /// Ask Google, and redraw on the answer. What a pull, `Sync now` and
+    /// turning the switch on call — they wait for it, so the spinner
+    /// comes down on the new day rather than on the old one.
+    func pull() async {
+        guard enabled else { return }
+        let (from, to) = window()
+        fetching = true
+        lastFetch = clock()
+        await source.fetch(from: from, to: to)
+        fetching = false
+        refresh()
+    }
+
+    /// The same, for a moment nobody asked for — so it does not wait, and
+    /// it does not go at all if a fetch landed in the last minute.
+    func fetchRemote() {
+        guard enabled else { return }
+        if let lastFetch, clock().timeIntervalSince(lastFetch) < Self.quietInterval { return }
+        Task { await pull() }
+    }
+
+    private func window() -> (String, String) {
+        let today = WebDates.dayKey(clock())
+        return (WebDates.addDays(-Self.daysBack, toKey: today),
+                WebDates.addDays(Self.daysForward, toKey: today))
     }
 
     // MARK: reading
 
-    /// The whole window, grouped by day, for a caller that would
-    /// otherwise ask about forty-two days one at a time — the month grid.
-    /// Empty whenever `on(_:)` would be, so the guard is in one place.
+    /// The whole window, grouped by day, for the month grid.
     var days: [String: [Meeting]] {
         guard enabled, access == .granted else { return [:] }
         return byDay
@@ -417,17 +434,14 @@ final class MeetingReader {
         }
     }
 
-    /// Everything the window holds, counted. The other half of the line
-    /// under the switch: a healthy calendar count beside a zero here is
-    /// a real read that found nothing, which sends the reader to the
-    /// window and the filters rather than to iOS Settings.
+    /// Everything the window holds, counted — the other half of the line
+    /// under the switch.
     var found: Int {
         guard enabled, access == .granted else { return 0 }
         return byDay.values.reduce(0) { $0 + $1.count }
     }
 
-    /// Whether a day has anything on it — what the month grid's dot asks,
-    /// and cheaper than sorting the day to find out.
+    /// Whether a day has anything on it — what the month grid's dot asks.
     func any(on key: String) -> Bool {
         guard enabled, access == .granted else { return false }
         return !(byDay[key] ?? []).isEmpty
