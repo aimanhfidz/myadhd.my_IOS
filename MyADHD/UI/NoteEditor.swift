@@ -275,7 +275,7 @@ struct NoteEditor: View {
         return VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(note.blocks.enumerated()), id: \.offset) { i, block in
                 HStack(alignment: .top, spacing: 8) {
-                    lead(block, index: i, ordinal: ordinals[i], paper: paper)
+                    lead(block, index: i, ordinal: ordinals[i], paper: paper, font: note.look.font)
                     BlockTextView(
                         index: i,
                         block: block,
@@ -314,7 +314,7 @@ struct NoteEditor: View {
     }
 
     @ViewBuilder
-    private func lead(_ block: NoteBlock, index: Int, ordinal: Int, paper: NotePaper) -> some View {
+    private func lead(_ block: NoteBlock, index: Int, ordinal: Int, paper: NotePaper, font: String) -> some View {
         switch block.type {
         case "check":
             Button {
@@ -327,7 +327,9 @@ struct NoteEditor: View {
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
                             .strokeBorder(block.done ? paper.accent : paper.faint, lineWidth: 2)
                     )
-                    .padding(.top, 4)
+                    .padding(.top, BlockTextView.checkboxTop(
+                        face: .block(type: block.type, font: font),
+                        type: block.type, side: 18))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(block.done ? Copy.Note.tickOff : Copy.Note.notDone)

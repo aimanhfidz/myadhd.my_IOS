@@ -153,13 +153,36 @@ struct BlockTextView: UIViewRepresentable {
          "\(ink.hashValue)"].joined(separator: "|")
     }
 
+    /// The line spacing each block type is set in. Shared with the
+    /// checkbox beside a line, which has to know where the letters landed.
+    static func lineMultiple(_ type: String) -> CGFloat { type == "h" ? 1.2 : 1.35 }
+
+    /// The top inset `makeUIView` gives every block.
+    static let insetTop: CGFloat = 2
+
+    /// How far down a box of `side` points has to sit to be centred on the
+    /// first line's letters.
+    ///
+    /// TextKit puts the extra height a `lineHeightMultiple` adds ABOVE the
+    /// glyphs — measured, not assumed: 15.5pt SF at 1.35 puts the baseline
+    /// at 21.3 against 15.0 at 1.0 — so the words sit low in their line and
+    /// a fixed offset copied from the web's 4px left the box riding above
+    /// them. The target is halfway between the cap height and the x-height,
+    /// which is where a line of mostly lowercase words reads as centred.
+    static func checkboxTop(face: MarksBridge.Face, type: String, side: CGFloat) -> CGFloat {
+        let f = face.regular
+        let baseline = insetTop + f.lineHeight * lineMultiple(type) + f.descender
+        let middle = baseline - (f.capHeight + f.xHeight) / 4
+        return max(0, (middle - side / 2).rounded(.toNearestOrEven))
+    }
+
     // MARK: making it
 
     func makeUIView(context: Context) -> BlockTextInput {
         let view = BlockTextInput()
         view.delegate = context.coordinator
         view.backgroundColor = .clear
-        view.textContainerInset = UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
+        view.textContainerInset = UIEdgeInsets(top: Self.insetTop, left: 0, bottom: 2, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = false
         /* A text view that does not scroll wants its longest line on one
@@ -211,7 +234,7 @@ struct BlockTextView: UIViewRepresentable {
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = Self.alignment(block.align)
-        paragraph.lineHeightMultiple = block.type == "h" ? 1.2 : 1.35
+        paragraph.lineHeightMultiple = Self.lineMultiple(block.type)
 
         /* Only reload when the view is actually holding something else.
            Mid-composition the view is holding a marked range that is not
