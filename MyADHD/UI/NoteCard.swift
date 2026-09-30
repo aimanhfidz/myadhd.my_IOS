@@ -25,6 +25,19 @@
      paper that also moves the edge — to `--line-strong`, because a sheet
      the same colour as the page behind it needs a border you can see.
 
+   **One palette, day and night.** The web darkens every paper at night
+   (a wash over #101018, and a flat #26233A for lavender), and on the
+   phone that turned seven pastels into seven near-blacks you could barely
+   tell apart. So the papers are the daytime ones in both themes — pale
+   sheets, dark ink — and only the page around them goes dark. A note is
+   a piece of paper; it does not need a night mode of its own.
+
+   **The card is the paper.** It used to be a 55% wash of it, and for
+   lavender, the default, no colour at all — so an untouched note was the
+   same colour as the screen behind it. Now every card wears its sheet,
+   lavender included, and carries the paper's own ink rather than the
+   theme's, which on a pale card at night would be light on light.
+
    **The card is not a preview of the note, it is a way back into it.**
    Title, at most two lines of what is under the title, and a foot. The
    preview deliberately skips whatever is already serving as the title:
@@ -58,10 +71,14 @@ struct NotePaper: Equatable {
     var ink: Color
     /// `--note-faint`: the placeholder, the bullet, a ticked-off line.
     var faint: Color
-    /// The index card's ground — `color-mix(--note-paper 55%, --surface)`
-    /// for the six that carry an attribute, and the plain surface for
-    /// lavender, which does not.
+    /// The index card's ground. The sheet itself — see the file header.
     var card: Color
+    /// The card's preview line: the ink, softened.
+    var muted: Color
+    /// A ticked box and a finished line. Brand blue, not the theme's
+    /// accent, which lifts to a pale blue at night and would vanish on
+    /// a pale sheet.
+    var accent: Color
 
     /// sRGB, 0...1 per channel. Plain doubles rather than `Color`,
     /// because `color-mix` is arithmetic and `Color` will not be read
@@ -86,34 +103,38 @@ struct NotePaper: Equatable {
             b: a.b * p + b.b * (1 - p))
     }
 
+    /// `theme` is still taken, and still decides one thing: the edge of
+    /// the white paper, which is the one sheet that can match the page.
     static func of(_ key: String, theme: Theme) -> NotePaper {
-        let dark = theme.dark
-        let surface = RGB(dark ? 0x101018 : 0xFFFFFF)
+        let surface = RGB(0xFFFFFF)
 
         let sheet: RGB
         switch key {
         case "violet": sheet = mix(RGB(0x7B3FE4), 0.22, surface)                 // styles.css:579
-        case "blue":   sheet = mix(RGB(dark ? 0x8B7DFF : 0x4737FF), 0.18, surface)   // :580
+        case "blue":   sheet = mix(RGB(0x4737FF), 0.18, surface)                 // :580
         case "orange": sheet = mix(RGB(0xF75C03), 0.20, surface)                 // :581
         case "red":    sheet = mix(RGB(0xD92D20), 0.15, surface)                 // :582
         case "stone":  sheet = mix(RGB(0x5E5E6A), 0.16, surface)                 // :583
         case "white":  sheet = surface                                           // :584
-        default:       sheet = RGB(dark ? 0x26233A : 0xD1CDFF)                   // lavender, :447/463
+        default:       sheet = RGB(0xD1CDFF)                                     // lavender, :447
         }
 
-        let edge: Color = key == "white"
-            ? theme.lineStrong
-            : (dark ? Color(hex: 0xFFFFFF, opacity: 0.08) : Color(hex: 0x101018, opacity: 0.09))
+        /* White on a white page needs a border you can see; on a dark
+           page it stands out on its own and the dark border would only
+           muddy it. */
+        let edge: Color = key == "white" && !theme.dark
+            ? Color(hex: 0xCFCBE9)
+            : Color(hex: 0x101018, opacity: 0.09)
 
         return NotePaper(
             paper: sheet.color,
             edge: edge,
-            dot: dark ? Color(hex: 0xFFFFFF, opacity: 0.10) : Color(hex: 0x101018, opacity: 0.10),
-            ink: dark ? Color(hex: 0xF3F2FB) : Color(hex: 0x101018),
-            faint: dark ? Color(hex: 0xF3F2FB, opacity: 0.45) : Color(hex: 0x101018, opacity: 0.42),
-            /* `.note-card[data-paper]` — lavender has no attribute, so the
-               card keeps the plain surface for it. */
-            card: key == "lavender" ? theme.surface : mix(sheet, 0.55, surface).color
+            dot: Color(hex: 0x101018, opacity: 0.10),
+            ink: Color(hex: 0x101018),
+            faint: Color(hex: 0x101018, opacity: 0.42),
+            card: sheet.color,
+            muted: Color(hex: 0x101018, opacity: 0.66),
+            accent: Color(hex: 0x4737FF)
         )
     }
 }
@@ -199,7 +220,7 @@ struct NoteCard: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(NoteText.title(note))
                     .font(Font.baloo(15.5, .bold))
-                    .foregroundStyle(theme.ink)
+                    .foregroundStyle(paper.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
 
@@ -212,7 +233,7 @@ struct NoteCard: View {
                         Text(preview)
                             .font(.system(size: 13.5))
                             .lineSpacing(13.5 * 0.45)
-                            .foregroundStyle(theme.muted)
+                            .foregroundStyle(paper.muted)
                             .lineLimit(2)
                             .truncationMode(.tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -222,7 +243,7 @@ struct NoteCard: View {
                     checklist(checks, paper: paper)
                 }
 
-                foot(checks)
+                foot(checks, paper: paper)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 15)
@@ -231,7 +252,7 @@ struct NoteCard: View {
                                                          style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous)
-                    .strokeBorder(theme.line, lineWidth: 1.5)
+                    .strokeBorder(paper.edge, lineWidth: 1.5)
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous))
         }
@@ -249,11 +270,11 @@ struct NoteCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
                     Image(systemName: block.done ? "checkmark.square.fill" : "square")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(block.done ? theme.accent : paper.faint)
+                        .foregroundStyle(block.done ? paper.accent : paper.faint)
                     Text(JSText.trim(block.text))
                         .font(.system(size: 13.5))
                         .strikethrough(block.done, color: paper.faint)
-                        .foregroundStyle(block.done ? paper.faint : theme.muted)
+                        .foregroundStyle(block.done ? paper.faint : paper.muted)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -265,36 +286,37 @@ struct NoteCard: View {
     /// When it was last touched, then how far along the list is, then a
     /// paperclip with a count and a bell with a day — each only when there
     /// is one.
-    private func foot(_ checks: [NoteBlock]) -> some View {
+    private func foot(_ checks: [NoteBlock], paper: NotePaper) -> some View {
         HStack(spacing: 10) {
             Text(WebDates.noteWhen(note.updatedAt))
                 .font(.system(size: 11.5))
-                .foregroundStyle(theme.faint)
+                .foregroundStyle(paper.faint)
 
             if !checks.isEmpty {
                 tag("checklist",
                     Copy.Notes.checkCount(done: checks.filter(\.done).count,
-                                          total: checks.count))
+                                          total: checks.count),
+                    paper: paper)
             }
             if !note.files.isEmpty {
-                tag("paperclip", "\(note.files.count)")
+                tag("paperclip", "\(note.files.count)", paper: paper)
             }
             if let on = note.remindOn,
                let label = WebDates.whenLabel(when: on, at: note.remindAt)
             {
-                tag("bell", label)
+                tag("bell", label, paper: paper)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func tag(_ symbol: String, _ label: String) -> some View {
+    private func tag(_ symbol: String, _ label: String, paper: NotePaper) -> some View {
         HStack(spacing: 4) {
             Image(systemName: symbol)
                 .font(.system(size: 10.5, weight: .medium))
             Text(label)
                 .font(.system(size: 11.5))
         }
-        .foregroundStyle(theme.faint)
+        .foregroundStyle(paper.faint)
     }
 }

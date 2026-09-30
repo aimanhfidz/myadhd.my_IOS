@@ -31,6 +31,15 @@
    would do, which is why it is written out here rather than left to a
    layout.
 
+   **A note opens to be read.** Tapping one on the index used to drop the
+   caret at the end of it with the keyboard up, which is the right thing
+   for a note you are about to add to and the wrong thing for one you
+   opened to look at — the keyboard covered half of it. So an existing
+   note opens with no caret, no toolbar and no keyboard, and a small Edit
+   button in the corner switches to writing. A new note, and one with
+   nothing in it, still open ready to type. Ticking a box works while
+   reading: finishing a list is reading it, not rewriting it.
+
    **Nothing here schedules a notification.** A note's reminder is stored
    and drawn and that is all it has ever done — not in app.js, not in
    sw.js, not in the old shell, whose `Reminders.swift` reads tasks only.
@@ -47,8 +56,13 @@ struct NoteEditor: View {
     let store: AppStore
     let toasts: ToastCenter
     let noteID: String
+    /// A note just made opens ready to type; every other opens to read.
+    var startsEditing: Bool = false
     /// `leaveNote()` — the index is what is underneath.
     var onLeave: () -> Void
+
+    /// Reading or writing. Set by `openOnce`, and by the Edit button.
+    @State private var editing = false
 
     /// `fmtBlock`: the block the format sheet is pointed at, which is the
     /// last one to have taken the caret.
@@ -84,16 +98,19 @@ struct NoteEditor: View {
                 }
                 .background(theme.surface.ignoresSafeArea())
 
-                NoteToolbar(note: note,
-                            paper: paper,
-                            open: sheet,
-                            onPaper: { toggle(.paper) },
-                            onType: { toggle(.format) },
-                            onCheck: { setType("check") },
-                            onClip: { picking = true },
-                            onBell: { toggle(.remind) })
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .padding(.trailing, 12)
+                if editing {
+                    NoteToolbar(note: note,
+                                paper: paper,
+                                open: sheet,
+                                onPaper: { toggle(.paper) },
+                                onType: { toggle(.format) },
+                                onCheck: { setType("check") },
+                                onClip: { picking = true },
+                                onBell: { toggle(.remind) })
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                        .padding(.trailing, 12)
+                        .transition(.opacity)
+                }
 
                 sheetLayer(note)
             }
@@ -131,15 +148,36 @@ struct NoteEditor: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity)
 
-            Button(action: leave) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(theme.surface)
-                    .frame(width: 36, height: 36)
-                    .background(theme.ink, in: Circle())
+            if editing {
+                Button(action: leave) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(theme.surface)
+                        .frame(width: 36, height: 36)
+                        .background(theme.ink, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Copy.Note.done)
+            } else {
+                /* Small on purpose: reading is the point of the screen,
+                   and this is the way out of it for somebody who wants
+                   one. Same footprint as the confirm it stands in for,
+                   so the heading does not shift when it swaps. */
+                Button(action: beginEditing) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12, weight: .bold))
+                        Text(Copy.Note.edit)
+                            .font(Font.baloo(13.5, .bold))
+                    }
+                    .foregroundStyle(theme.accent)
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(theme.wash, in: Capsule())
+                    .overlay(Capsule().strokeBorder(theme.lineStrong, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Copy.Note.done)
         }
         .padding(.horizontal, 20)
         .padding(.top, 6)
@@ -192,7 +230,27 @@ struct NoteEditor: View {
 
     /// `<input maxlength=160>` — 24px, 800, and Enter moves to the first
     /// block rather than doing nothing.
+    @ViewBuilder
     private func title(_ note: NoteItem, paper: NotePaper) -> some View {
+        if !editing {
+            /* No placeholder while reading: a note with no title has its
+               first line doing that job, and a grey "Title" above it would
+               read as something missing. */
+            if !JSText.trim(note.title).isEmpty {
+                Text(note.title)
+                    .font(Font.baloo(24, .heavy))
+                    .kerning(-0.02 * 24)
+                    .foregroundStyle(paper.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(.bottom, 6)
+            }
+        } else {
+            titleField(note, paper: paper)
+        }
+    }
+
+    private func titleField(_ note: NoteItem, paper: NotePaper) -> some View {
         TextField("", text: Binding(
             get: { note.title },
             set: { next in store.editNote(noteID) { $0.title = Normalize.slice(next, 160) } }
@@ -232,10 +290,11 @@ struct NoteEditor: View {
                            fade goes, and the line takes the accent the
                            box beside it is already filled with. Finished
                            work is worth looking at. */
-                        ink: UIColor(block.done ? theme.accent : paper.ink),
+                        ink: UIColor(block.done ? paper.accent : paper.ink),
                         faint: UIColor(paper.faint),
-                        hintText: (i == 0 && block.text.isEmpty) ? Copy.Note.firstBlockHint : nil,
+                        hintText: (editing && i == 0 && block.text.isEmpty) ? Copy.Note.firstBlockHint : nil,
                         focusTarget: focus.target,
+                        editable: editing,
                         onEdit: { text, marks in edit(i, text: text, marks: marks) },
                         onSplit: { at in split(i, at: at) },
                         onMergeBack: { merge(i) },
@@ -251,7 +310,7 @@ struct NoteEditor: View {
            at the end (app.js:5167-5174). Tapping the paper under the
            writing puts you back in the writing. */
         .contentShape(Rectangle())
-        .onTapGesture { tapBelow(note) }
+        .onTapGesture { if editing { tapBelow(note) } }
     }
 
     @ViewBuilder
@@ -262,11 +321,11 @@ struct NoteEditor: View {
                 store.editNote(noteID) { $0.blocks[index].done.toggle() }
             } label: {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(block.done ? theme.accent : Color.clear)
+                    .fill(block.done ? paper.accent : Color.clear)
                     .frame(width: 18, height: 18)
                     .overlay(
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .strokeBorder(block.done ? theme.accent : paper.faint, lineWidth: 2)
+                            .strokeBorder(block.done ? paper.accent : paper.faint, lineWidth: 2)
                     )
                     .padding(.top, 4)
             }
@@ -377,11 +436,13 @@ struct NoteEditor: View {
         fmtBlock = 0
         sheet = nil
 
-        guard JSText.trim(note.title).isEmpty && JSText.trim(note.body).isEmpty else {
-            let last = max(0, note.blocks.count - 1)
-            let end = note.blocks.indices.contains(last)
-                ? note.blocks[last].text.utf16.count : 0
-            focus.target = .block(index: last, offset: end)
+        let blank = JSText.trim(note.title).isEmpty && JSText.trim(note.body).isEmpty
+        /* Read, unless there is nothing to read or it was just made. */
+        guard startsEditing || blank else { return }
+        editing = true
+
+        guard blank else {
+            caretAtEnd(note)
             return
         }
 
@@ -400,6 +461,21 @@ struct NoteEditor: View {
     /// genuine failure stops rather than fights the screen.
     private static let focusRetry: UInt64 = 50_000_000
     private static let focusAttempts = 15
+
+    /// The Edit button: writing, with the caret where `openNote` puts it
+    /// on the web — the end of the last line.
+    private func beginEditing() {
+        guard let note else { return }
+        withAnimation(Theme.ease(0.18)) { editing = true }
+        caretAtEnd(note)
+    }
+
+    private func caretAtEnd(_ note: NoteItem) {
+        let last = max(0, note.blocks.count - 1)
+        let end = note.blocks.indices.contains(last)
+            ? note.blocks[last].text.utf16.count : 0
+        focus.target = .block(index: last, offset: end)
+    }
 
     /// `leaveNote()` = `closeNote()` + back to the index. The blank note
     /// is dropped inside `closeNote`.

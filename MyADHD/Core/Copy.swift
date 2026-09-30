@@ -739,6 +739,8 @@ enum Copy {
     enum Note {
         static let back = "Back to notes"              // app.html:516
         static let done = "Save and close"             // app.html:520
+        /// Reading a note, the one way into writing it again.
+        static let edit = "Edit"                       // app.js:1520
 
         /// A note with no title is still a Note here and Untitled on the
         /// card. That is app.js:4575 against app.js:4365, not a slip.

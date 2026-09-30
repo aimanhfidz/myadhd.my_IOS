@@ -49,7 +49,9 @@ struct NotesScreen: View {
     /// Which note is being written, if any. `openNoteId` on the web,
     /// wrapped because `fullScreenCover(item:)` wants an identity and a
     /// bare `String` has no business having one module-wide.
-    struct Open: Identifiable { let id: String }
+    /// `fresh` is a note just made, which opens ready to type; every
+    /// other opens to be read.
+    struct Open: Identifiable { let id: String; var fresh = false }
     @State private var openNote: Open?
 
     var body: some View {
@@ -106,7 +108,8 @@ struct NotesScreen: View {
         }
         .background(theme.surface.ignoresSafeArea())
         .fullScreenCover(item: $openNote) { open in
-            NoteEditor(store: store, toasts: toasts, noteID: open.id) { openNote = nil }
+            NoteEditor(store: store, toasts: toasts, noteID: open.id,
+                       startsEditing: open.fresh) { openNote = nil }
                 .environment(\.theme, theme)
                 .preferredColorScheme(theme.dark ? .dark : .light)
         }
@@ -122,7 +125,7 @@ struct NotesScreen: View {
     /// is on screen, so a crash between the two leaves a blank note and
     /// not a lost one. It is `closeNote` that takes the blank away again.
     private func newNote() {
-        openNote = Open(id: store.newNote().id)
+        openNote = Open(id: store.newNote().id, fresh: true)
     }
 
     // MARK: the two shapes

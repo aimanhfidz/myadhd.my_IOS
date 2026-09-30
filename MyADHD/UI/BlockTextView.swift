@@ -119,6 +119,10 @@ struct BlockTextView: UIViewRepresentable {
     let hintText: String?
     /// The focus request as the editor's body last saw it.
     let focusTarget: NoteFocus.Target?
+    /// False while the note is being read. The text can still be
+    /// selected and copied, and a link or a number in it can be tapped —
+    /// which a text view only offers while it cannot be typed in.
+    var editable: Bool = true
 
     /// `readNoteFromDom` → `touchNote`.
     var onEdit: (String, [NoteMark]) -> Void
@@ -188,6 +192,12 @@ struct BlockTextView: UIViewRepresentable {
     func updateUIView(_ view: BlockTextInput, context: Context) {
         let c = context.coordinator
         c.parent = self
+
+        if view.isEditable != editable {
+            if !editable { view.resignFirstResponder() }
+            view.isEditable = editable
+            view.dataDetectorTypes = editable ? [] : [.link, .phoneNumber]
+        }
 
         /* Hung here rather than in `makeUIView`: these two close over the
            representable, and the representable is a fresh value on every
