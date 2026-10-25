@@ -609,14 +609,21 @@ taken apart on 2026-10-26:
   my.adhd closed, a notification from my.adhd) **but iOS does not install
   them.** Seen on iOS 27.0.1 on 2026-10-26: the shortcut imported, the
   Automation tab stayed empty, and the lock screen never moved after a new
-  task. `ShortcutSetupPage` therefore keeps the hand-built steps, all three.
+  task. `ShortcutSetupPage` therefore keeps hand-built steps: two of them,
+  07:00 and the notification one, with "Is Closed" as the fallback for
+  anyone with notifications off (tested with it switched off: swipe home
+  and side button both updated the lock screen).
 - **Locking the phone inside the app is not "closed".** So on
   `willResignActive`, if the board has moved since the last drawing and the
   shortcut has confirmed at least once, `MyADHD/WallpaperPing.swift` posts
   one passive notification ("Updating your lock screen"). The notification
   automation (Body contains "lock screen") runs the shortcut, and
-  `WallpaperConfirmIntent` takes the notification down again. Change that
-  body text and every hand-made automation stops matching.
+  `WallpaperModeIntent`, its first step, takes the notification down
+  again. Change that body text and every hand-made automation stops
+  matching.
+- **The picture goes to Shortcuts as bytes, never as a file URL.** From
+  a locked phone, a file URL arrived empty ("Unable to Set Wallpaper.
+  Please provide an image").
 
 `AppConfig.wallpaperShortcutURL` takes the iCloud link shared from that
 copy (Share → Copy iCloud Link).

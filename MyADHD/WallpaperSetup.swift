@@ -537,13 +537,22 @@ struct ShortcutSetupPage: View {
                     step(1, "Add the shortcut",
                          "Three actions, in this order: Update my.adhd wallpaper → Set Wallpaper Photo → Confirm my.adhd wallpaper. The last one is how this page knows it worked.") {}
                 }
+                /* Two automations, not three. The notification one covers
+                   every way out of the app — home, switching, and the side
+                   button, which "Is Closed" never sees — so "Is Closed" is
+                   only the fallback for somebody with notifications off.
+                   Tested on a device 2026-10-26 with "Is Closed" switched
+                   off: both exits updated the lock screen. */
                 step(2, "Make it run every morning",
-                     "Shortcuts → Automation → + → Time of Day → 07:00 → Run Immediately. Add the shortcut you just installed.") {}
+                     "Shortcuts → Automation → + → Time of Day → 07:00 → Run Immediately. Add the shortcut you just installed, and turn off Notify When Run.") {}
                 step(3, "And every time you leave the app",
-                     "Automation → + → App → my.adhd → Is Closed → Run Immediately. Same shortcut. Whatever you just changed is on your lock screen before you lock it.") {}
-                step(4, "And when you lock the phone in the app",
-                     "Automation → + → Notification → App: my.adhd, Body contains \"lock screen\" → Run Immediately. Same shortcut. Pressing the side button doesn't count as closing the app, so my.adhd sends a quiet notification instead, and this catches it.") {}
-                step(5, "Check your lock screen is a Photo",
+                     "Automation → + → Notification → App: my.adhd, Body contains \"lock screen\" → Run Immediately. Same shortcut, Notify When Run off. When you leave with something changed, my.adhd sends a quiet notification and this redraws your lock screen.") {}
+                Text("Turned off my.adhd's notifications? Use App → my.adhd → Is Closed instead. It misses the side button, so lock the phone from the Home Screen.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                step(4, "Check your lock screen is a Photo",
                      "Not Photo Shuffle. Set Wallpaper Photo silently does nothing on Shuffle, and this is the most common reason it looks broken.") {}
 
                 Toggle(isOn: $forceRedraw) {
@@ -621,11 +630,12 @@ struct ShortcutSetupPage: View {
         1. Add the shortcut: \(url.absoluteString)
         2. Shortcuts → Automation → + → Time of Day → 07:00 → Run Immediately.
            Run the my.adhd Lock Screen shortcut you just added.
-        3. Automation → + → App → my.adhd → Is Closed → Run Immediately.
-           Same shortcut.
-        4. Automation → + → Notification → App: my.adhd,
-           Body contains "lock screen" → Run Immediately. Same shortcut.
-        5. Make sure your current lock screen is a Photo, not Photo Shuffle.
+           Turn off Notify When Run.
+        3. Automation → + → Notification → App: my.adhd,
+           Body contains "lock screen" → Run Immediately. Same shortcut,
+           Notify When Run off.
+           (Notifications off for my.adhd? Use App → my.adhd → Is Closed.)
+        4. Make sure your current lock screen is a Photo, not Photo Shuffle.
         """ } ?? handBuilt
     }
 
