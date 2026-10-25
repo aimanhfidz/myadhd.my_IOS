@@ -147,6 +147,17 @@ final class StoreFile {
         read(at: backupURL, quarantineOnFailure: false)
     }
 
+    /// The document, for a reader that is not the app: the wallpaper
+    /// intent, running headless from a Shortcut. No quarantine and no
+    /// `lastSeenModified` — a background picture must never move a person's
+    /// store aside, or tell the app it has already seen a change it has not.
+    /// nil for missing, locked and unparseable alike: all three mean "keep
+    /// yesterday's picture", never "the list is empty".
+    func peek() -> JSONValue? {
+        guard let data = try? Data(contentsOf: documentURL) else { return nil }
+        return try? JSONValue.parse(data)
+    }
+
     private func read(at url: URL, quarantineOnFailure: Bool) -> ReadResult {
         guard fm.fileExists(atPath: url.path) else { return .missing }
 

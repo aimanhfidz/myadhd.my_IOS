@@ -52,9 +52,14 @@ enum Inbox {
     /// Asks for the wallpaper setup sheet. Its own notification rather
     /// than a pending string: there is nothing to deliver, and a dump that
     /// is not a dump would have to be filtered out at the far end.
-    static func openWallpaperSetup() {
-        NotificationCenter.default.post(name: .myadhdWallpaper, object: nil)
+    ///
+    /// `steps` opens it straight on the shortcut steps — the Home card's
+    /// tap, for someone who has not set it up and has nothing to style yet.
+    static func openWallpaperSetup(steps: Bool = false) {
+        NotificationCenter.default.post(name: .myadhdWallpaper, object: steps ? stepsFlag : nil)
     }
+
+    static let stepsFlag = "steps"
 
     /// Three hosts now, and everything else is ignored rather than
     /// guessed at — `myadhd://auth` in particular belongs to

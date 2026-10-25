@@ -16,7 +16,7 @@ Run them all:
 
 ```sh
 cd "/Users/User/Desktop/Claude Code/myadhd.my_IOS"
-for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration wav cloud; do
+for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration wav cloud wallpaper-mode; do
   ./Checks/$c.sh || echo "FAILED: $c"
 done
 ```

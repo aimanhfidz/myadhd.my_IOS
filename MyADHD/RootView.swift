@@ -37,11 +37,13 @@ struct RootView: View {
 private struct WallpaperSheet: ViewModifier {
 
     @State private var showing = false
+    @State private var steps = false
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $showing) { WallpaperSetup() }
-            .onReceive(NotificationCenter.default.publisher(for: .myadhdWallpaper)) { _ in
+            .sheet(isPresented: $showing) { WallpaperSetup(startOnSteps: steps) }
+            .onReceive(NotificationCenter.default.publisher(for: .myadhdWallpaper)) { note in
+                steps = (note.object as? String) == Inbox.stepsFlag
                 showing = true
             }
     }

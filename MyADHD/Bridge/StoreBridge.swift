@@ -144,6 +144,10 @@ final class StoreBridge {
     /// be given the time to finish.
     private func leaving() {
         flush()
+        /* After the store's write has landed, so a task added a moment
+           ago is on the board this compares. WallpaperPing.swift. */
+        store.file.flush()
+        WallpaperPing.sendIfStale(file: store.file)
     }
 
     /// Coming back. The ticks a widget took while the app was away land
@@ -161,6 +165,7 @@ final class StoreBridge {
         if store.reloadIfChangedOnDisk() { latest = nil }
         OpDrain.drain(into: store)
         flush()
+        WallpaperPing.clear()
     }
 
     /// Push now, whatever the debounce was doing.

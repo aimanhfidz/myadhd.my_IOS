@@ -96,7 +96,7 @@ struct SettingsScreen: View {
     /// same fact `show()` is on the web: while you are on one of these,
     /// the tab bar is down and there is nowhere else to be.
     private enum Deeper: String, Identifiable {
-        case profile, feedback
+        case profile, feedback, lockScreen
         var id: String { rawValue }
     }
     @State private var deeper: Deeper?
@@ -120,6 +120,7 @@ struct SettingsScreen: View {
                     account
                     sync
                     reminders
+                    lockScreen
                     about
                     localNote
                     version
@@ -155,6 +156,8 @@ struct SettingsScreen: View {
             FeedbackScreen(store: store, themeStore: themeStore, toasts: toasts) {
                 deeper = nil
             }
+        case .lockScreen:
+            WallpaperSetup()
         }
     }
 
@@ -209,6 +212,23 @@ struct SettingsScreen: View {
             RemindersCard(store: store)
         }
         .padding(.top, 26)      // .settings-section + .settings-section
+    }
+
+    /// The matrix on the lock screen: how it looks, what it shows, and
+    /// whether the automation behind it is running. Native only — the web
+    /// has no lock screen — so the strings live with the page
+    /// (`LockScreenCopy`), not in `Copy`.
+    private var lockScreen: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsCaption(LockScreenCopy.caption)
+
+            SettingsGroup {
+                SettingsRow(mark: .symbol("lock.rectangle.on.rectangle"),
+                            title: LockScreenCopy.row,
+                            note: LockScreenCopy.note) { deeper = .lockScreen }
+            }
+        }
+        .padding(.top, 26)
     }
 
     /// `About`: two screens, two pages, one share sheet.

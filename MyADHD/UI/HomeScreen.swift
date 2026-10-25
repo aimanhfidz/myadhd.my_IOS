@@ -70,6 +70,11 @@ struct HomeScreen: View {
                                   today: today,
                                   meetings: soon,
                                   goToLists: goToLists)
+                        /* Above the numbers, not below: they are reference,
+                           this is the one thing on Home to act on, and under
+                           the fold it would never be seen. Gone once the
+                           lock screen works. */
+                        LockScreenNudge()
                         StatRow(stats: stats)
                     }
                     .padding(.top, 26)

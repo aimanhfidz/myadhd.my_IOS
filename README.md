@@ -250,7 +250,8 @@ myadhd.my_IOS/
     ├── Wallpaper.swift        ImageRenderer → a PNG in Documents
     ├── WallpaperView.swift    what that PNG shows. UIKit-free on purpose, so
     │                          it renders off-device and previews in the sheet
-    ├── WallpaperIntent.swift  the two App Intents Shortcuts calls
+    ├── WallpaperIntent.swift  the App Intents the lock-screen shortcut calls
+    ├── WallpaperMode.swift    skip, set or redraw — what the shortcut does next
     ├── WallpaperSetup.swift   the setup sheet, and the three states that stop
     │                          it nagging once the automation works
     ├── ShellState.swift       theme, painted, offline
@@ -585,10 +586,40 @@ strongest argument for making the `IntentFile` path work.
 nothing when the current lock screen is **Photo Shuffle** rather than
 **Photo**. `WallpaperSetup.swift` says so, first.
 
-`AppConfig.wallpaperShortcutURL` is `nil` until somebody builds the shortcut
-once on a device and pastes its iCloud link in. That link roughly halves the
-setup. Shipping a signed `.shortcut` file instead is a dead end — iOS only
-accepts Apple-signed ones.
+### The shortcut itself
+
+**"my.adhd Lock Screen" is generated, not hand-built:**
+`python3 -I tools/shortcut/build.py --open` writes it into `build/` (git-ignored,
+because it carries the team id from `Local.xcconfig`), signs it with
+`shortcuts sign --mode anyone` — Apple's signature, so any iPhone imports
+it — and opens it in Shortcuts on this Mac. The flow is in the header of
+`MyADHD/WallpaperIntent.swift`; the shape is Ink's "Refresh Lock Screen V2",
+taken apart on 2026-10-26:
+
+- **The app decides, the shortcut branches.** `WallpaperModeIntent` answers
+  `skip`, `set` or `redraw` (`MyADHD/WallpaperMode.swift`, held to it by
+  `Checks/wallpaper-mode.sh`), so a later build can change what a run does
+  without anyone reinstalling the shortcut.
+- **Skip is what pays for frequent triggers.** It answers `skip` only when
+  the board's digest matches the last *confirmed* picture, and the day is
+  in the digest, so one run a day always really sets.
+- **Redraw is Ink's repaint**: set, set again on the wallpaper that came
+  back, switch to it. Opt-in, from **Force a redraw** on the setup page.
+- **The automations ride inside it** (`WFWorkflowTriggers`: sunrise,
+  my.adhd closed, a notification from my.adhd) **but iOS does not install
+  them.** Seen on iOS 27.0.1 on 2026-10-26: the shortcut imported, the
+  Automation tab stayed empty, and the lock screen never moved after a new
+  task. `ShortcutSetupPage` therefore keeps the hand-built steps, all three.
+- **Locking the phone inside the app is not "closed".** So on
+  `willResignActive`, if the board has moved since the last drawing and the
+  shortcut has confirmed at least once, `MyADHD/WallpaperPing.swift` posts
+  one passive notification ("Updating your lock screen"). The notification
+  automation (Body contains "lock screen") runs the shortcut, and
+  `WallpaperConfirmIntent` takes the notification down again. Change that
+  body text and every hand-made automation stops matching.
+
+`AppConfig.wallpaperShortcutURL` takes the iCloud link shared from that
+copy (Share → Copy iCloud Link).
 
 ## Not done yet
 
