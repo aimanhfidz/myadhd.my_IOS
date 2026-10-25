@@ -119,7 +119,17 @@ struct AppShell: View {
         .environment(\.theme, themeStore.theme)
         .preferredColorScheme(themeStore.colorScheme)
         .toastLayer(toasts)
-        .task { await boot() }
+        .task {
+            await boot()
+            #if DEBUG
+            /* For screenshots: `simctl launch … -myadhdOpenSettings` opens
+               straight on Settings. Simulators here have no window to tap. */
+            if ProcessInfo.processInfo.arguments.contains("-myadhdOpenSettings") {
+                splashUp = false
+                settingsUp = true
+            }
+            #endif
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 returned()

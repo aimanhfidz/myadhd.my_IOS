@@ -116,14 +116,17 @@ struct AccountCard: View {
             }
             .padding(.vertical, 20)
             .padding(.horizontal, 18)
-            .background(user != nil ? theme.wash : theme.surface)
+            /* Settings' group shape: a wash block, no edge. It has a page
+               of its own now, so it no longer needs a border to stand
+               apart from the rows around it — only a failing sync draws
+               one, in orange. */
+            .background(stale ? theme.dangerWash : theme.wash)
             .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous)
-                    .strokeBorder(edge, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous)
+                    .strokeBorder(theme.orange, lineWidth: 1.5)
+                    .opacity(stale ? 1 : 0)
             )
-            .background(stale ? theme.dangerWash : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
-            .padding(.top, 18)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous))
             .animation(Theme.ease(0.22), value: user?.id)
             .onChange(of: user?.id) { _, id in
                 /* Signed out there is no account to end, and a confirm box
@@ -134,11 +137,6 @@ struct AccountCard: View {
             }
             .onDisappear { disarm?.cancel() }
         }
-    }
-
-    private var edge: Color {
-        if stale { return theme.orange }
-        return user != nil ? theme.lineStrong : theme.line
     }
 
     // MARK: - `.gcal-head`

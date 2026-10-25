@@ -53,12 +53,9 @@ struct ScreenHeader<Trailing: View>: View {
         }
         /* The top and bottom are the header's own, not each screen's, so
            the title does not jump by a few points as you move between the
-           four tabs. */
-        .padding(.top, 10)
-        /* The top and bottom are the header's own, not each screen's, so
-           the title does not jump by a few points as you move between the
-           four tabs. */
-        .padding(.top, 10)
+           four tabs. 6 on top, as `SettingsBar` has: close under the
+           status bar, where a native title sits. */
+        .padding(.top, 6)
         .padding(.bottom, 10)
         .frame(maxWidth: Theme.measure)
         .frame(maxWidth: .infinity)

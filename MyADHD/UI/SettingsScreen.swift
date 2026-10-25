@@ -1,9 +1,22 @@
 /* ============================================================
-   MyADHD/UI/SettingsScreen.swift — four things nobody opens twice
+   MyADHD/UI/SettingsScreen.swift — one short list, every answer one tap away
 
    `showSettings` / `paintSettings` (app.js:3944-3964), `paintLocalNote`
    (app.js:3677-3693), `#screen-settings` (app.html:662-850),
    inventory §1.11.
+
+   **The shape.** One screen of rows, each with its name and what it is set
+   to right now ("Every 4 hours", "Off", "On"), and the controls one tap
+   behind it. That is the iOS Settings pattern and the HIG's: a top level
+   short enough to read without scrolling, the current value where you
+   are looking, the detail only for whoever goes in. The old page drew
+   every card open — the sign-in, three nudge levels, the waking hours,
+   the meetings switch — and ran to two and a half screens; a person
+   looking for one switch had to read all of them.
+
+   Three groups and no captions, because the grouping says it: who you
+   are, what the app does for you, and about. The fine print — where the
+   lists live — moved in with the account it describes.
 
    **What is deliberately not here.** No Subscription group, no Plans
    screen and no donate tin. That is design §4, decision 4: App Store
@@ -14,21 +27,14 @@
    either — a literal in that file is a promise that something draws it.
 
    **Two seams.** The Account card (§1.12) and the Google Calendar card
-   (§1.13) are another agent's files, in `MyADHD/Sync/`. They mount
-   through `accountCard` and `googleCard` below, and their two facts —
-   whether there is an account and whether a calendar is configured —
-   come in as flags rather than being guessed at here, because
-   `paintLocalNote` picks one of three sentences off exactly those two
-   and a screen that invented an answer would tell somebody their lists
-   were somewhere they are not. Both default to nothing and false, so
-   this screen is correct on its own: no cards, and the note that says
-   this device and nowhere else.
-
-   **The captions stay whether or not the cards are there.** That is the
-   web: `#gcal-card` and `#acct-card` carry `is-hidden`, the
-   `.settings-section` around them never does. A caption over an empty
-   space is what the web shows somebody with no Google client id
-   configured, so it is what this shows.
+   (§1.13) are another agent's files. They mount through `accountCard`
+   and `googleCard` below, and their two facts — whether there is an
+   account and whether a calendar is configured — come in as flags rather
+   than being guessed at here, because `paintLocalNote` picks one of
+   three sentences off exactly those two and a screen that invented an
+   answer would tell somebody their lists were somewhere they are not.
+   Both default to nothing and false, so this screen is correct on its
+   own: no cards, and the note that says this device and nowhere else.
 
    **The version is the web's literal, not the bundle's.** app.html
    writes `v0.1.0` and `Beta` into the markup; `CFBundleShortVersionString`
@@ -39,10 +45,27 @@
 
 import SafariServices
 import SwiftUI
+import UserNotifications
+
+/// The row names and values the web has no line for. Native only, so not
+/// in `Copy` — copy.sh holds that file to the web word for word.
+enum SettingsCopy {
+    static let account = "Account"
+    static let reminders = "Reminders"
+    static let calendar = "Calendar"
+
+    static let signedIn = "Signed in"
+    static let thisDevice = "This device"
+    static let on = "On"
+    static let off = "Off"
+    static let notConnected = "Not connected"
+    static let needsLook = "Needs a look"
+}
 
 struct SettingsScreen: View {
 
     @Environment(\.theme) private var theme
+    @Environment(\.scenePhase) private var scenePhase
 
     let store: AppStore
     let themeStore: ThemeStore
@@ -54,23 +77,16 @@ struct SettingsScreen: View {
     // MARK: - the seams
 
     /* SEAM — the Account card, `#acct-card` (inventory §1.12,
-       app.html:714-753, app.js:3593-3826). It is being built
-       concurrently in `MyADHD/Sync/AccountCard.swift`; wiring it up is
-       one line at the call site:
-
-           SettingsScreen(store: store, …, accountCard: { AnyView(AccountCard(…)) },
-                          isSignedIn: auth.signedIn)
-
-       It belongs INSIDE the Account section, under the Profile group and
-       above the section break — that is where app.html has it, and the
-       caption above it is already drawn. */
+       app.html:714-753, app.js:3593-3826), from `MyADHD/UI/AccountCard.swift`.
+       It is drawn on the Account page, one tap in, above the note that
+       says where the lists live. */
     var accountCard: (() -> AnyView)?
 
     /* SEAM — the Google Calendar card, `#gcal-card` (inventory §1.13,
        app.html:757-792, app.js:3447-3568), including the duplicate
-       calendar block. Same arrangement, under the `Sync calendars`
-       caption. `checkDuplicateCalendars()` runs behind the screen on
-       open (app.js:3962) and is that card's business, not this one's. */
+       calendar block. On the Calendar page, above the meetings switch.
+       `checkDuplicateCalendars()` runs behind the screen on open
+       (app.js:3962) and is that card's business, not this one's. */
     var googleCard: (() -> AnyView)?
 
     /// `auth.configured() && auth.signedIn()` — the first half of
@@ -92,11 +108,11 @@ struct SettingsScreen: View {
 
     // MARK: - one tap deeper (app.js:4087-4101)
 
-    /// Three screens rather than three panes. `fullScreenCover` is the
-    /// same fact `show()` is on the web: while you are on one of these,
-    /// the tab bar is down and there is nowhere else to be.
+    /// Screens rather than panes. `fullScreenCover` is the same fact
+    /// `show()` is on the web: while you are on one of these, the tab bar
+    /// is down and there is nowhere else to be.
     private enum Deeper: String, Identifiable {
-        case profile, feedback, lockScreen
+        case profile, account, reminders, calendar, lockScreen, feedback
         var id: String { rawValue }
     }
     @State private var deeper: Deeper?
@@ -107,6 +123,15 @@ struct SettingsScreen: View {
     /// than throwing somebody out to the browser mid-settings.
     @State private var legal: LegalPage?
 
+    /* What the rows say they are set to. Read again whenever a page
+       closes or the app comes back, since iOS Settings can take the
+       notification permission away while this screen is underneath. */
+    @State private var nudgesOn = NudgeSettings.enabled
+    @State private var nudgeLevel = NudgeSettings.level
+    @State private var nudgeStatus: UNAuthorizationStatus = .notDetermined
+    @State private var lockHealth = SetupHealth(drawn: Wallpaper.lastRun,
+                                                confirmed: Wallpaper.lastConfirmed)
+
     var body: some View {
         VStack(spacing: 0) {
             SettingsBar(themeStore: themeStore,
@@ -116,27 +141,36 @@ struct SettingsScreen: View {
                         onBack: onClose)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    account
-                    sync
-                    reminders
-                    lockScreen
+                VStack(alignment: .leading, spacing: 24) {
+                    you
+                    features
                     about
-                    localNote
                     version
                 }
                 .frame(maxWidth: Theme.measure, alignment: .leading)
                 .frame(maxWidth: .infinity)
-                .padding(.top, 22)      // .settings-wrap padding-top
-                .padding(.bottom, 8)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
             .scrollIndicators(.hidden)
+            #if DEBUG
+            .defaultScrollAnchor(Self.debugAnchor)
+            #endif
         }
         .padding(.horizontal, Theme.gutter(UIScreen.main.bounds.width))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(theme.surface.ignoresSafeArea())
         .toastLayer(toasts, hasTabBar: false)
-        .fullScreenCover(item: $deeper) { which in
+        .task {
+            await refresh()
+            #if DEBUG
+            deeper = Self.debugPage
+            #endif
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refresh() } }
+        }
+        .fullScreenCover(item: $deeper, onDismiss: { Task { await refresh() } }) { which in
             deeperScreen(which)
                 .environment(\.theme, theme)
                 .preferredColorScheme(themeStore.colorScheme)
@@ -147,132 +181,146 @@ struct SettingsScreen: View {
         }
     }
 
+    #if DEBUG
+    /// `-myadhdSettingsAnchor center|bottom`, for screenshots of the rest
+    /// of the page on a simulator nobody can scroll.
+    private static var debugAnchor: UnitPoint {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-myadhdSettingsAnchor"), i + 1 < args.count else { return .top }
+        switch args[i + 1] {
+        case "center": return .center
+        case "bottom": return .bottom
+        default: return .top
+        }
+    }
+
+    /// `-myadhdSettingsPage reminders|account|calendar|…`, to open one
+    /// page in for the same screenshots.
+    private static var debugPage: Deeper? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-myadhdSettingsPage"), i + 1 < args.count else { return nil }
+        return Deeper(rawValue: args[i + 1])
+    }
+    #endif
+
+    private func refresh() async {
+        nudgesOn = NudgeSettings.enabled
+        nudgeLevel = NudgeSettings.level
+        lockHealth = SetupHealth(drawn: Wallpaper.lastRun, confirmed: Wallpaper.lastConfirmed)
+        nudgeStatus = await UNUserNotificationCenter.current()
+            .notificationSettings().authorizationStatus
+    }
+
     @ViewBuilder
     private func deeperScreen(_ which: Deeper) -> some View {
+        let back = { deeper = nil }
         switch which {
         case .profile:
-            ProfileScreen(store: store, themeStore: themeStore) { deeper = nil }
+            ProfileScreen(store: store, themeStore: themeStore, onClose: back)
         case .feedback:
-            FeedbackScreen(store: store, themeStore: themeStore, toasts: toasts) {
-                deeper = nil
-            }
+            FeedbackScreen(store: store, themeStore: themeStore, toasts: toasts, onClose: back)
         case .lockScreen:
             WallpaperSetup()
-        }
-    }
-
-    // MARK: - the groups, in app.html's order
-
-    /// `Account`: the profile row, and the account card behind it.
-    private var account: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SettingsCaption(Copy.Settings.capAccount)
-
-            SettingsGroup {
-                SettingsRow(mark: .face(Avatars.face(store.doc.profile.avatar)),
-                            title: Copy.Settings.profileRow,
-                            note: greeting) { deeper = .profile }
+        case .account:
+            SettingsPage(themeStore: themeStore, title: SettingsCopy.account,
+                         note: localNoteText, onBack: back) {
+                if let accountCard { accountCard() }
             }
-
-            if let accountCard {
-                accountCard()
-                    .padding(.top, 14)
+        case .reminders:
+            SettingsPage(themeStore: themeStore, title: SettingsCopy.reminders, onBack: back) {
+                RemindersCard(store: store)
+            }
+        case .calendar:
+            SettingsPage(themeStore: themeStore, title: SettingsCopy.calendar, onBack: back) {
+                if let googleCard { googleCard() }
+                if let meetings { MeetingsCard(meetings: meetings, connect: connectGoogle) }
             }
         }
     }
 
-    /// `paintProfile`'s half of the row: the greeting under `Profile`,
+    // MARK: - the three groups
+
+    /// Who you are: the face and the name, then where your lists live.
+    private var you: some View {
+        SettingsGroup {
+            SettingsRow(title: Copy.Settings.profileRow,
+                        value: greeting,
+                        face: Avatars.face(store.doc.profile.avatar)) { deeper = .profile }
+
+            SettingsRow(title: SettingsCopy.account,
+                        value: isSignedIn ? SettingsCopy.signedIn : SettingsCopy.thisDevice,
+                        divider: true) { deeper = .account }
+        }
+    }
+
+    /// `paintProfile`'s half of the row: the greeting beside `Profile`,
     /// drawn from the same name the profile screen writes (app.js:3923).
     private var greeting: String {
         let name = store.doc.profile.name
         return name.isEmpty ? Copy.Settings.greetingPlain : Copy.Settings.greeting(name: name)
     }
 
-    /// `Sync calendars`. A group of its own rather than a row in the one
-    /// above it: both are Google and they look alike on purpose, but one
-    /// is who you are and the other is a wiring decision (app.html:755).
-    private var sync: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SettingsCaption(Copy.Settings.capSync)
-            if let googleCard { googleCard() }
-            if let meetings {
-                MeetingsCard(meetings: meetings, connect: connectGoogle)
-                    .padding(.top, googleCard == nil ? 0 : 14)
+    /// What the app does for you while it is closed.
+    private var features: some View {
+        SettingsGroup {
+            SettingsRow(title: SettingsCopy.reminders,
+                        value: remindersValue) { deeper = .reminders }
+
+            if meetings != nil || googleCard != nil {
+                SettingsRow(title: SettingsCopy.calendar,
+                            value: calendarValue,
+                            divider: true) { deeper = .calendar }
             }
+
+            SettingsRow(title: LockScreenCopy.row,
+                        value: lockScreenValue,
+                        divider: true) { deeper = .lockScreen }
         }
-        .padding(.top, 26)      // .settings-section + .settings-section
     }
 
-    /// The nudges, and the one permission every notification here shares.
-    /// Its own group: nothing to do with an account or a calendar, and
-    /// the web has no section like it to line up with.
-    private var reminders: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SettingsCaption(Copy.Nudges.caption)
-            RemindersCard(store: store)
-        }
-        .padding(.top, 26)      // .settings-section + .settings-section
+    /// "Off" when iOS says no, whatever the switch was left at: a level
+    /// beside a refused permission would promise nudges that never ring.
+    private var remindersValue: String {
+        let allowed = [.authorized, .provisional, .ephemeral].contains(nudgeStatus)
+        return nudgesOn && allowed ? nudgeLevel.note : SettingsCopy.off
     }
 
-    /// The matrix on the lock screen: how it looks, what it shows, and
-    /// whether the automation behind it is running. Native only — the web
-    /// has no lock screen — so the strings live with the page
-    /// (`LockScreenCopy`), not in `Copy`.
-    private var lockScreen: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SettingsCaption(LockScreenCopy.caption)
+    private var calendarValue: String? {
+        guard let meetings else { return nil }
+        guard meetings.enabled else { return SettingsCopy.off }
+        return meetings.access == .granted ? SettingsCopy.on : SettingsCopy.notConnected
+    }
 
-            SettingsGroup {
-                SettingsRow(mark: .symbol("lock.rectangle.on.rectangle"),
-                            title: LockScreenCopy.row,
-                            note: LockScreenCopy.note) { deeper = .lockScreen }
-            }
+    private var lockScreenValue: String {
+        switch lockHealth.state {
+        case .working: return SettingsCopy.on
+        case .never: return SettingsCopy.off
+        case .noConfirm, .unfinished, .stalled: return SettingsCopy.needsLook
         }
-        .padding(.top, 26)
     }
 
     /// `About`: two screens, two pages, one share sheet.
     private var about: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SettingsCaption(Copy.Settings.capAbout)
+        SettingsGroup {
+            SettingsRow(title: Copy.Settings.feedbackRow) { deeper = .feedback }
 
-            SettingsGroup {
-                SettingsRow(mark: .symbol("heart"),
-                            title: Copy.Settings.feedbackRow,
-                            note: Copy.Settings.feedbackNote) { deeper = .feedback }
+            SettingsRow(title: Copy.Settings.shareRow,
+                        divider: true,
+                        disclosure: false) { ShareApp.present() }
 
-                SettingsRow(mark: .symbol("square.and.arrow.up"),
-                            title: Copy.Settings.shareRow,
-                            note: Copy.Settings.shareNote,
-                            divider: true) { ShareApp.present() }
+            SettingsRow(title: Copy.Settings.privacyRow,
+                        divider: true) { legal = .privacy }
 
-                SettingsRow(mark: .symbol("lock.shield"),
-                            title: Copy.Settings.privacyRow,
-                            divider: true) { legal = .privacy }
-
-                SettingsRow(mark: .symbol("doc.text"),
-                            title: Copy.Settings.termsRow,
-                            divider: true) { legal = .terms }
-            }
+            SettingsRow(title: Copy.Settings.termsRow,
+                        divider: true) { legal = .terms }
         }
-        .padding(.top, 26)
     }
 
     // MARK: - the footer
 
     /// `paintLocalNote` (app.js:3677-3693). Three readings of where the
     /// lists actually live, and the true one depends on the two flags
-    /// above.
-    private var localNote: some View {
-        Text(localNoteText)
-            .font(.system(size: 13))
-            .lineSpacing(13 * 0.5)
-            .foregroundStyle(theme.faint)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 18)      // .settings-wrap .hint
-    }
-
+    /// above. It sits under the Account card now, beside what it is about.
     private var localNoteText: String {
         if isSignedIn { return Copy.Settings.localSignedIn }
         if isCalendarConfigured { return Copy.Settings.localCalendar }
@@ -296,7 +344,54 @@ struct SettingsScreen: View {
                 .overlay(Capsule().strokeBorder(theme.lineStrong, lineWidth: 1))
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 16)
+    }
+}
+
+// MARK: - a page one tap in
+
+/// The bar, back to Settings, and whatever the row opened. The note under
+/// it is fine print, the way a footer sits under a group in iOS Settings.
+struct SettingsPage<Content: View>: View {
+
+    @Environment(\.theme) private var theme
+
+    let themeStore: ThemeStore
+    let title: String
+    var note: String? = nil
+    var onBack: () -> Void
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SettingsBar(themeStore: themeStore,
+                        backLabel: Copy.Profile.back,
+                        backAria: Copy.Profile.backAria,
+                        title: title,
+                        onBack: onBack)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    content
+
+                    if let note {
+                        Text(note)
+                            .font(.system(size: 13))
+                            .lineSpacing(13 * 0.5)
+                            .foregroundStyle(theme.faint)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 16)
+                    }
+                }
+                .frame(maxWidth: Theme.measure, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .padding(.horizontal, Theme.gutter(UIScreen.main.bounds.width))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(theme.surface.ignoresSafeArea())
     }
 }
 
@@ -370,27 +465,9 @@ struct SettingsBar: View {
 
 // MARK: - the furniture
 
-/// `.eyebrow.settings-cap` — 11px uppercase, nudged 4px in from the card
-/// edge below it (styles.css:767).
-struct SettingsCaption: View {
-
-    @Environment(\.theme) private var theme
-    let text: String
-
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(text.uppercased())
-            .font(Font.baloo(11, .bold))
-            .kerning(0.13 * 11)
-            .foregroundStyle(theme.faint)
-            .padding(.leading, 4)
-            .padding(.bottom, 10)
-    }
-}
-
-/// `.settings-group` — one card, rows inside it, hairlines between them,
-/// and the radius on the card rather than on any row.
+/// `.settings-group` — one tinted block, rows inside it, hairlines between
+/// them, and the radius on the block rather than on any row. No border:
+/// the wash against the white page is the edge.
 struct SettingsGroup<Content: View>: View {
 
     @Environment(\.theme) private var theme
@@ -398,95 +475,73 @@ struct SettingsGroup<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) { content }
-            .background(theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous)
-                    .strokeBorder(theme.line, lineWidth: 1.5)
-            )
+            .background(theme.wash)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous))
     }
 }
 
-/// `.set-row`. A 34pt rounded glyph — or the chosen face — then the title
-/// and its note, then the chevron.
+/// `.set-row`, as a plain list row: the name on the left, what it is set
+/// to on the right, then the chevron. No icon tiles — the words are the
+/// row — except the face on Profile, so the way into it looks like the
+/// thing it opens (app.js:3921).
 struct SettingsRow: View {
 
     @Environment(\.theme) private var theme
 
-    /// `.set-row-mark` carries an icon; `.set-row-mark--face` carries the
-    /// avatar instead, so the way into the profile screen looks like the
-    /// thing it opens (app.js:3921).
-    enum Mark {
-        case symbol(String)
-        case face(String)
-    }
-
-    let mark: Mark
     let title: String
-    var note: String?
-    /// `.set-row + .set-row::before` — every row but the first draws the
-    /// hairline above it, inset to where the text starts (16 + 34 + 13).
+    var value: String? = nil
+    var face: String? = nil
+    /// Every row but the first draws the hairline above it, inset to
+    /// where the text starts.
     var divider: Bool = false
+    /// A chevron means another screen. The share sheet is not one.
+    var disclosure: Bool = true
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 13) {
-                glyph
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(Font.baloo(15.5, .bold))
-                        .kerning(-0.015 * 15.5)
-                        .foregroundStyle(theme.ink)
-
-                    if let note {
-                        Text(note)
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(theme.faint)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+            HStack(spacing: 12) {
+                if let face {
+                    Text(face)
+                        .font(.system(size: 22))
+                        .frame(width: 34, height: 34)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.lineStrong)
+                Text(title)
+                    .font(Font.baloo(16, .semibold))
+                    .foregroundStyle(theme.ink)
+                    .layoutPriority(1)
+
+                Spacer(minLength: 8)
+
+                if let value {
+                    Text(value)
+                        .font(Font.baloo(15, .medium))
+                        .foregroundStyle(theme.faint)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                if disclosure {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.faint)
+                }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .frame(minHeight: face == nil ? 52 : 60)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
         .overlay(alignment: .top) {
             if divider {
                 Rectangle()
                     .fill(theme.line)
-                    .frame(height: 1.5)
-                    .padding(.leading, 63)
+                    .frame(height: 1)
+                    .padding(.leading, 16)
             }
         }
-    }
-
-    private var glyph: some View {
-        Group {
-            switch mark {
-            case .symbol(let name):
-                Image(systemName: name)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(theme.accent)
-            case .face(let face):
-                Text(face)
-                    .font(.system(size: 17))
-            }
-        }
-        .frame(width: 34, height: 34)
-        .background(theme.wash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(theme.lineStrong, lineWidth: 1.5)
-        )
     }
 }
 

@@ -37,9 +37,7 @@ import SwiftUI
 /// `Copy`: like every wallpaper string, it has no web original for
 /// Checks/copy.sh to find.
 enum LockScreenCopy {
-    static let caption = "Lock screen"
     static let row = "Lock Screen Display"
-    static let note = "Your matrix on your wallpaper"
 }
 
 struct WallpaperSetup: View {
