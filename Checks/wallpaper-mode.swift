@@ -111,8 +111,12 @@ struct WallpaperModeChecks {
         r.equal("never drawn", decide(d, lastDrawn: nil, run: nil, confirmed: nil), "set")
         r.equal("same board, confirmed after drawing",
                 decide(d, lastDrawn: d, run: drawn, confirmed: confirmedAfter), "skip")
-        r.equal("same board, confirm inside the slack",
-                decide(d, lastDrawn: d, run: drawn, confirmed: drawn.addingTimeInterval(-60)), "skip")
+        r.equal("same board, confirmed in the same second",
+                decide(d, lastDrawn: d, run: drawn, confirmed: drawn), "skip")
+        /* The device case: the run drew, died before its confirm, and the
+           newest confirm is the previous run's, 21 seconds earlier. */
+        r.equal("same board, a confirm from just before the drawing",
+                decide(d, lastDrawn: d, run: drawn, confirmed: drawn.addingTimeInterval(-21)), "set")
         r.equal("same board, drawn but never confirmed",
                 decide(d, lastDrawn: d, run: drawn, confirmed: nil), "set")
         r.equal("same board, last confirm older than the drawing",

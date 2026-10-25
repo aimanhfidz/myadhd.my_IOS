@@ -59,7 +59,18 @@ struct WallpaperIntent: AppIntent {
            the widgets' snapshot. */
         guard let board = WallpaperBoard.current() else { throw WallpaperError.noData }
         let url = try Wallpaper.render(board)
-        return .result(value: IntentFile(fileURL: url, filename: "myadhd-lock.png", type: .png))
+        return .result(value: try Self.handOver(url, as: "myadhd-lock.png"))
+    }
+
+    /* The bytes, not the file. Handed a file URL, Shortcuts opens the
+       file itself, from its own process, inside this app's container —
+       and with the phone locked that came back empty: "Unable to Set
+       Wallpaper. Please provide an image", three times over, on a
+       device on 2026-10-26, while the same run unlocked worked. Read
+       here, in this process, the picture travels with the result. */
+    static func handOver(_ url: URL, as name: String) throws -> IntentFile {
+        let data = try Data(contentsOf: url)
+        return IntentFile(data: data, filename: name, type: .png)
     }
 }
 
@@ -78,6 +89,11 @@ struct WallpaperModeIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        /* The run has started, so the notification that started it has
+           done its job: take it down now, a second after it arrived,
+           rather than at the end — a skip or a failure never reaches the
+           confirm step, and it would sit on the lock screen. */
+        WallpaperPing.clear()
         let mode = WallpaperMode.decide(
             digest: WallpaperBoard.current().flatMap(Wallpaper.digest(of:)),
             lastDrawn: Wallpaper.lastDrawnDigest,
@@ -101,7 +117,7 @@ struct WallpaperHomeIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<IntentFile> {
         let url = try Wallpaper.renderHome()
-        return .result(value: IntentFile(fileURL: url, filename: "myadhd-home.png", type: .png))
+        return .result(value: try WallpaperIntent.handOver(url, as: "myadhd-home.png"))
     }
 }
 

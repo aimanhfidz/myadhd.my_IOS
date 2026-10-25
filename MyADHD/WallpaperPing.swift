@@ -10,15 +10,17 @@
    So on the way out, if what the picture would show has moved since the
    last one was drawn, the app posts one quiet notification. A
    "When my.adhd sends a notification" automation (iOS 27) catches it and
-   runs the shortcut; the shortcut's confirm step takes the notification
-   back down again. Ink does the same thing with a "·".
+   runs the shortcut, and the shortcut's first step takes the notification
+   back down, about a second after it arrived. Ink does the same thing
+   with a "·".
 
    It stays quiet for anyone it cannot help:
 
    - **Never confirmed** — no shortcut, or a broken one. A notification
      that triggers nothing is just noise.
-   - **Nothing moved** — the digest matches the last drawing, so the
-     wallpaper is already right.
+   - **Nothing moved** — the board matches the last picture that was
+     confirmed on the lock screen, so it is already right. A drawing whose
+     run failed does not count.
    - **Notifications declined** — `add` fails silently, and the
      "is closed" automation still covers the swipe home.
 
@@ -40,11 +42,22 @@ enum WallpaperPing {
     /// From `StoreBridge.leaving()`, once the store's last write has landed.
     @MainActor
     static func sendIfStale(file: StoreFile) {
-        guard Wallpaper.lastConfirmed != nil else { return }
-        guard let board = WallpaperBoard.current(file: file),
-              let digest = Wallpaper.digest(of: board),
-              digest != Wallpaper.lastDrawnDigest
+        guard Wallpaper.lastConfirmed != nil,
+              let board = WallpaperBoard.current(file: file)
         else { return }
+
+        /* Out of date means what the shortcut itself would decide: not a
+           skip. Comparing with the last *drawing* was wrong — a run that
+           drew and then failed to set left a drawing that matched the
+           board, so the lock screen stayed old and nothing ever asked
+           again. */
+        let mode = WallpaperMode.decide(
+            digest: Wallpaper.digest(of: board),
+            lastDrawn: Wallpaper.lastDrawnDigest,
+            lastRun: Wallpaper.lastRun,
+            lastConfirmed: Wallpaper.lastConfirmed,
+            forceRedraw: false)
+        guard mode != .skip else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "my.adhd"

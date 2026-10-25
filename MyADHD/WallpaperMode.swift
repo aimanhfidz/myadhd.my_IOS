@@ -15,9 +15,9 @@
    closed" and "a notification from my.adhd" fire many times a day, and
    without it every one of them would flash an identical wallpaper.
 
-   It only skips a picture that was *confirmed*. A drawing whose run never
-   reached the confirm step may never have reached the lock screen, so it
-   is drawn again rather than trusted. And the day is in the digest, so
+   It only skips a picture that was *confirmed* — the confirm stamp at or
+   after the drawing. A drawing whose run never reached the confirm step
+   never reached the lock screen, so it is drawn again rather than trusted. And the day is in the digest, so
    at least one run a day really sets — which is what keeps the 36-hour
    "stalled" rule in WallpaperHealth.swift honest.
 
@@ -37,9 +37,15 @@ enum WallpaperMode: String {
                        lastRun: Date?, lastConfirmed: Date?,
                        forceRedraw: Bool) -> WallpaperMode
     {
+        /* Confirmed at or after the drawing, with no slack. In a run that
+           worked the confirm always comes after the draw; a confirm from
+           before it is the previous run's, and this drawing never reached
+           the lock screen. Seen on a device: a run started with the phone
+           locked drew at 04:34:27, died before the confirm, and the 2-minute
+           slack this used to allow read the 04:34:06 confirm as its own. */
         if let digest, digest == lastDrawn,
            let lastRun, let lastConfirmed,
-           lastConfirmed >= lastRun.addingTimeInterval(-SetupHealth.slack) {
+           lastConfirmed >= lastRun {
             return .skip
         }
         return forceRedraw ? .redraw : .set
