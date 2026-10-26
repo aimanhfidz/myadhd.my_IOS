@@ -370,6 +370,36 @@ enum Corpus {
         for n in [0, 1, 2, 3, 6, 7, 13, 30, 31, 100, 365] {
             out.append("renew the licence in \(n) days")
         }
+        // The Malay reader: days, depan, months, the parts of the day.
+        for d in ["ahad", "isnin", "selasa", "rabu", "khamis", "jumaat", "jumat", "sabtu"] {
+            out.append("bayar sewa \(d)")
+            out.append("bayar sewa hari \(d)")
+            out.append("bayar sewa \(d) depan")
+            out.append("bayar sewa, \(d)")
+        }
+        for m in ["januari", "februari", "mac", "mei", "julai", "ogos", "okt", "oktober",
+                  "dis", "disember"] {
+            out.append("periksa pada 9 \(m)")
+            out.append("periksa \(m) 31")
+        }
+        for n in [0, 1, 3, 7, 30] {
+            out.append("renew lesen dalam \(n) hari")
+            out.append("renew lesen \(n) hari lagi")
+        }
+        for w in ["esok", "esk", "besok", "lusa", "hari ini", "hari ni", "pagi ni",
+                  "malam ini", "minggu depan", "seminggu lagi", "minggu ni", "hujung minggu"] {
+            out.append("hantar borang \(w)")
+        }
+        for c in ["pukul 3 petang", "pkl 8.30 malam", "pukul 12 malam", "pukul 1 mlm",
+                  "pukul 12 tengah hari", "pukul 1 tgh", "pukul 11 tengahhari", "7 pagi",
+                  "10.15 ptg", "pukul 3", "2 malam", "pukul 13 petang", "pukul 9.75 pagi"] {
+            out.append("jumpa cikgu esok \(c)")
+            out.append("jumpa cikgu \(c)")
+        }
+        out.append("tidur 2 malam di hotel")
+        out.append("beli hadiah sebelum jumaat")
+        out.append("makan malam dengan mak, malam ni pukul 8 malam")
+        out.append("bayar RM9.30 petang esok")
         // Durations, every shape parseMinutes reads.
         for n in [1, 2, 5, 15, 45, 90, 240, 600] {
             out.append("write the report \(n) min")
@@ -392,44 +422,49 @@ struct WebSide {
     private let probe: JSValue
     private let names: JSValue
 
-    /// The three slices of app.js, by 1-based line number.
+    /// The three slices of app.js, cut by content: each runs from a line
+    /// that opens it to the line that opens whatever follows it, the way
+    /// `parity-ordering.swift` and `store.swift` cut theirs.
     ///
-    /// Each runs from the opening line of the comment above its code to
-    /// the closing brace. The last two were re-cut for the web's
-    /// 6d797f2, which put a comment over `knownNames` and grew the
-    /// typing preview's; a slice that starts inside a comment is read as
-    /// code and throws.
-    static let parserLines = 637...1070
-    static let previewLines = 5011...5062
-    static let namesLines = 5306...5327
+    /// They used to be line ranges, and a line range is a silent trap:
+    /// every edit above `parseDay` slid them onto whatever sat there now,
+    /// and they were re-cut by hand three times before one went stale
+    /// enough that the check could not load app.js at all. Cut by the text
+    /// at their edges, they move with the code. Each starts on the
+    /// opening line of a comment or a declaration, never inside a
+    /// comment, because a slice that starts inside one is read as code
+    /// and throws.
+    struct Cut {
+        let from: String
+        let to: String
+        let anchors: [String]
+    }
 
-    /// What each slice has to still contain.
-    ///
-    /// A line range alone is a silent trap: insert forty lines above
-    /// `parseDay` and the range slides onto whatever now sits there,
-    /// and the run either throws something unreadable or — worse —
-    /// evaluates a slice that no longer holds the rule under test and
-    /// reports a clean pass. `parity-ordering.swift` anchors its slices
-    /// by content for exactly this reason; these do the same, so a
-    /// moved function fails the check by name instead of by accident.
-    static let parserAnchors = ["function parseDay(", "function parseClock(",
-                                "function normalizeTask(", "function splitDump("]
-    static let previewAnchors = ["function previewDates(", "PREVIEW_MAX"]
-    static let namesAnchors = ["function knownNames("]
+    static let parser = Cut(from: "/* ---------------- dates ----------------",
+                            to: "/* ---------------- render ---------------- */",
+                            anchors: ["function parseDay(", "function parseClock(",
+                                      "function normalizeTask(", "function splitDump("])
+    static let preview = Cut(from: "/* ---------------- the typing preview ----------------",
+                             to: "/* ---------------- wiring ---------------- */",
+                             anchors: ["function previewDates(", "PREVIEW_MAX"])
+    static let names = Cut(from: "/* The names this person already uses.",
+                           to: "async function micDown(e) {",
+                           anchors: ["function knownNames("])
 
     init(appJS path: String, nowMS: Double) throws {
         guard let source = try? String(contentsOfFile: path, encoding: .utf8) else {
             throw Failure("cannot read \(path)")
         }
-        let lines = source.components(separatedBy: "\n")
-        func slice(_ r: ClosedRange<Int>, _ anchors: [String]) throws -> String {
-            guard r.upperBound <= lines.count else {
-                throw Failure("app.js has \(lines.count) lines, needs \(r.upperBound)")
+        func slice(_ c: Cut) throws -> String {
+            guard let a = source.range(of: c.from) else {
+                throw Failure("app.js no longer has `\(c.from)` — the slice's opening line moved or was reworded")
             }
-            let body = lines[(r.lowerBound - 1)...(r.upperBound - 1)].joined(separator: "\n")
-            for anchor in anchors where !body.contains(anchor) {
-                throw Failure("app.js \(r) no longer contains `\(anchor)` — the line "
-                              + "numbers have drifted from their source; re-cut the slice")
+            guard let b = source.range(of: c.to, range: a.upperBound..<source.endIndex) else {
+                throw Failure("app.js has nothing after `\(c.from)` matching `\(c.to)`")
+            }
+            let body = String(source[a.lowerBound..<b.lowerBound])
+            for anchor in c.anchors where !body.contains(anchor) {
+                throw Failure("app.js between `\(c.from)` and `\(c.to)` no longer contains `\(anchor)`")
             }
             return body
         }
@@ -446,12 +481,9 @@ struct WebSide {
         }
 
         try run(Self.prelude(nowMS: nowMS), "prelude")
-        try run(try slice(Self.parserLines, Self.parserAnchors),
-                "app.js \(Self.parserLines)")
-        try run(try slice(Self.previewLines, Self.previewAnchors),
-                "app.js \(Self.previewLines)")
-        try run(try slice(Self.namesLines, Self.namesAnchors),
-                "app.js \(Self.namesLines)")
+        try run(try slice(Self.parser), "app.js, the parser")
+        try run(try slice(Self.preview), "app.js, the typing preview")
+        try run(try slice(Self.names), "app.js, knownNames")
         try run(Self.postlude, "postlude")
 
         guard let fn = ctx.objectForKeyedSubscript("__probe"), !fn.isUndefined,
@@ -594,7 +626,7 @@ struct ParityTriage {
         let tz = take("--tz") ?? "UTC"
         let nowMS = Double(take("--now") ?? "") ?? 0
         let appJS = take("--app-js")
-            ?? "/Users/User/Desktop/Claude Code/My.adhd/app.js"
+            ?? "/Users/User/Desktop/Claude Code/My.adhd/js/app.js"
         let verbose = args.contains("--verbose")
 
         /* Before anything reads a date. `DayKey.calendar` captures

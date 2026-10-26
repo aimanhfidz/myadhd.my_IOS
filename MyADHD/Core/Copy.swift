@@ -86,7 +86,16 @@ enum Copy {
         static let settingsAria = "Settings"    // app.html:213
 
         // the cold start (app.html:241-256)
-        static let welcomeAlt = "Morpheus, from The Matrix: what if I told you my ADHD thoughts have a group chat and everyone's typing."   // app.html:244
+        // The welcome figure (app.html .dump-welcome): thoughts in, rows out.
+        static let figureHead = "in your head"        // app.html .dw-label
+        static let figureLists = "on your lists"      // app.html .dw-label
+        static let figureThoughts = ["dentist??", "pay the electric bill", "reply to Aisyah", "buy lightbulbs"]
+        static let figureRows: [(title: String, day: String)] = [
+            ("Pay the electric bill", "Today"),
+            ("Reply to Aisyah", "Today"),
+            ("Book the dentist", "Friday"),
+            ("Buy lightbulbs", "No date yet"),
+        ]                                             // app.html .dw-rows
         static let headline = "What's on your mind?"   // app.html:247
         static let startHint = "Everything gets sorted into lists. Nothing is thrown away."   // app.html:248-249
         static let startButton = "Clear my head"       // app.html:252
@@ -189,7 +198,19 @@ enum Copy {
 
     enum Triage {
         static let nothingToSort = "Give me something to work with."     // app.js:563
-        static let offline = "Offline mode — sorted these myself."       // app.js:577
+        static let offline = "Offline mode — sorted these myself."       // app.js sortFallbackLine
+        static let overLimit = "You've sorted a lot today, so I sorted these myself."   // app.js sortFallbackLine
+        static let noAnswer = "The sorter didn't answer, so I sorted these myself."    // app.js sortFallbackLine
+
+        /// app.js `sortFallbackLine`: why the sorter did not answer. Every
+        /// failure used to say "Offline mode", which was untrue whenever
+        /// the phone had signal and the server was slow, busy, or out of
+        /// today's allowance.
+        static func fallback(status: Int?, online: Bool) -> String {
+            if status == 429 { return overLimit }
+            if !online { return offline }
+            return noAnswer
+        }
         static let nothingFound = "Couldn't find any tasks in there."    // app.js:583
 
         /// Dedupe is against OPEN titles only, and never within one dump.

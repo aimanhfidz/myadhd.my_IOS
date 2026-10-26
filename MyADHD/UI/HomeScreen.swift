@@ -166,7 +166,7 @@ struct HomeHeader: View {
 
 // MARK: - the cold start
 
-/// app.html:241-254. The meme, the question, the promise, one button.
+/// app.html:241-254. The picture, the question, the promise, one button.
 struct ColdStart: View {
 
     @Environment(\.theme) private var theme
@@ -177,22 +177,12 @@ struct ColdStart: View {
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
 
-                /* On a short screen the joke steps out of the way — the
+                /* On a short screen the picture steps out of the way — the
                    button matters more (styles.css @media max-height:720). */
-                if geo.size.height > 560, let meme = BundleImage.welcomeMeme {
-                    Image(uiImage: meme)
-                        .resizable()
-                        .aspectRatio(642.0 / 389.0, contentMode: .fit)
-                        .frame(maxWidth: 400)
-                        .background(theme.wash)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLg,
-                                                    style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous)
-                                .strokeBorder(theme.line, lineWidth: 1.5)
-                        )
-                        .padding(.bottom, 20)
-                        .accessibilityLabel(Copy.Home.welcomeAlt)
+                if geo.size.height > 560 {
+                    WelcomeFigure()
+                        .frame(maxWidth: 420)
+                        .padding(.bottom, 22)
                 }
 
                 /* `clamp(23px, 6vw, 38px)`, one line, `text-wrap: nowrap`
@@ -529,17 +519,77 @@ struct StatRow: View {
     }
 }
 
-// MARK: - the two pictures that ship in the bundle
+// MARK: - the welcome figure
 
-/// `welcome-meme.jpg` and the two morph clips are loose files under
-/// `MyADHD/Media/`, not asset-catalogue entries — they are copies of the
-/// web app's own files and they are replaced by copying them again, which
-/// an `.imageset` wrapper would only get in the way of.
-enum BundleImage {
-    static let welcomeMeme: UIImage? = {
-        guard let url = Bundle.main.url(forResource: "welcome-meme", withExtension: "jpg"),
-              let data = try? Data(contentsOf: url)
-        else { return nil }
-        return UIImage(data: data)
-    }()
+/// app.html `.dump-welcome`: what the app does, drawn with its own
+/// parts. The thoughts as they arrive on the left, and the same words as
+/// rows on a list on the right, tidied, with a day where one was said. It
+/// replaced a borrowed photo (BRAND.md §7, 2026-10-26). Hidden from
+/// VoiceOver: the headline and the hint under it say the same in words.
+struct WelcomeFigure: View {
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                label(Copy.Home.figureHead)
+                ForEach(Array(Copy.Home.figureThoughts.enumerated()), id: \.offset) { i, t in
+                    Text(t)
+                        .font(Font.baloo(12.5, .semibold))
+                        .foregroundStyle(theme.inkSoft)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Capsule().fill(theme.surface))
+                        .overlay(Capsule().strokeBorder(theme.lineStrong, lineWidth: 1.5))
+                        // A little out of line, the way thoughts arrive.
+                        .padding(.leading, i == 1 ? 10 : i == 3 ? 4 : 0)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.faint)
+                .frame(maxHeight: .infinity)
+                .fixedSize(horizontal: true, vertical: false)
+
+            VStack(alignment: .leading, spacing: 8) {
+                label(Copy.Home.figureLists)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(Copy.Home.figureRows.enumerated()), id: \.offset) { i, row in
+                        if i > 0 { Rectangle().fill(theme.line).frame(height: 1) }
+                        HStack(alignment: .top, spacing: 8) {
+                            Circle().strokeBorder(theme.faint, lineWidth: 2)
+                                .frame(width: 14, height: 14).padding(.top, 2)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(row.title).font(Font.baloo(12.5, .bold)).foregroundStyle(theme.ink)
+                                Text(row.day).font(Font.baloo(11, .semibold)).foregroundStyle(theme.faint)
+                            }
+                        }
+                        .padding(.vertical, 7)
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(theme.surface))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                    .strokeBorder(theme.lineStrong, lineWidth: 1.5))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        // Its own height, not the screen's: the arrow's maxHeight centres
+        // it on the taller column instead of stretching the figure.
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 14).padding(.vertical, 16)
+        .background(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous).fill(theme.wash))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous)
+            .strokeBorder(theme.lineStrong, lineWidth: 1.5))
+        .accessibilityHidden(true)
+    }
+
+    private func label(_ s: String) -> some View {
+        Text(s.uppercased())
+            .font(Font.baloo(11, .bold))
+            .foregroundStyle(theme.ink)
+    }
 }

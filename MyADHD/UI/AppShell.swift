@@ -496,19 +496,20 @@ struct AppShell: View {
 
         Task {
             var tasks: [TaskItem]
-            var sortedOurselves = false
+            var fallbackLine: String? = nil
 
             do {
                 tasks = try await triageClient.triage(text: text, spoken: spoken)
             } catch {
                 tasks = LocalTriage.parseLocally(text)
-                sortedOurselves = true
+                fallbackLine = Copy.Triage.fallback(status: (error as? TriageError)?.statusCode,
+                                                    online: Reachability.shared.isOnline)
             }
 
             sorting = false
             defer { deliverHeldBack() }
 
-            if sortedOurselves { toasts.show(Copy.Triage.offline) }
+            if let fallbackLine { toasts.show(fallbackLine) }
 
             guard !tasks.isEmpty else {
                 /* `applyTriage` is what clears the quadrant a matrix `+`

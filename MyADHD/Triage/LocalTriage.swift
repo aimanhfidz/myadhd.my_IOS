@@ -44,12 +44,26 @@ enum LocalTriage {
 
     // MARK: - Months (app.js:735-737)
 
+    /* English, then the Malay names English does not already spell:
+       Januari and Februari start like January, Jun, April, September
+       and November are the same word, and the rest are keyed by their
+       own first three letters. */
     static let monthRE = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+        + "|januari|februari|mac|mei|julai|ogos|okt(?:ober)?|dis(?:ember)?"
 
     static let monthIndex: [String: Int] = [
         "jan": 0, "feb": 1, "mar": 2, "apr": 3, "may": 4, "jun": 5,
         "jul": 6, "aug": 7, "sep": 8, "oct": 9, "nov": 10, "dec": 11,
+        "mac": 2, "mei": 4, "ogo": 7, "okt": 9, "dis": 11,
     ]
+
+    /// The Malay day names, Sunday first like getDay().
+    static let msDays = ["ahad", "isnin", "selasa", "rabu", "khamis", "jumaat", "sabtu"]
+    static let msDayRE = "ahad|isnin|selasa|rabu|khamis|jumaa?t|sabtu"
+    /// Which half of the day a Malay clock time is in. Without one,
+    /// "pukul 3" could be either, and the reader leaves the time off
+    /// rather than guess.
+    static let msPartRE = "pagi|tengah" + JSRE.s + "*hari|tgh|petang|ptg|malam|mlm"
 
     // MARK: - parseClock (app.js:739-756)
 
@@ -57,6 +71,11 @@ enum LocalTriage {
     private static let reMidnight = JSRegex(JSRE.b + "midnight" + JSRE.b)
     private static let reAmPm = JSRegex(
         JSRE.b + "(" + JSRE.d + "{1,2})(?:[:.](" + JSRE.d + "{2}))?" + JSRE.s + "*(am|pm)" + JSRE.b)
+    private static let reMsPukul = JSRegex(
+        JSRE.b + "(?:pukul|pkl)" + JSRE.s + "*(" + JSRE.d + "{1,2})(?:[:.](" + JSRE.d + "{2}))?"
+        + JSRE.s + "*(" + msPartRE + ")" + JSRE.b)
+    private static let reMsPart = JSRegex(
+        JSRE.b + "(" + JSRE.d + "{1,2})(?:[:.](" + JSRE.d + "{2}))?" + JSRE.s + "*(pagi|petang|ptg)" + JSRE.b)
     private static let reBare24 = JSRegex(
         JSRE.b + "(" + JSRE.d + "{1,2}):(" + JSRE.d + "{2})" + JSRE.b)
 
@@ -75,6 +94,24 @@ enum LocalTriage {
             var h = (Int(m[1] ?? "") ?? 0) % 12
             if m[3] == "pm" { h += 12 }
             let mins = Int(m[2] ?? "0") ?? 0
+            return WebDates.pad2(h) + ":" + WebDates.pad2(mins)
+        }
+
+        /* "pukul 3 petang", "pkl 8.30 malam", "10 pagi". The part of
+           the day is what makes it a time, the way am and pm are:
+           "pukul 3" alone stays a day with no time. "malam" needs its
+           pukul, because "2 malam" is as likely to be two nights. */
+        if let m = reMsPukul.firstMatch(in: t) ?? reMsPart.firstMatch(in: t),
+           let n = Int(m[1] ?? ""), n >= 1, n <= 12,
+           let mins = Int(m[2] ?? "0"), mins <= 59 {
+            let part = (m[3] ?? "").filter { !$0.isWhitespace }
+            var h = n % 12
+            switch part {
+            case "pagi": break   // as written
+            case "tengahhari", "tgh": if h < 11 { h += 12 }
+            case "malam", "mlm": if h >= 5 { h += 12 }   // 12 and 1 malam are past midnight
+            default: h += 12   // petang
+            }
             return WebDates.pad2(h) + ":" + WebDates.pad2(mins)
         }
 
@@ -105,9 +142,23 @@ enum LocalTriage {
     private static let reInDays = JSRegex(
         JSRE.b + "in" + JSRE.s + "+(" + JSRE.d + "{1,3})" + JSRE.s + "+days?" + JSRE.b)
 
+    private static let reMsToday = JSRegex(
+        JSRE.b + "(?:hari|pagi|petang|malam)" + JSRE.s + "+(?:ini|ni)" + JSRE.b)
+    private static let reLusa = JSRegex(JSRE.b + "lusa" + JSRE.b)
+    private static let reEsok = JSRegex(JSRE.b + "(?:esok|esk|besok)" + JSRE.b)
+    private static let reDalamHari = JSRegex(
+        JSRE.b + "dalam" + JSRE.s + "+(" + JSRE.d + "{1,3})" + JSRE.s + "+hari" + JSRE.b)
+    private static let reHariLagi = JSRegex(
+        JSRE.b + "(" + JSRE.d + "{1,3})" + JSRE.s + "+hari" + JSRE.s + "+lagi" + JSRE.b)
+
     private static let reInWeek = JSRegex(
         JSRE.b + "in" + JSRE.s + "+a" + JSRE.s + "+week" + JSRE.b
-        + "|" + JSRE.b + "next" + JSRE.s + "+week" + JSRE.b)
+        + "|" + JSRE.b + "next" + JSRE.s + "+week" + JSRE.b
+        + "|" + JSRE.b + "minggu" + JSRE.s + "+depan" + JSRE.b
+        + "|" + JSRE.b + "seminggu" + JSRE.s + "+lagi" + JSRE.b)
+
+    private static let reMsWeekday = JSRegex(
+        JSRE.b + "(" + msDayRE + ")" + JSRE.b + "(" + JSRE.s + "+depan" + JSRE.b + ")?")
 
     private static let reWeekday = JSRegex(
         JSRE.b + "(next" + JSRE.s + "+)?(sun|mon|tues?|wed(?:nes)?|thur?s?|fri|sat(?:ur)?)(?:day)?" + JSRE.b)
@@ -133,7 +184,14 @@ enum LocalTriage {
         if reDayAfter.test(t) { return WebDates.dayKey(WebDates.addDays(today, 2)) }
         if reTomorrow.test(t) { return WebDates.dayKey(WebDates.addDays(today, 1)) }
 
-        if let m = reInDays.firstMatch(in: t), let n = Int(m[1] ?? "") {
+        /* The same in Malay. "hari ni", "malam ni" and the rest are
+           today; lusa is the day after esok. */
+        if reMsToday.test(t) { return WebDates.dayKey(today) }
+        if reLusa.test(t) { return WebDates.dayKey(WebDates.addDays(today, 2)) }
+        if reEsok.test(t) { return WebDates.dayKey(WebDates.addDays(today, 1)) }
+
+        if let m = reInDays.firstMatch(in: t) ?? reDalamHari.firstMatch(in: t) ?? reHariLagi.firstMatch(in: t),
+           let n = Int(m[1] ?? "") {
             return WebDates.dayKey(WebDates.addDays(today, n))
         }
         if reInWeek.test(t) { return WebDates.dayKey(WebDates.addDays(today, 7)) }
@@ -152,6 +210,17 @@ enum LocalTriage {
                 if m[1] != nil { step += (step <= 6 ? 7 : 0) }
                 return WebDates.dayKey(WebDates.addDays(today, step))
             }
+        }
+
+        /* "khamis", "hari jumaat", "isnin depan". Depan follows the
+           day the way next leads it in English, and means the same. */
+        if let m = reMsWeekday.firstMatch(in: t), let raw = m[1],
+           let want = msDays.firstIndex(of: raw == "jumat" ? "jumaat" : raw) {
+            let dow = cal.component(.weekday, from: today) - 1
+            var step = (want - dow + 7) % 7
+            if step == 0 { step = 7 }
+            if m[2] != nil { step += (step <= 6 ? 7 : 0) }
+            return WebDates.dayKey(WebDates.addDays(today, step))
         }
 
         // "9 March" / "March 9" / "9th of March"
@@ -306,7 +375,11 @@ enum LocalTriage {
         + "|maybe|probably|ideally|urgent|i think|apparently|sometime|whenever|no rush"
         + "|morning|afternoon|evening"
         + "|(?:mon|tues?|wed(?:nes)?|thur?s?|fri|sat(?:ur)?|sun)(?:day)?" + JSRE.b
-        + "|" + JSRE.d + ")",
+        + "|" + JSRE.d
+        + "|esok" + JSRE.b + "|lusa" + JSRE.b + "|sebelum" + JSRE.b + "|pukul" + JSRE.b + "|pkl" + JSRE.b
+        + "|minggu depan" + JSRE.b
+        + "|(?:hari|pagi|petang|malam)" + JSRE.s + "+(?:ini|ni)" + JSRE.b
+        + "|(?:hari" + JSRE.s + "+)?(?:ahad|isnin|selasa|rabu|khamis|jumaa?t|sabtu)" + JSRE.b + ")",
         folded: true)
 
     static func isQualifier(_ fragment: String) -> Bool { reQualifier.test(fragment) }
@@ -343,14 +416,19 @@ enum LocalTriage {
        date in the middle of a real sentence is left alone. */
     private static let reTrailingWhen = JSRegex(
         "[,;" + JSRE.sSet + "\u{2014}-]*" + JSRE.b
-        + "(?:on|by|before|at|due|this|next)?" + JSRE.s + "*(?:"
+        + "(?:on|by|before|at|due|this|next|pada|sebelum)?" + JSRE.s + "*(?:"
         + "today|tonight|tomorrow|tmrw?|this (?:morning|afternoon|evening)|next week"
         + "|in " + JSRE.d + "{1,3} days?|"
         + "(?:next" + JSRE.s + "+)?(?:sun|mon|tues?|wed(?:nes)?|thur?s?|fri|sat(?:ur)?)(?:day)?|"
         + JSRE.d + "{1,2}(?:st|nd|rd|th)?" + JSRE.s + "+(?:of" + JSRE.s + "+)?(?:" + monthRE + ")|"
         + "(?:" + monthRE + ")" + JSRE.s + "+" + JSRE.d + "{1,2}(?:st|nd|rd|th)?|"
         + JSRE.d + "{1,2}(?:[:.]" + JSRE.d + "{2})?" + JSRE.s + "*(?:am|pm)|"
-        + JSRE.d + "{1,2}:" + JSRE.d + "{2}|noon|midday|midnight"
+        + JSRE.d + "{1,2}:" + JSRE.d + "{2}|noon|midday|midnight|"
+        + "esok|lusa|(?:hari|pagi|petang|malam)" + JSRE.s + "+(?:ini|ni)|minggu depan|"
+        + "dalam " + JSRE.d + "{1,3} hari|" + JSRE.d + "{1,3} hari lagi|"
+        + "(?:hari" + JSRE.s + "+)?(?:" + msDayRE + ")(?:" + JSRE.s + "+depan)?|"
+        + "(?:pukul|pkl)" + JSRE.s + "*" + JSRE.d + "{1,2}(?:[:.]" + JSRE.d + "{2})?" + JSRE.s + "*(?:" + msPartRE + ")|"
+        + JSRE.d + "{1,2}(?:[:.]" + JSRE.d + "{2})?" + JSRE.s + "*(?:pagi|petang|ptg)"
         + ")\\.?\\z",
         folded: true)
 
@@ -414,7 +492,7 @@ enum LocalTriage {
         JSRE.b + "(today|tonight|asap|urgent|overdue|deadline|due|now|immediately|last chance|expires?)"
         + JSRE.b, folded: true)
     private static let reUrgentSoon = JSRegex(
-        JSRE.b + "(tomorrow|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend|soon)"
+        JSRE.b + "(tomorrow|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend|soon|esok|minggu (?:ini|ni)|hujung minggu|ahad|isnin|selasa|rabu|khamis|jumaa?t|sabtu)"
         + JSRE.b, folded: true)
     private static let reQuick = JSRegex(
         JSRE.b + "(email|reply|text|call|book|order|pay|send|renew|confirm|cancel|rsvp)"
