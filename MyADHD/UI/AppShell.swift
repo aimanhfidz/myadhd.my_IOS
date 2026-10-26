@@ -235,6 +235,7 @@ struct AppShell: View {
         case .home:
             HomeScreen(store: store,
                        themeStore: themeStore,
+                       toasts: toasts,
                        meetings: meetings,
                        onRefresh: { await pullToRefresh() },
                        openSettings: { settingsUp = true },

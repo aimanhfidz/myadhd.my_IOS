@@ -81,6 +81,22 @@ enum Copy {
 
     // MARK: - Home (app.html:199-291; app.js:4131-4247)
 
+    // MARK: - The Now card (app.html #home-now, app.js paintNow)
+
+    /// One task, its first step, and three ways out of it.
+    enum Now {
+        static let title = "Now"                         // app.html #now-head
+        static let late = "Late"                         // app.js paintNow
+        static let done = "Done"                         // app.html #now-done
+        static let notNow = "Not now"                    // app.html #now-skip
+        static let changeDay = "Change day"              // app.html #now-move
+        static let today = "Today"                       // app.html .now-day
+        static let tomorrow = "Tomorrow"                 // app.html .now-day
+        static let nextWeek = "Next week"                // app.html .now-day
+        static let pickDay = "Pick a day"                // app.html .now-pick
+        static let onlyOne = "It's the only thing on your lists."   // app.js skipNow
+    }
+
     enum Home {
         static let brandAria = "my.adhd home"   // app.html:201
         static let settingsAria = "Settings"    // app.html:213
@@ -112,6 +128,11 @@ enum Copy {
             if late > 0 { return late == 1 ? "1 late" : "\(late) late" }   // app.js:4191
             return today > 0 ? todayNow : todayToday                        // app.js:4193
         }
+
+        /// Under the Now card the heading speaks for its own rows: the
+        /// late one may be up in the card (app.js paintToday).
+        static let afterThat = "After that"                       // app.js paintToday
+        static func moreLate(_ n: Int) -> String { "\(n) more late" }   // app.js paintToday
 
         /// RAW minutes, not minutesLabel: a 90-minute task reads 90 min
         /// here and 1.5 hr on the lists, and that difference is app.js's.

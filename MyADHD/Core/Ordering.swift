@@ -398,6 +398,40 @@ enum Ordering {
         return HomeToday(next: next, late: late, now: now, open: open)
     }
 
+    /// The Now card's walk (app.js `nowOrder`): `homeToday`'s three
+    /// groups, late, then today, then everything open by deadline and
+    /// urgency, deduped by id, with **no cap**. A separate function rather
+    /// than a cap argument on `homeToday`, which `Checks/parity-ordering`
+    /// holds line for line against the web's `paintToday`.
+    static func nowOrder(_ tasks: [TaskItem],
+                         today: String = WebDates.dayKey()) -> [TaskItem]
+    {
+        let open = tasks.filter { !$0.done }
+        let third = stableSorted(open) { a, b in
+            compareNumbers(dueAt(a), dueAt(b))
+                ?? compareNumbers(Double(b.urgency), Double(a.urgency))
+        }
+        var seen = Set<String>()
+        var order: [TaskItem] = []
+        for group in [overdueTasks(tasks, today: today), tasksOn(tasks, today), third] {
+            for t in group where !seen.contains(t.id) {
+                seen.insert(t.id)
+                order.append(t)
+            }
+        }
+        return order
+    }
+
+    /// `pickNow`: the first not passed over this visit. Pass over
+    /// everything and the first comes round again: running out of things
+    /// to put off is not the same as having nothing to do.
+    static func pickNow(_ tasks: [TaskItem], passed: Set<String>,
+                        today: String = WebDates.dayKey()) -> TaskItem?
+    {
+        let order = nowOrder(tasks, today: today)
+        return order.first { !passed.contains($0.id) } ?? order.first
+    }
+
     /// `is-late` on a home row: the strict boundary again.
     static func rowIsLate(_ t: TaskItem, today: String) -> Bool {
         guard let when = t.when, !when.isEmpty else { return false }

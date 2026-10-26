@@ -41,6 +41,11 @@ struct HomeScreen: View {
 
     let store: AppStore
     let themeStore: ThemeStore
+    let toasts: ToastCenter
+
+    /// Passed over with "Not now", for this visit only. Never saved; see
+    /// NowCard.swift.
+    @State private var passed: Set<String> = []
 
     /// The meetings already on this phone. Silent until the switch in
     /// Settings is on, and the card is then exactly what it was.
@@ -66,10 +71,24 @@ struct HomeScreen: View {
             } else {
                 ScrollView {
                     VStack(spacing: 14) {
-                        TodayCard(card: card,
-                                  today: today,
-                                  meetings: soon,
-                                  goToLists: goToLists)
+                        if let now = nowTask {
+                            NowCard(store: store,
+                                    toasts: toasts,
+                                    task: now,
+                                    today: today,
+                                    choices: Ordering.nowOrder(store.doc.tasks, today: today).count,
+                                    passed: $passed,
+                                    goToLists: goToLists)
+                                .id(now.id)
+                                .transition(.opacity)
+                        }
+                        if !todayIsRedundant {
+                            TodayCard(card: card,
+                                      today: today,
+                                      meetings: soon,
+                                      nowID: nowTask?.id,
+                                      goToLists: goToLists)
+                        }
                         /* Above the numbers, not below: they are reference,
                            this is the one thing on Home to act on, and under
                            the fold it would never be seen. Gone once the
@@ -83,6 +102,7 @@ struct HomeScreen: View {
                 }
                 .scrollIndicators(.hidden)
                 .refreshable { await onRefresh?() }
+                .animation(Theme.ease(0.25), value: nowTask?.id)
             }
         }
         .padding(.horizontal, Theme.gutter(UIScreen.main.bounds.width))
@@ -95,6 +115,17 @@ struct HomeScreen: View {
     /// again.
     private var coldStart: Bool {
         store.doc.tasks.isEmpty && store.doc.notes.isEmpty
+    }
+
+    private var nowTask: TaskItem? {
+        Ordering.pickNow(store.doc.tasks, passed: passed, today: today)
+    }
+
+    /// The Now card holds the only task the Today card would have shown,
+    /// and there is no meeting either: the second card has nothing to add.
+    private var todayIsRedundant: Bool {
+        guard let id = nowTask?.id else { return false }
+        return soon.isEmpty && card.next.allSatisfy { $0.id == id } && !card.next.isEmpty
     }
 
     private var card: Ordering.HomeToday {
@@ -236,7 +267,25 @@ struct TodayCard: View {
     let today: String
     /// Today's, already filtered of any that has become a task.
     var meetings: [Meeting] = []
+    /// The task the Now card above is showing. Saying it twice would make
+    /// the card look like a heading for a list that starts with itself.
+    var nowID: String? = nil
     var goToLists: () -> Void
+
+    private var next: [TaskItem] { card.next.filter { $0.id != nowID } }
+
+    /// Under the Now card the heading speaks for its own rows: "1 late"
+    /// over two rows that are not late, because the late one is up in the
+    /// card, was a heading telling the wrong story (app.js paintToday).
+    private var title: String {
+        guard nowID != nil else { return card.title }
+        let late = next.filter { Ordering.rowIsLate($0, today: today) }.count
+        return late > 0 ? Copy.Home.moreLate(late) : Copy.Home.afterThat
+    }
+
+    private var isLate: Bool {
+        nowID == nil ? card.isLate : next.contains { Ordering.rowIsLate($0, today: today) }
+    }
 
     /// **`Ordering.homeToday` is not touched.** It is checked line for
     /// line against the web's own `paintToday`
@@ -251,8 +300,8 @@ struct TodayCard: View {
     /// is the same three, so a morning full of meetings can push a task
     /// off the card — which is the truth the card exists to tell.
     private var rows: [AgendaEntry] {
-        guard !meetings.isEmpty else { return card.next.map(AgendaEntry.task) }
-        let entries = card.next.map(AgendaEntry.task) + meetings.map(AgendaEntry.meeting)
+        guard !meetings.isEmpty else { return next.map(AgendaEntry.task) }
+        let entries = next.map(AgendaEntry.task) + meetings.map(AgendaEntry.meeting)
         let sorted = Ordering.stableSorted(entries) { a, b in
             let l = Self.due(a), r = Self.due(b)
             if l == r { return nil }
@@ -281,18 +330,18 @@ struct TodayCard: View {
     /// The card is showing everything only when nothing is left over on
     /// either side.
     private var showsMore: Bool {
-        card.open.count + meetings.count > rows.count
+        card.open.count + meetings.count > rows.count + (nowID == nil ? 0 : 1)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(card.title)
+                Text(title)
                     .font(Font.baloo(17, .heavy))
                     /* The one place on this screen orange is allowed: the
                        heading says "3 late" or it says "Today", and only the
                        first of those is news. */
-                    .foregroundStyle(card.isLate ? theme.orange : theme.ink)
+                    .foregroundStyle(isLate ? theme.orange : theme.ink)
 
                 Spacer(minLength: 10)
 
