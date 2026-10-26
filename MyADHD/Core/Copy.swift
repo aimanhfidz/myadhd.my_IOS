@@ -935,11 +935,6 @@ enum Copy {
         static let back = "Home"                // app.html:666
         static let title = "Settings"           // app.html:668
 
-        // the captions over the groups
-        static let capAccount = "Account"       // app.html:697
-        static let capSync = "Sync calendars"   // app.html:763
-        static let capAbout = "About"           // app.html:796
-
         // the one row in the Account group this build draws
         static let profileRow = "Profile"                 // app.html:703
         static let greetingPlain = "Hey there."           // app.html:704, app.js:3922
@@ -949,9 +944,7 @@ enum Copy {
 
         // the About group, in order
         static let feedbackRow = "Send feedback"                  // app.html:805
-        static let feedbackNote = "Tell us what to fix."          // app.html:806
         static let shareRow = "Share with friends"                // app.html:813
-        static let shareNote = "Someone you know has this too."   // app.html:814
         static let privacyRow = "Privacy policy"                  // app.html:821
         static let termsRow = "Terms"                             // app.html:830
 
@@ -971,7 +964,7 @@ enum Copy {
         /// Signed out, with the calendar on offer.
         static let localCalendar =
             "Your tasks live in this browser only" + emDash + "no account, no server. The "
-            + "calendar link above is the one exception, and only while it is "
+            + "calendar link is the one exception, and only while it is "
             + "switched on."                              // app.js:3686-3688
 
         /// Signed out, and no calendar either.
