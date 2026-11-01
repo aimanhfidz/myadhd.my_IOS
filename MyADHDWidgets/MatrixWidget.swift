@@ -45,7 +45,8 @@ struct MatrixView: View {
     @Environment(\.colorScheme) private var scheme
     let entry: SnapEntry
 
-    private var perBox: Int { family == .systemLarge ? 2 : 1 }
+    private var large: Bool { family == .systemLarge }
+    private var perBox: Int { large ? 2 : 1 }
 
     private static let boxes: [(key: String, label: String)] = [
         ("do", "Do now"), ("plan", "Plan"), ("delegate", "Delegate"), ("drop", "Drop"),
@@ -56,9 +57,9 @@ struct MatrixView: View {
             let today = snap.effectiveDay(entry.date)
             let open = snap.ordered(now: entry.date)
             let rows = [Array(Self.boxes[0..<2]), Array(Self.boxes[2..<4])]
-            VStack(spacing: 6) {
+            VStack(spacing: large ? 6 : 4) {
                 ForEach(0..<2, id: \.self) { r in
-                    HStack(spacing: 6) {
+                    HStack(spacing: large ? 6 : 4) {
                         ForEach(rows[r], id: \.key) { box in
                             cell(box.key, box.label,
                                  open.filter { $0.quadrant(on: today) == box.key })
@@ -76,7 +77,10 @@ struct MatrixView: View {
 
     private func cell(_ key: String, _ label: String, _ items: [SnapTask]) -> some View {
         let hue = MatrixHue.hue(key, dark: scheme == .dark)
-        return VStack(alignment: .leading, spacing: family == .systemLarge ? 7 : 5) {
+        /* Medium is measured for the smallest phones: a medium tile there
+           leaves each row of boxes about 55 points, which holds a label
+           and one task only with tight padding. */
+        return VStack(alignment: .leading, spacing: large ? 7 : 2) {
             HStack(alignment: .firstTextBaseline) {
                 Text(label).font(.baloo(12, .heavy))
                 Spacer(minLength: 4)
@@ -100,7 +104,7 @@ struct MatrixView: View {
                         .lineLimit(1)
                 }
             }
-            if items.count > perBox, family == .systemLarge {
+            if items.count > perBox, large {
                 Text("+\(items.count - perBox) more")
                     .font(.baloo(11.5, .bold))
                     .foregroundStyle(.secondary)
@@ -112,9 +116,10 @@ struct MatrixView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 8)
+        .padding(.horizontal, large ? 9 : 8)
+        .padding(.vertical, large ? 8 : 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
         .background(MatrixHue.wash(key, dark: scheme == .dark),
                     in: RoundedRectangle(cornerRadius: 13, style: .continuous))
     }

@@ -119,7 +119,10 @@ struct NowSkipIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         var passed = Activity<NowActivityAttributes>.activities.first?.content.state.passed ?? []
-        if !passed.contains(id) { passed.append(id) }
+        /* Already passed over once means the list went all the way round
+           and came back to it: start the round again from this one, as
+           the Now card does (NowCard.swift), or it would stay up for good. */
+        if passed.contains(id) { passed = [id] } else { passed.append(id) }
         await NowNext.apply(NowNext.state(passed: passed))
         return .result()
     }

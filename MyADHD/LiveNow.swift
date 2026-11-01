@@ -63,7 +63,15 @@ enum LiveNow {
 
     static func sync(tasks: [TaskItem], today: String = WebDates.dayKey()) {
         self.tasks = tasks
-        let running = Activity<NowActivityAttributes>.activities
+        /* `activities` keeps ones iOS has already ended (the eight-hour
+           limit) while their card is still on screen. Updating one of
+           those does nothing, so they are cleared away and do not count:
+           a new one is started in their place. */
+        let all = Activity<NowActivityAttributes>.activities
+        for gone in all where gone.activityState == .ended {
+            Task { await gone.end(nil, dismissalPolicy: .immediate) }
+        }
+        let running = all.filter { $0.activityState == .active || $0.activityState == .stale }
 
         guard wanted, let state = state(tasks: tasks, today: today) else {
             for activity in running {

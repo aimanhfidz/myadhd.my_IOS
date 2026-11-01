@@ -84,6 +84,11 @@ final class CalendarSync {
 
     @ObservationIgnored private var token: (value: String, until: Date)?
     @ObservationIgnored private var calendarID: String?
+    /// Bumped when the account changes. A token or calendar asked for
+    /// under an older one is thrown away when it arrives, or a mint in
+    /// flight across a switch would put the new account's tasks into the
+    /// old account's calendar.
+    @ObservationIgnored private var epoch = 0
 
     /// In flight, so two callers share one answer: a press of Link and the
     /// pass the same sign-in books can otherwise both find nothing and
@@ -124,6 +129,7 @@ final class CalendarSync {
             guard let self else { return }
             /* A different account is a different calendar and a different
                grant. Forget both and ask again. */
+            self.epoch += 1
             self.token = nil
             self.calendarID = nil
             self.settling = nil
@@ -368,6 +374,7 @@ final class CalendarSync {
         /* Signed out is "nothing to do"; anything else from the session
            is the network, and must not read as a revoked grant — that
            would park the push until somebody pressed Reconnect. */
+        let at = epoch
         let jwt: String
         do {
             jwt = try await session.freshToken()
@@ -402,6 +409,7 @@ final class CalendarSync {
               let value = o["accessToken"]?.stringValue
         else { throw GoogleError.offline }
 
+        guard at == epoch else { throw GoogleError.offline }   // another account now
         link = .linked
         let given = Normalize.jsNumber(o["expiresIn"])
         let life = max(60, (given.isFinite && given > 0 ? given : 3600) - 60)
@@ -428,10 +436,16 @@ final class CalendarSync {
 
     private func findOrMakeCalendar() async throws -> String {
         if let calendarID { return calendarID }
+        let at = epoch
+        /// Keeps the answer only if the account is the one that asked.
+        func settle(_ id: String) throws -> String {
+            guard at == epoch else { throw GoogleError.offline }
+            calendarID = id
+            return id
+        }
 
         if let settled = await claim("") {
-            calendarID = settled
-            return settled
+            return try settle(settled)
         }
 
         /* Under this scope the list only ever holds calendars this app
@@ -443,9 +457,7 @@ final class CalendarSync {
                .first(where: { $0["summary"]?.stringValue == Copy.GoogleCalendar.calendarName }),
            let id = hit["id"]?.stringValue
         {
-            let winner = await claim(id) ?? id
-            calendarID = winner
-            return winner
+            return try settle(await claim(id) ?? id)
         }
 
         let made = try await send("POST", "calendars", body: .object(JSONObject([
@@ -461,10 +473,9 @@ final class CalendarSync {
             /* Another device got there first. Ours is seconds old and
                empty; a leftover would be untidy, not harmful. */
             _ = try? await send("DELETE", "calendars/" + Self.pathEncode(madeID))
-            calendarID = winner
-            return winner
+            return try settle(winner)
         }
-        calendarID = madeID
+        _ = try settle(madeID)
 
         /* Cosmetic: its own colour, so it reads as its own layer. */
         _ = try? await send("PUT", "users/me/calendarList/" + Self.pathEncode(madeID),

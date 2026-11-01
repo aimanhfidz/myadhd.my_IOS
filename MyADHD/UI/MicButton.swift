@@ -350,9 +350,10 @@ struct MicButton: View {
             .onChanged { _ in
                 guard !pressing else { return }
                 pressing = true
-                /* Hands-free and live: this touch is the tap that ends
-                   it, on the way up. */
-                if handsFree && recorder.isLive { return }
+                /* Hands-free: this touch is the tap that ends it, on the
+                   way up — never a second recording, even while the mic
+                   is still opening. */
+                if handsFree { return }
                 micDown()
             }
             .onEnded { _ in

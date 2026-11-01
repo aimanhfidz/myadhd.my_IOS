@@ -26,6 +26,7 @@
    fonts/Baloo2-Variable.ttf that has to move when that one does.
    ============================================================ */
 
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -216,22 +217,59 @@ enum Wallpaper {
         return true
     }
 
+    /// This screen, in pixels. Read here, on the main actor, and handed
+    /// to `fill`, which may run anywhere.
+    @MainActor
+    static var screenPixels: CGSize {
+        let size = UIScreen.main.bounds.size, scale = UIScreen.main.scale
+        return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+
     /// A picked photo as a JPEG at this screen's pixels, filled not fitted.
     @MainActor
-    private static func sized(_ data: Data) -> Data? {
-        guard let image = UIImage(data: data) else { return nil }
-        let target = UIScreen.main.bounds.size
-        let scale = UIScreen.main.scale
+    private static func sized(_ data: Data) -> Data? { fill(data, to: screenPixels) }
 
-        let ratio = max(target.width / image.size.width, target.height / image.size.height)
-        let drawn = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+    /// A photo as a JPEG at `target` pixels, filled not fitted. Decoded
+    /// by ImageIO at the size it will be drawn, never whole: a 48MP
+    /// original is about 190 MB once decoded, and thirty of them were
+    /// enough to get the app killed. No UIScreen and no main actor, so
+    /// it can run off the main thread.
+    static func fill(_ data: Data, to target: CGSize) -> Data? {
+        guard target.width > 0, target.height > 0,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              var w = (props[kCGImagePropertyPixelWidth] as? NSNumber).map({ CGFloat($0.doubleValue) }),
+              var h = (props[kCGImagePropertyPixelHeight] as? NSNumber).map({ CGFloat($0.doubleValue) }),
+              w > 0, h > 0
+        else { return nil }
+        // Orientations 5-8 are turned on their side.
+        if let o = (props[kCGImagePropertyOrientation] as? NSNumber)?.intValue, (5...8).contains(o) {
+            swap(&w, &h)
+        }
+
+        /* Just big enough to cover the screen; a smaller photo is not
+           blown up here, the drawing below stretches it. */
+        let cover = max(target.width / w, target.height / h)
+        let longest = max(w, h) * min(cover, 1)
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(longest.rounded(.up)),
+        ]
+        guard let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else { return nil }
+
+        let tw = CGFloat(thumb.width), th = CGFloat(thumb.height)
+        let ratio = max(target.width / tw, target.height / th)
+        let drawn = CGSize(width: tw * ratio, height: th * ratio)
         let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
+        format.scale = 1
         format.opaque = true
         let sized = UIGraphicsImageRenderer(size: target, format: format).image { _ in
-            image.draw(in: CGRect(x: (target.width - drawn.width) / 2,
-                                  y: (target.height - drawn.height) / 2,
-                                  width: drawn.width, height: drawn.height))
+            UIImage(cgImage: thumb).draw(in: CGRect(x: (target.width - drawn.width) / 2,
+                                                    y: (target.height - drawn.height) / 2,
+                                                    width: drawn.width, height: drawn.height))
         }
         return sized.jpegData(compressionQuality: 0.88)
     }
@@ -303,23 +341,36 @@ enum Wallpaper {
         return dailyDir.appendingPathComponent(names[i])
     }
 
-    /// Replaces the whole set. Photos that will not decode are skipped;
-    /// returns how many were kept.
+    /// Replaces the whole set with JPEGs already made by `fill`. The old
+    /// set is only let go once the new one is on disk, so a pick where
+    /// nothing could be read keeps what was there. Returns the count now.
     @MainActor
     @discardableResult
-    static func saveDailyPhotos(_ picked: [Data]) -> Int {
+    static func saveDailyPhotos(_ jpegs: [Data]) -> Int {
         let fm = FileManager.default
-        try? fm.removeItem(at: dailyDir)
-        try? fm.createDirectory(at: dailyDir, withIntermediateDirectories: true)
+        let incoming = dailyDir.deletingLastPathComponent()
+            .appendingPathComponent("daily-incoming", isDirectory: true)
+        try? fm.removeItem(at: incoming)
+        try? fm.createDirectory(at: incoming, withIntermediateDirectories: true)
         var names: [String] = []
-        for data in picked {
-            guard let jpeg = sized(data) else { continue }
+        for jpeg in jpegs {
             let name = UUID().uuidString + ".jpg"
-            let file = dailyDir.appendingPathComponent(name)
-            guard (try? jpeg.write(to: file, options: .atomic)) != nil else { continue }
-            noBackup(file)
+            guard (try? jpeg.write(to: incoming.appendingPathComponent(name), options: .atomic)) != nil
+            else { continue }
             names.append(name)
         }
+        guard !names.isEmpty else {
+            try? fm.removeItem(at: incoming)
+            return dailyPhotoNames.count
+        }
+
+        try? fm.removeItem(at: dailyDir)
+        guard (try? fm.moveItem(at: incoming, to: dailyDir)) != nil else {
+            UserDefaults.standard.set([String](), forKey: dailySetKey)
+            forgetDrawn()
+            return 0
+        }
+        noBackup(dailyDir)
         UserDefaults.standard.set(names, forKey: dailySetKey)
         forgetDrawn()
         return names.count

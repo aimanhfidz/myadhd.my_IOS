@@ -205,6 +205,8 @@ myadhd.my_IOS/
 │   │                       whole Today checklist
 │   ├── MonthGrid.swift     six weeks of it, off the day counts
 │   ├── DoneGraph.swift     the contribution grid, and why it is not green
+│   ├── ListenIntent.swift  what the Dump control runs; in the app too, so
+│   │                       iOS can open the app to run it
 │   ├── NowActivity.swift   the Live Activity's model and its Done / Not now
 │   │                       intents; app and widget both compile it
 │   └── TimelineBand.swift  the day as one band. No WidgetKit import, so the
@@ -677,6 +679,12 @@ copy (Share → Copy iCloud Link).
   app in front and ends it after about eight hours, so after a night it is
   gone until the app is next opened. Keeping it alive longer would need a
   push-updated one, and APNs is a paid capability.
+- **A my.adhd calendar deleted in Google stops the push.** The phone
+  forgets nothing it can fix: `/api/gcal-calendar` keeps answering with
+  the dead calendar's id (claim-if-empty), so every pass fails and retries.
+  The web app has the same gap. The fix is on the server (let a client
+  replace a claimed id that Google answers 404 for), which makes it a
+  decision about the website.
 - **The Dump control is iOS 18 only.** `ControlWidget` does not exist on
   17.0, so it is the one member of the bundle behind `@available`. Drop
   the fence with 17.

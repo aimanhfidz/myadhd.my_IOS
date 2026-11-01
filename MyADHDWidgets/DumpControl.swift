@@ -10,7 +10,8 @@
    already on (Inbox.swift, MicButton.swift). Opening the app is the
    point: the words have to land somewhere you can see them land.
 
-   iOS 18 and later; the bundle leaves it out below that.
+   iOS 18 and later; the bundle leaves it out below that. The intent is
+   Shared/ListenIntent.swift, compiled into the app as well.
    ============================================================ */
 
 import AppIntents
@@ -27,16 +28,5 @@ struct DumpControl: ControlWidget {
         }
         .displayName("Dump")
         .description("Opens a new dump, already listening.")
-    }
-}
-
-@available(iOS 18.0, *)
-struct ListenIntent: AppIntent {
-
-    static var title: LocalizedStringResource = "Dump a thought out loud"
-    static var isDiscoverable: Bool = false
-
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(URL(string: "myadhd://listen")!))
     }
 }

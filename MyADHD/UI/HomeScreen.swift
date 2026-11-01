@@ -80,7 +80,9 @@ struct HomeScreen: View {
                                     passed: $passed,
                                     goToLists: goToLists)
                                 .id(now.id)
-                                .onChange(of: passed) { _, set in LiveNow.passedChanged(set) }
+                                /* initial: Home is rebuilt on every tab switch with an
+                                   empty set, and the lock screen must follow it. */
+                                .onChange(of: passed, initial: true) { _, set in LiveNow.passedChanged(set) }
                                 .transition(.opacity)
                         }
                         if !todayIsRedundant {

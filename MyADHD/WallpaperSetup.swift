@@ -245,14 +245,22 @@ struct WallpaperSetup: View {
         .onChange(of: pickedSet) { _, items in
             guard !items.isEmpty else { return }
             loadingSet = true
+            let target = Wallpaper.screenPixels
             Task { @MainActor in
-                var datas: [Data] = []
+                /* One photo at a time: read, shrunk to the screen off the
+                   main thread, and let go before the next. Thirty
+                   originals held at once is hundreds of megabytes. */
+                var jpegs: [Data] = []
                 for item in items {
-                    if let data = try? await item.loadTransferable(type: Data.self) { datas.append(data) }
+                    guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+                    let jpeg = await Task.detached(priority: .userInitiated) {
+                        Wallpaper.fill(data, to: target)
+                    }.value
+                    if let jpeg { jpegs.append(jpeg) }
                 }
                 pickedSet = []
-                if !datas.isEmpty {
-                    dailyCount = Wallpaper.saveDailyPhotos(datas)
+                if !jpegs.isEmpty {
+                    dailyCount = Wallpaper.saveDailyPhotos(jpegs)
                     dailyThumbs = Wallpaper.dailyThumbnails(limit: 4)
                     photo = Wallpaper.loadBackground()
                 }
