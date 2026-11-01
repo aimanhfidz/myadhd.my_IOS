@@ -146,7 +146,11 @@ Reading
 1 meeting
 meetings
 in the next 60 days.
-All-day events always show. Otherwise only busy time does: events marked Free, declined invites, birthdays and holidays stay out.
+All-day events always show. Otherwise only busy time does: events marked Free, declined invites and birthdays stay out.
+Calendars to read
+Switch one off and its events stay off your day. Holidays start off.
+coming up
+Nothing coming up
 Reminders
 Nudge me through the day
 The next thing to do, as often as you ask. Tasks with a time still ring at their time.

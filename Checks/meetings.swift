@@ -101,6 +101,24 @@ final class FakeMeetings: MeetingSource {
     func calendarsRead() -> Int { calendars }
 }
 
+/// Two calendars and a meeting on each, for the per-calendar switches.
+/// It holds both whatever is chosen — like a fetch that failed after a
+/// switch went off — so the reader has to do the hiding itself.
+final class ChoosingMeetings: MeetingSource {
+    func meetings(from: String, to: String) -> [Meeting] {
+        var work = meeting("w1", "2026-09-24", "09:00", title: "Standup", calendar: "Work")
+        work.calendarID = "work"
+        var fam = meeting("f1", "2026-09-24", nil, title: "Aunt's birthday", calendar: "Birthdays")
+        fam.calendarID = "fam"
+        return [work, fam]
+    }
+    func calendarsRead() -> Int { 2 }
+    func offeredCalendars() -> [CalendarOption] {
+        [CalendarOption(id: "work", title: "Work", byDefault: true),
+         CalendarOption(id: "fam", title: "Birthdays", byDefault: true)]
+    }
+}
+
 func meeting(_ id: String,
              _ when: String,
              _ at: String?,
@@ -164,6 +182,7 @@ struct MeetingChecks {
         readsOnlyWhenItMay(r)
         becomesAnOrdinaryTask(r)
         readsWhatGoogleSends(r)
+        readsOnlyTheCalendarsChosen(r)
 
         print("\n---")
         if r.failures.isEmpty {
@@ -564,6 +583,51 @@ struct MeetingChecks {
               !GoogleEvents.reads(cal(#"{"id":"boss@x.com","summary":"Boss","accessRole":"freeBusyReader"}"#), own: own))
         r.equal("a renamed calendar shows the name you gave it",
                 cal(#"{"id":"a","summary":"Theirs","summaryOverride":"Mine"}"#).title, "Mine")
+
+        // The list under the switch, and the person's say over it.
+        let holidays = cal(#"{"id":"en.malaysia#holiday@group.v.calendar.google.com","summary":"Holidays"}"#)
+        let family = cal(#"{"id":"fam@group.calendar.google.com","summary":"Birthdays"}"#)
+        r.yes("holidays are offered, though off by default",
+              GoogleEvents.offers(holidays, own: own) && !GoogleEvents.reads(holidays, own: own))
+        r.yes("the my.adhd calendar is never offered",
+              !GoogleEvents.offers(cal(#"{"id":"zzz@x","summary":"my.adhd"}"#), own: nil))
+        r.yes("nor free/busy only",
+              !GoogleEvents.offers(cal(#"{"id":"boss@x.com","summary":"Boss","accessRole":"freeBusyReader"}"#), own: own))
+        r.yes("nor contacts' birthdays, which never draw anyway",
+              !GoogleEvents.offers(cal(#"{"id":"addressbook#contacts@group.v.calendar.google.com","summary":"Birthdays"}"#), own: own))
+        r.yes("a calendar you switched off is not read",
+              !GoogleEvents.reads(family, own: own, choices: [family.id: false]))
+        r.yes("one you switched on is, even holidays",
+              GoogleEvents.reads(holidays, own: own, choices: [holidays.id: true]))
+        r.yes("no choice follows the default",
+              GoogleEvents.reads(family, own: own, choices: [:]))
+        r.yes("and a choice cannot bring back the my.adhd calendar",
+              !GoogleEvents.reads(cal(#"{"id":"abc123@group.calendar.google.com","summary":"X"}"#),
+                                  own: own, choices: ["abc123@group.calendar.google.com": true]))
+    }
+
+    // MARK: - 9. the calendars you chose
+
+    @MainActor
+    static func readsOnlyTheCalendarsChosen(_ r: Report) {
+        let source = ChoosingMeetings()
+        let suite = UserDefaults(suiteName: "myadhd.checks.\(UUID().uuidString)")!
+        let reader = MeetingReader(source: source, clock: { local(2026, 9, 24, 12, 0) },
+                                   authorize: { .granted }, defaults: suite)
+        reader.enabled = true
+        reader.refresh()
+        r.equal("both calendars draw before anything is chosen",
+                String(reader.on("2026-09-24").count), "2")
+        let fam = reader.options.first { $0.id == "fam" }!
+        reader.setReads(fam, false)
+        r.equal("switching one off takes its rows away at once",
+                reader.on("2026-09-24").map(\.title).joined(), "Standup")
+        r.yes("and is remembered on this phone",
+              MeetingCalendars.load(suite)["fam"] == false)
+        reader.setReads(fam, true)
+        r.yes("switching it back to its default forgets the choice",
+              MeetingCalendars.load(suite)["fam"] == nil)
+        r.equal("and its rows come back", String(reader.on("2026-09-24").count), "2")
     }
 
     // MARK: - 7. the task it becomes

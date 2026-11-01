@@ -623,7 +623,17 @@ enum Copy {
 
         /// Under the counts, because the filters are the next thing to
         /// look at when a meeting you expected is not there.
-        static let footnote = "All-day events always show. Otherwise only busy time does: events marked Free, declined invites, birthdays and holidays stay out."
+        static let footnote = "All-day events always show. Otherwise only busy time does: events marked Free, declined invites and birthdays stay out."
+
+        /// The list of calendars under the counts: one switch each, kept
+        /// on this phone. Holidays and other calendars Google subscribes
+        /// you to start off, as do any unticked in Google Calendar itself.
+        static let calendarsTitle = "Calendars to read"
+        static let calendarsNote = "Switch one off and its events stay off your day. Holidays start off."
+        /// Beside each switch: what that calendar would put on your day
+        /// in the read window.
+        static func comingUp(_ n: Int) -> String { "\(n) coming up" }
+        static let nothingComingUp = "Nothing coming up"
     }
 
     // MARK: - Nudges and reminders (Reminders.swift, NudgePlan.swift)
@@ -1182,5 +1192,76 @@ enum Copy {
         /// `setTimeout(resetAcctDelete, 20000)` — the same disarm the
         /// lists' danger zone has (app.js:3824).
         static let disarmAfter: TimeInterval = 20
+    }
+
+    // MARK: - The Google Calendar card (app.html:1016-1041; app.js:3709-3842)
+    //
+    // `#gcal-card`, `paintGoogle`, `connectGoogle`, `disconnectGoogle`, and
+    // the event's own description (`eventBody`, app.js:3430-3446). Broken
+    // where the JavaScript breaks them, like the account card above.
+
+    enum GoogleCalendar {
+        static let title = "Google Calendar"           // app.html:1020
+
+        // the state line (app.js:3786, 3823-3826)
+        static let notLinked = "Not linked"
+        static let linked = "Linked"
+        static let syncing = "Syncing…"
+        static let stale = "Needs reconnecting"
+        static let paused = "Sync paused"
+
+        /// Not linked: what linking would do (app.js:3787-3790).
+        static let offNote =
+            "Put your dated tasks straight into Google Calendar. The app makes its own "
+            + "“my.adhd” calendar and is only allowed to touch that one — the calendars "
+            + "you already have stay off limits."
+
+        // the notes while linked (app.js:3828-3839)
+        static let staleNote = "Google wants you to sign in again before the next change can go over."
+        static func errorNote(_ why: String) -> String {
+            "The last try did not go through — \(why). It keeps trying."
+        }
+        static let errorNoteBare = "The last try did not go through. It keeps trying."
+        static let nothingDated = "Nothing on your lists has a date yet. Anything that gets one turns up in your “my.adhd” calendar."
+        static func dated(_ n: Int) -> String {
+            n == 1
+                ? "1 dated task is kept in your “my.adhd” calendar. Tick one off and it goes from there too."
+                : "\(n) dated tasks are kept in your “my.adhd” calendar. Tick one off and it goes from there too."
+        }
+
+        // the buttons (app.html:1035-1040; app.js:3723, 3791, 3841)
+        static let link = "Link Google Calendar"
+        static let opening = "Opening Google…"
+        static let reconnect = "Reconnect"
+        static let syncNow = "Sync now"
+        static let open = "Open in Google"
+        static let unlink = "Unlink"
+        static let openURL = "https://calendar.google.com/"   // app.js:6301
+
+        // the toasts (app.js:3729-3753)
+        static let linkedToast = "Linked. Anything with a date on it goes to your calendar."
+        static let nothingLinked = "No problem — nothing was linked."
+        static let unlinkedToast = "Unlinked. The events already in Google were left where they are."
+
+        /// gcal.js's own, for a request that never reached Google.
+        static let unreachable = "could not reach Google"   // gcal.js:111
+
+        /// The calendar the app makes, and what it says about itself in
+        /// Google's own settings (gcal.js:34, 320).
+        static let calendarName = "my.adhd"
+        static let calendarDescription = "Dated tasks from my.adhd. Ticking one off in the app removes it here."
+
+        // the event's description (app.js:3437-3441)
+        static func firstStep(_ step: String) -> String {
+            "First step: \(step)"
+        }
+        static func meta(minutes: String, energy: String, category: String) -> String {
+            minutes + " · " + energyLabel(energy) + " · " + category
+        }
+        /// `trAs('energy.' + t.energy, `${t.energy} energy`)`, English.
+        static func energyLabel(_ energy: String) -> String {
+            "\(energy) energy"
+        }
+        static let addedBy = "Added by my.adhd. Tick it off in the app and this disappears."
     }
 }

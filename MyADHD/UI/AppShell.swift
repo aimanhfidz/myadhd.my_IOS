@@ -62,6 +62,10 @@ struct AppShell: View {
     }
     @State private var auth: AuthFlow?
     @State private var cloud: CloudSync?
+    /// Dated tasks, out to the my.adhd calendar in Google. Made in
+    /// `wireUp()` beside the cloud, and inert until there is an account
+    /// linked to Google.
+    @State private var calendar: CalendarSync?
 
     /// Not `@Observable`, and it cannot be built until `store` exists, so
     /// it is made once in `.task` rather than in a property initialiser.
@@ -134,6 +138,7 @@ struct AppShell: View {
             if phase == .active {
                 returned()
                 cloud?.sceneBecameActive()
+                calendar?.wake()
                 /* Google tells us nothing when an event moves, so coming
                    back to the front is the moment to ask again. */
                 meetings.fetchRemote()
@@ -214,8 +219,11 @@ struct AppShell: View {
                            toasts: toasts,
                            onClose: { settingsUp = false },
                            accountCard: accountCard,
+                           googleCard: googleCard,
                            isSignedIn: session.signedIn,
+                           isCalendarConfigured: session.configured,
                            meetings: meetings,
+                           calendarPush: calendar,
                            connectGoogle: { await connectGoogle() })
                 /* The theme toggle lives on this screen, and a cover does
                    not re-read the scheme set on the shell behind it: flip
@@ -341,6 +349,14 @@ struct AppShell: View {
         auth = flow
         cloud = sync
 
+        /* The calendar push fills the third hook, `scheduleCalendarSync`.
+           One pass at launch, like the web's boot (app.js:6522): anything
+           dated while this app had no push at all goes up now. */
+        let push = CalendarSync(store: store, session: session)
+        push.attach()
+        push.soon()
+        calendar = push
+
         /* Signing in is what gives the calendar read a token, and signing
            out takes it away — either way, the meetings on screen belong
            to the account that was there before. */
@@ -375,6 +391,9 @@ struct AppShell: View {
     private func pullToRefresh() async {
         let phone = Task { await meetings.pull() }
         await cloud?.now()
+        /* After the lists, so a dated task that just came down from
+           another device reaches Google in the same pull. */
+        await calendar?.now()
         await phone.value
     }
 
@@ -389,8 +408,36 @@ struct AppShell: View {
                                 auth: auth,
                                 cloud: cloud,
                                 toasts: toasts,
+                                calendar: calendar.map { push in
+                                    AccountCalendar(connected: push.connected,
+                                                    state: push.phase.rawValue,
+                                                    syncNow: { await push.now() })
+                                },
                                 meetings: meetings))
         }
+    }
+
+    /// The Google Calendar card, on Settings' Calendar page.
+    private var googleCard: (() -> AnyView)? {
+        guard let calendar else { return nil }
+        return {
+            AnyView(GoogleCalendarCard(store: store,
+                                       session: session,
+                                       calendar: calendar,
+                                       toasts: toasts,
+                                       signIn: { await signInForCalendar() }))
+        }
+    }
+
+    /// The card's Link and Reconnect: the account's own sign-in, which
+    /// asks Google for the calendar scopes and hands the server the
+    /// refresh token the push runs on.
+    private func signInForCalendar() async -> Bool {
+        guard let auth else { return false }
+        guard await auth.signIn() else { return false }
+        toasts.show(Copy.Account.signedIn)
+        await cloud?.now()
+        return true
     }
 
     // MARK: - Text arriving from somewhere that is not the keyboard

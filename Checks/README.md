@@ -16,7 +16,7 @@ Run them all:
 
 ```sh
 cd "/Users/User/Desktop/Claude Code/myadhd.my_IOS"
-for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration wav cloud wallpaper-mode; do
+for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration wav cloud wallpaper-mode calendar; do
   ./Checks/$c.sh || echo "FAILED: $c"
 done
 ```
@@ -478,6 +478,41 @@ below the fragment is tested; the redirect itself is not, and cannot be
 from here.
 
 **Last run:** all 3 zones clean — 748 checks each, 0 failed.
+
+---
+
+## `calendar.sh` — the push agrees with the web about every event
+
+```sh
+./Checks/calendar.sh [path/to/My.adhd]
+```
+
+**Proves:** `CalendarPush` decides what app.js decides — which tasks
+belong on Google Calendar (`syncable`), the signature that says an event
+is still right (`eventSig`), and the event itself (`eventBody`), byte for
+byte as `JSON.stringify` writes it.
+
+The signature is the reason this exists. It is stored on the task as
+`gcal.sig` and travels between devices, so a phone and a browser that
+disagreed about one task would each read the other's as stale and take
+turns rewriting the same event for ever. It is checked over 16 stored
+shapes, including ones the web never writes on purpose: no `minutes`, a
+fractional one, `minutes` as text, a first step of `0`, a null first step,
+no title, an empty day.
+
+The slices are cut by the line they start on, never by line number. Four
+stubs stand in for what `eventBody` reaches outside them (`tr` filling its
+template, `trAs`, `trStamp`, `gcal.timeZone()`). Run in New York, Kuala
+Lumpur and Chatham, with one case across each of New York's DST changes.
+
+`CalendarPush.plan` has no function of its own on the web (it is inline in
+`syncNow`), so it is held against the table in the web README's "How the
+sync works" instead.
+
+Mutation-tested once: reading `firstStep` with `join`'s rule instead of
+`|| ''` fails it on the `0` case.
+
+**Last run:** all 3 zones clean — 16 cases each and the plan, 0 failed.
 
 ---
 

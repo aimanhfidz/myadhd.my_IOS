@@ -709,6 +709,35 @@ final class AppStore {
         persistOnly()
     }
 
+    // MARK: - Google Calendar push (app.js:3487-3584)
+    //
+    // `CalendarSync` changes the document only through these, and none of
+    // them writes: a pass makes several changes and ends with one `save()`.
+    // `save()` and not a bare write, unlike the web (app.js:3567), so the
+    // event id is stamped for the cloud straight away — it is the other
+    // devices' only way to know this event exists, and the sooner they do
+    // the smaller the window in which one of them makes a second.
+
+    /// Set or clear one task's `gcal`. False when the task has gone —
+    /// deleted while its event was being made.
+    @discardableResult
+    func setCalendarRef(_ taskID: String, _ ref: TaskItem.GCalRef?) -> Bool {
+        guard let i = doc.tasks.firstIndex(where: { $0.id == taskID }) else { return false }
+        doc.tasks[i].gcal = ref
+        return true
+    }
+
+    /// An event with no task to hold it, to be deleted by the next pass.
+    func orphanEventID(_ eventID: String) {
+        guard !eventID.isEmpty, !doc.gcalOrphans.contains(eventID) else { return }
+        doc.gcalOrphans.append(eventID)
+    }
+
+    /// One orphan, gone from Google. No write; the pass ends with one.
+    func forgetOrphanID(_ eventID: String) {
+        doc.gcalOrphans.removeAll { $0 == eventID }
+    }
+
     // MARK: - Cloud merge
 
     /// The rows a pull moved, written WITHOUT a stamp: they already carry

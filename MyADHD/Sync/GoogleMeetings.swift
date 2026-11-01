@@ -24,6 +24,14 @@ final class GoogleMeetings: MeetingSource {
 
     private var held: [Meeting] = []
     private var calendarCount = 0
+    private var offered: [CalendarOption] = []
+    /// Events in the window per calendar id, switched off or not — the
+    /// number beside each switch in Settings.
+    private var counts: [String: Int] = [:]
+
+    /// The person's per-calendar choices, read at the start of each fetch
+    /// so a switch flipped in Settings is honoured by the very next one.
+    private let choices: () -> [String: Bool]
     private(set) var access: MeetingAccess = .granted
 
     /// One fetch at a time. A pull and a return to the front can land
@@ -34,9 +42,13 @@ final class GoogleMeetings: MeetingSource {
     /// does not cost a round trip to our own server as well as Google.
     private var token: (value: String, own: String?, until: Date)?
 
-    init(session: Session, http: URLSession = Supabase.http) {
+    init(session: Session,
+         http: URLSession = Supabase.http,
+         choices: @escaping () -> [String: Bool] = { MeetingCalendars.load() })
+    {
         self.session = session
         self.http = http
+        self.choices = choices
     }
 
     func meetings(from: String, to: String) -> [Meeting] {
@@ -44,6 +56,10 @@ final class GoogleMeetings: MeetingSource {
     }
 
     func calendarsRead() -> Int { calendarCount }
+
+    func offeredCalendars() -> [CalendarOption] { offered }
+
+    func eventCounts() -> [String: Int] { counts }
 
     func fetch(from: String, to: String) async {
         if let inflight { return await inflight.value }
@@ -63,27 +79,51 @@ final class GoogleMeetings: MeetingSource {
     private func run(from: String, to: String) async {
         guard session.signedIn else {
             access = .signedOut
-            held = []; calendarCount = 0; token = nil
+            held = []; calendarCount = 0; offered = []; counts = [:]; token = nil
             return
         }
         do {
             let (bearer, own) = try await googleToken()
-            let calendars = try await calendarList(bearer, own: own)
+            let listed = try await calendarList(bearer)
+            let chosen = choices()
+            let calendars = listed.filter { GoogleEvents.reads($0, own: own, choices: chosen) }
 
             guard let start = WebDates.keyToDate(from),
                   let last = WebDates.keyToDate(to) else { return }
             let end = WebDates.addDays(last, 1)
 
+            /* Every calendar on offer is read, switched off or not, so
+               Settings can say what each one would put on your day — "23
+               coming up" is the reason to turn one off. The reader drops
+               the switched-off ones before anything is drawn, and that is
+               also what makes switching one back on instant. A switched-off
+               calendar that fails to read costs its count, never the read
+               of the ones that are on. */
+            let offeredHere = listed.filter { GoogleEvents.offers($0, own: own) }
+            let extra = offeredHere.filter { o in !calendars.contains { $0.id == o.id } }
             var found: [Meeting] = []
+            var tally: [String: Int] = [:]
             for calendar in calendars {
-                found += try await events(in: calendar, bearer, start: start, end: end)
+                let got = try await events(in: calendar, bearer, start: start, end: end)
+                tally[calendar.id] = got.count
+                found += got
+            }
+            for calendar in extra {
+                guard let got = try? await events(in: calendar, bearer, start: start, end: end) else { continue }
+                tally[calendar.id] = got.count
+                found += got
             }
             held = found
+            counts = tally
             calendarCount = calendars.count
+            offered = listed.filter { GoogleEvents.offers($0, own: own) }.map {
+                CalendarOption(id: $0.id, title: $0.title,
+                               byDefault: GoogleEvents.reads($0, own: own))
+            }
             access = .granted
         } catch Failure.needsGoogle {
             access = .needsGoogle
-            held = []; calendarCount = 0; token = nil
+            held = []; calendarCount = 0; offered = []; counts = [:]; token = nil
         } catch {
             /* A dropped connection is not news about the diary. What was
                read last time is still the best answer there is. */
@@ -122,7 +162,9 @@ final class GoogleMeetings: MeetingSource {
 
     // MARK: the calendars
 
-    private func calendarList(_ bearer: String, own: String?) async throws -> [GoogleEvents.CalendarEntry] {
+    /// Every calendar on the account, unfiltered: the fetch reads the
+    /// chosen ones, and Settings lists the ones there are to choose from.
+    private func calendarList(_ bearer: String) async throws -> [GoogleEvents.CalendarEntry] {
         struct Page: Decodable { var items: [GoogleEvents.CalendarEntry]?; var nextPageToken: String? }
         var out: [GoogleEvents.CalendarEntry] = []
         var pageToken: String?
@@ -133,7 +175,7 @@ final class GoogleMeetings: MeetingSource {
             out += page.items ?? []
             pageToken = page.nextPageToken
         } while pageToken != nil
-        return out.filter { GoogleEvents.reads($0, own: own) }
+        return out
     }
 
     // MARK: the events
@@ -156,7 +198,10 @@ final class GoogleMeetings: MeetingSource {
             if let pageToken { q.append(URLQueryItem(name: "pageToken", value: pageToken)) }
             let page: Page = try await get("calendars/\(Self.pathEncode(calendar.id))/events", q, bearer)
             for e in page.items ?? [] {
-                out += GoogleEvents.meetings(from: e, calendarTitle: calendar.title)
+                for var m in GoogleEvents.meetings(from: e, calendarTitle: calendar.title) {
+                    m.calendarID = calendar.id
+                    out.append(m)
+                }
             }
             pageToken = page.nextPageToken
         } while pageToken != nil

@@ -102,6 +102,9 @@ struct SettingsScreen: View {
     /// this one reads the day you already have.
     var meetings: MeetingReader? = nil
 
+    /// The push behind `googleCard`, read here only for the row's value.
+    var calendarPush: CalendarSync? = nil
+
     /// The sign-in, for a switch that is on with no Google to read. The
     /// shell owns `AuthFlow`, so it hands the press in.
     var connectGoogle: (() async -> Void)? = nil
@@ -285,7 +288,13 @@ struct SettingsScreen: View {
         return nudgesOn && allowed ? nudgeLevel.note : SettingsCopy.off
     }
 
+    /// The push speaks first, in the web's words (`paintSettingsRows`,
+    /// app.js:4381): on, or needing a look. With the push off, the row
+    /// says what the meetings read is doing, as it did before.
     private var calendarValue: String? {
+        if let calendarPush, calendarPush.connected {
+            return calendarPush.phase == .stale ? SettingsCopy.needsLook : SettingsCopy.on
+        }
         guard let meetings else { return nil }
         guard meetings.enabled else { return SettingsCopy.off }
         return meetings.access == .granted ? SettingsCopy.on : SettingsCopy.notConnected
@@ -591,7 +600,9 @@ struct MeetingsCard: View {
 
                 if meetings.enabled {
                     switch meetings.access {
-                    case .granted:     readRow
+                    case .granted:
+                        readRow
+                        if !meetings.options.isEmpty { MeetingCalendarsList(meetings: meetings) }
                     case .signedOut:   connectRow(Copy.Meetings.signedOutNote)
                     case .needsGoogle: connectRow(Copy.Meetings.needsGoogleNote)
                     }

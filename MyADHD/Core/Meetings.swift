@@ -70,6 +70,11 @@ struct Meeting: Equatable, Identifiable {
     /// on the work calendar is most of what you need to know about it.
     var calendarTitle: String
 
+    /// Google's id for that calendar, which titles are not — two
+    /// calendars can both be called `Family`. Set by the fetch, and read
+    /// only to take a calendar's rows away the moment it is switched off.
+    var calendarID: String = ""
+
     /// A repeating event is one identifier over many days, so the day has
     /// to be part of what makes an occurrence unique — otherwise SwiftUI
     /// reuses one row for the whole series.
@@ -98,6 +103,14 @@ protocol MeetingSource: AnyObject {
     /// What the last fetch was allowed to do.
     var access: MeetingAccess { get }
 
+    /// Every calendar the person could choose to read, from the last
+    /// fetch, in Google's order — the list under the switch.
+    func offeredCalendars() -> [CalendarOption]
+
+    /// Events in the read window per calendar id, from the last fetch —
+    /// including calendars switched off. Missing means not known.
+    func eventCounts() -> [String: Int]
+
     /// Go and ask. Returns when the answer is in, or when it failed.
     func fetch(from: String, to: String) async
 }
@@ -106,6 +119,32 @@ extension MeetingSource {
     /// A fixture has nothing to ask and is always allowed.
     var access: MeetingAccess { .granted }
     func fetch(from: String, to: String) async {}
+    func offeredCalendars() -> [CalendarOption] { [] }
+    func eventCounts() -> [String: Int] { [:] }
+}
+
+/// One calendar in the list under the switch: what it is called, and
+/// whether it is read when nobody has said otherwise.
+struct CalendarOption: Identifiable, Equatable {
+    var id: String
+    var title: String
+    var byDefault: Bool
+}
+
+/// What the person chose, per calendar id, on this phone. Only the
+/// calendars they have actually touched are in it; everything else
+/// follows `GoogleEvents.reads(_:own:)`, so a calendar added in Google
+/// tomorrow arrives with the same default it would have had anyway.
+enum MeetingCalendars {
+    static let key = "myadhd.native.meetingCalendars"
+
+    static func load(_ defaults: UserDefaults = .standard) -> [String: Bool] {
+        (defaults.dictionary(forKey: key) as? [String: Bool]) ?? [:]
+    }
+
+    static func save(_ choices: [String: Bool], _ defaults: UserDefaults = .standard) {
+        defaults.set(choices, forKey: key)
+    }
 }
 
 /// What Google will let us do, flattened to the cases the Settings card
@@ -146,8 +185,28 @@ enum GoogleEvents {
         var title: String { summaryOverride ?? summary ?? id }
     }
 
-    /// Whether this app looks at a calendar at all. Its own function so
-    /// the count in Settings and the read cannot disagree.
+    /// Whether a calendar goes in the list at all. Two never do: our own
+    /// (reading it back would draw every task twice), and a free/busy
+    /// share, which has no titles to show. Nor do Google's contacts'
+    /// birthdays — every event on it is `eventType: birthday`, which
+    /// `meeting(from:)` never draws, so a switch for it would do nothing.
+    static func offers(_ c: CalendarEntry, own: String?) -> Bool {
+        if c.id == own || c.title == ownCalendarTitle { return false }
+        if c.accessRole == "freeBusyReader" { return false }
+        if c.id.hasSuffix("#contacts@group.v.calendar.google.com") { return false }
+        return true
+    }
+
+    /// Whether this app reads a calendar, once the person has had a say.
+    /// Their choice wins where there is one; elsewhere the default below.
+    static func reads(_ c: CalendarEntry, own: String?, choices: [String: Bool]) -> Bool {
+        guard offers(c, own: own) else { return false }
+        return choices[c.id] ?? reads(c, own: own)
+    }
+
+    /// The default: whether this app looks at a calendar nobody has
+    /// chosen for. Its own function so the count in Settings and the read
+    /// cannot disagree.
     static func reads(_ c: CalendarEntry, own: String?) -> Bool {
         // Your own tasks, mirrored out by the calendar push. See above.
         if c.id == own || c.title == ownCalendarTitle { return false }
@@ -337,6 +396,19 @@ final class MeetingReader {
     /// A fetch is out. Settings shows it rather than a stale number.
     private(set) var fetching = false
 
+    /// The calendars the person can choose between, from the last read.
+    private(set) var options: [CalendarOption] = []
+
+    /// Their choices, per calendar id — see `MeetingCalendars`.
+    private(set) var choices: [String: Bool]
+
+    /// What each calendar holds in the window, on or off. Empty until a
+    /// read has counted.
+    private(set) var counts: [String: Int] = [:]
+
+    /// How many events one calendar would put on your day, or nil.
+    func count(_ option: CalendarOption) -> Int? { counts[option.id] }
+
     /// Off until somebody turns it on. Persisted beside the calendar's
     /// other per-phone preferences (CalendarModes.swift:10-16).
     var enabled: Bool {
@@ -372,8 +444,31 @@ final class MeetingReader {
         self.authorize = authorize ?? { [source] in source.access }
         self.defaults = defaults
         self.enabled = defaults.bool(forKey: Self.key)
+        self.choices = MeetingCalendars.load(defaults)
         self.access = self.authorize()
         refresh()
+    }
+
+    /// Whether one calendar in the list is read.
+    func reads(_ option: CalendarOption) -> Bool {
+        choices[option.id] ?? option.byDefault
+    }
+
+    /// One switch in the list. Kept on this phone, and read again from
+    /// Google at once. Every calendar on offer is fetched, on or off (its
+    /// count is shown beside the switch), so either way the rows change
+    /// straight away from what is held, and the read only freshens them:
+    /// waiting on the network to show or hide something is the wrong way
+    /// round.
+    func setReads(_ option: CalendarOption, _ on: Bool) {
+        if on == option.byDefault {
+            choices.removeValue(forKey: option.id)   // back to following Google
+        } else {
+            choices[option.id] = on
+        }
+        MeetingCalendars.save(choices, defaults)
+        refresh()   // drops a switched-off calendar's rows now
+        Task { await pull() }
     }
 
     /// Re-read what the source holds. No network — see `pull()`.
@@ -383,7 +478,14 @@ final class MeetingReader {
 
         let (from, to) = window()
         calendars = source.calendarsRead()
-        byDay = Dictionary(grouping: source.meetings(from: from, to: to)) { $0.when }
+        options = source.offeredCalendars()
+        counts = source.eventCounts()
+        /* The choices are applied here as well as in the fetch, so a
+           calendar switched off stays off even when the re-read that
+           should follow it fails and the last fetch is all there is. */
+        let off = Set(options.filter { !reads($0) }.map(\.id))
+        let held = source.meetings(from: from, to: to).filter { !off.contains($0.calendarID) }
+        byDay = Dictionary(grouping: held) { $0.when }
     }
 
     /// Ask Google, and redraw on the answer. What a pull, `Sync now` and
