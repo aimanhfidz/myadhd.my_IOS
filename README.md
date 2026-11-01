@@ -491,6 +491,11 @@ longer be opened from this account, so this section is the record now.
 - **No external payment link** — see "There is no donate tin" above.
 - **The `myadhd://auth` redirect** is on Supabase's allow-list — see the
   sign-in section for what that does and does not prove.
+- **No beta tag** (Guideline 2.2 keeps betas off the App Store). The web's
+  Settings footer carries a pill beside the version (`app.html:844`); since
+  2026-11-01 this app draws the version alone, by the owner's call, and the
+  website keeps its pill. The version line still reads `v0.1.0`, the web's
+  number, while the App Store will say 1.0.
 
 **Left, and it lives on the server side too, so it is not this project's to
 start without asking:**
@@ -502,13 +507,6 @@ start without asking:**
   the argument rather than having it. It needs the paid membership (the
   capability and a Services ID), the Apple provider switched on in Supabase,
   and a button in `AccountCard` beside Google's.
-
-**Left, and the copy rule makes it a web decision: the "v0.1.0 Beta" line
-at the foot of Settings** (`Copy.Settings.version` / `versionTag`, from
-`app.html:844`). Guideline 2.2 keeps betas off the App Store, and a reviewer
-who sees the word may stop there; the number also disagrees with
-`MARKETING_VERSION = 1.0`. Either the web drops the tag, or this app stops
-drawing that line — ask which.
 
 **Left, and nothing to do with code:** the paid membership; screenshots
 (6.9" iPhone); the privacy nutrition label; a demo path for the reviewer

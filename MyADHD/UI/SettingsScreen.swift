@@ -338,21 +338,17 @@ struct SettingsScreen: View {
 
     /// `.version` — the last line on the last screen. Stone, never
     /// orange: it is a label, not a signal to act on.
+    ///
+    /// **No tag beside it on iOS.** The web's footer carries a beta pill
+    /// (app.html:844); this one does not, by the owner's call on
+    /// 2026-11-01. Guideline 2.2 keeps betas off the App Store, and a
+    /// reviewer who reads the word may stop there. The website keeps its
+    /// pill. Do not port it back.
     private var version: some View {
-        HStack(spacing: 7) {
-            Text(Copy.Settings.version)
-                .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle(theme.faint)
-
-            Text(Copy.Settings.versionTag.uppercased())
-                .font(Font.baloo(10.5, .bold))
-                .kerning(0.07 * 10.5)
-                .foregroundStyle(theme.muted)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 1)
-                .overlay(Capsule().strokeBorder(theme.lineStrong, lineWidth: 1))
-        }
-        .frame(maxWidth: .infinity)
+        Text(Copy.Settings.version)
+            .font(.system(size: 12).monospacedDigit())
+            .foregroundStyle(theme.faint)
+            .frame(maxWidth: .infinity)
     }
 }
 

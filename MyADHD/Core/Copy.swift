@@ -1028,7 +1028,8 @@ enum Copy {
             + "leaves the device."                        // app.js:3689-3690
 
         static let version = "v0.1.0"   // app.html:844
-        static let versionTag = "Beta"  // app.html:844
+        // The beta pill beside it on the web is not drawn on iOS (Guideline
+        // 2.2) — see SettingsScreen's footer.
     }
 
     // MARK: - Profile (app.html:855-887; app.js:3875-3942)
