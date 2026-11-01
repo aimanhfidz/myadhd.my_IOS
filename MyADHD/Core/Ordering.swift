@@ -116,6 +116,27 @@ enum Ordering {
             .map(\.element)
     }
 
+    /// The same sort with each item's key worked out once, not on every
+    /// comparison. A task's fields are read out of its JSON and parsed
+    /// each time they are asked for (`dueAt` builds a string and parses a
+    /// number), and a sort asks O(n log n) times: on a 5,000-task store
+    /// that was most of a second per sort, on the main thread, and the
+    /// nudge planner sorts once per day it plans. Same comparator over the
+    /// same values, same tie-break, so the order is identical.
+    static func stableSorted<T, K>(_ items: [T], key: (T) -> K,
+                                   _ isBefore: (K, K) -> Bool?) -> [T] {
+        let keyed = items.map { (item: $0, key: key($0)) }
+        return stableSorted(keyed) { isBefore($0.key, $1.key) }.map(\.item)
+    }
+
+    /// Deadline, then urgency, highest first: the Today card's third
+    /// group and the Now card's walk.
+    private static func byDeadline(_ open: [TaskItem]) -> [TaskItem] {
+        stableSorted(open, key: { (due: dueAt($0), urgency: Double($0.urgency)) }) { a, b in
+            compareNumbers(a.due, b.due) ?? compareNumbers(b.urgency, a.urgency)
+        }
+    }
+
     // MARK: - scheduled (app.js:745)
 
     /// `const scheduled = (t) => !t.done && !!t.when;`
@@ -184,15 +205,16 @@ enum Ordering {
     /// including the matrix's `"quad"` — gets the first.
     static func sortBucket(_ key: String, _ items: [TaskItem]) -> [TaskItem] {
         if key == "someday" {
-            return stableSorted(items) { a, b in
-                compareNumbers(Double(b.urgency), Double(a.urgency))
-                    ?? compareNumbers(Double(a.minutes), Double(b.minutes))
+            return stableSorted(items, key: { (urgency: Double($0.urgency), minutes: Double($0.minutes)) }) { a, b in
+                compareNumbers(b.urgency, a.urgency)
+                    ?? compareNumbers(a.minutes, b.minutes)
             }
         }
-        return stableSorted(items) { a, b in
-            compareNumbers(dueAt(a), dueAt(b))
-                ?? compareNumbers(Double(b.urgency), Double(a.urgency))
-                ?? compareNumbers(Double(a.minutes), Double(b.minutes))
+        return stableSorted(items, key: { (due: dueAt($0), urgency: Double($0.urgency),
+                                           minutes: Double($0.minutes)) }) { a, b in
+            compareNumbers(a.due, b.due)
+                ?? compareNumbers(b.urgency, a.urgency)
+                ?? compareNumbers(a.minutes, b.minutes)
         }
     }
 
@@ -299,9 +321,10 @@ enum Ordering {
         }
 
         let sortedGroups: [(key: String, items: [TaskItem])] = order.map { key in
-            let items = stableSorted(groups[key] ?? []) { a, b in
-                compareNumbers(Double(b.urgency), Double(a.urgency))
-                    ?? compareNumbers(Double(a.minutes), Double(b.minutes))
+            let items = stableSorted(groups[key] ?? [],
+                                     key: { (urgency: Double($0.urgency), minutes: Double($0.minutes)) }) { a, b in
+                compareNumbers(b.urgency, a.urgency)
+                    ?? compareNumbers(a.minutes, b.minutes)
             }
             return (key, items)
         }
@@ -325,14 +348,13 @@ enum Ordering {
     /// then most urgent first.
     static func tasksOn(_ tasks: [TaskItem], _ key: String) -> [TaskItem] {
         let matching = tasks.filter { scheduled($0) && $0.when == key }
-        return stableSorted(matching) { a, b in
-            let at = { (t: TaskItem) -> String in
-                guard let v = t.at, !v.isEmpty else { return "99:99" }
-                return v
-            }
-            let c = localeCompare(at(a), at(b))
+        return stableSorted(matching, key: { t -> (at: String, urgency: Double) in
+            let at = t.at.flatMap { $0.isEmpty ? nil : $0 } ?? "99:99"
+            return (at, Double(t.urgency))
+        }) { a, b in
+            let c = localeCompare(a.at, b.at)
             if c != 0 { return c < 0 }
-            return compareNumbers(Double(b.urgency), Double(a.urgency))
+            return compareNumbers(b.urgency, a.urgency)
         }
     }
 
@@ -342,8 +364,8 @@ enum Ordering {
                              today: String = WebDates.dayKey()) -> [TaskItem]
     {
         let matching = tasks.filter { scheduled($0) && jsLess($0.when ?? "", today) }
-        return stableSorted(matching) { a, b in
-            let c = localeCompare(a.when ?? "", b.when ?? "")
+        return stableSorted(matching, key: { $0.when ?? "" }) { a, b in
+            let c = localeCompare(a, b)
             return c == 0 ? nil : c < 0
         }
     }
@@ -381,10 +403,7 @@ enum Ordering {
         let late = overdueTasks(tasks, today: today)
         let now = tasksOn(tasks, today)
 
-        let third = stableSorted(open) { a, b in
-            compareNumbers(dueAt(a), dueAt(b))
-                ?? compareNumbers(Double(b.urgency), Double(a.urgency))
-        }
+        let third = byDeadline(open)
 
         var seen = Set<String>()
         var next: [TaskItem] = []
@@ -407,10 +426,7 @@ enum Ordering {
                          today: String = WebDates.dayKey()) -> [TaskItem]
     {
         let open = tasks.filter { !$0.done }
-        let third = stableSorted(open) { a, b in
-            compareNumbers(dueAt(a), dueAt(b))
-                ?? compareNumbers(Double(b.urgency), Double(a.urgency))
-        }
+        let third = byDeadline(open)
         var seen = Set<String>()
         var order: [TaskItem] = []
         for group in [overdueTasks(tasks, today: today), tasksOn(tasks, today), third] {
