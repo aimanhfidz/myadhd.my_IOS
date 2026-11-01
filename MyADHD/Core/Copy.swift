@@ -95,6 +95,11 @@ enum Copy {
         static let nextWeek = "Next week"                // app.html .now-day
         static let pickDay = "Pick a day"                // app.html .now-pick
         static let onlyOne = "It's the only thing on your lists."   // app.js skipNow
+
+        /// iOS only: the Live Activity's switch, and what it says when
+        /// iOS has them turned off. No web original (Checks/copy.sh).
+        static let keepOnLock = "Keep it on my lock screen"
+        static let liveOff = "Live Activities are off for my.adhd. Turn them on in Settings."
     }
 
     enum Home {
@@ -202,6 +207,9 @@ enum Copy {
         static let rest = "hold to talk"                        // app.js:5298
         static let opening = "opening the mic…"                 // app.js:5348
         static let listening = "listening… let go when done"    // app.js:5356
+        /// iOS only: opened from the Dump control or the Action Button,
+        /// where nobody is holding the button (MicButton.swift).
+        static let listeningHandsFree = "listening… tap when done"
         static let warn = "nearly at the limit — wrap it up"    // app.js:5375
         static let tooQuick = "hold it down while you talk"     // app.js:5405
         static let writing = "writing it down…"                 // app.js:5415

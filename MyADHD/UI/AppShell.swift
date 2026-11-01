@@ -152,6 +152,10 @@ struct AppShell: View {
         .onReceive(NotificationCenter.default.publisher(for: .myadhdOpen)) { _ in
             takeInbox()
         }
+        /* The Dump control: the composer, and the mic takes the rest. */
+        .onReceive(NotificationCenter.default.publisher(for: .myadhdListen)) { _ in
+            if !composerUp { openComposer() }
+        }
         /* A tapped reminder or nudge, while the app is running. One that
            launched it is taken in `boot()` instead. */
         .onReceive(NotificationCenter.default.publisher(for: .myadhdOpenTab)) { _ in
@@ -297,6 +301,8 @@ struct AppShell: View {
         }
 
         takeInbox()
+        /* The Dump control launched the app: same as a dump arriving. */
+        if Inbox.listenWaiting, !composerUp { openComposer() }
 
         /* A reminder tapped with the app closed: the tap got here before
            anything was listening for it. */

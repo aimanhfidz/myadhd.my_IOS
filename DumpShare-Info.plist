@@ -28,11 +28,13 @@
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 		<key>NSExtensionAttributes</key>
 		<dict>
-			<!-- Text selections and web pages. Deliberately not images:
-			     there is nothing in the app that can read one, so
-			     offering it would be a button that captures nothing. -->
+			<!-- Text selections, web pages, and up to four images, whose
+			     words are read on the phone (ShareViewController.swift).
+			     The image itself is never kept or sent. -->
 			<key>NSExtensionActivationRule</key>
 			<dict>
+				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
+				<integer>4</integer>
 				<key>NSExtensionActivationSupportsText</key>
 				<true/>
 				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>

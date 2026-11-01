@@ -45,11 +45,28 @@ struct SnapTask: Codable, Identifiable, Equatable {
     let importance: String?  // "low" | "high". Optional on purpose — see below.
     let firstStep: String?
     let done: Bool
+    /// The matrix box the person dragged it into, or nil to derive it —
+    /// `quadrant` in the store. Last and defaulted, so a blob written
+    /// before the Matrix widget existed still opens, and every call site
+    /// that predates it still compiles.
+    var quadrant: String? = nil
 
     /// Short keys because every byte here is a byte of a keychain item.
     enum CodingKeys: String, CodingKey {
         case id = "i", title = "n", minutes = "m", when = "w", at = "a", category = "c"
         case energy = "e", urgency = "u", importance = "p", firstStep = "f", done = "d"
+        case quadrant = "q"
+    }
+
+    /// Which of the four boxes, by the app's own rule (`quadrantOf`,
+    /// Ordering.swift; app.js:1185-1192): a placement the person made
+    /// wins; otherwise urgent is `urgency >= 5` or dated today or
+    /// earlier, and important is `importance == "high"`.
+    func quadrant(on today: String) -> String {
+        if let q = quadrant, ["do", "plan", "delegate", "drop"].contains(q) { return q }
+        let dated = when.map { !$0.isEmpty && $0 <= today } ?? false
+        let urgent = urgency >= 5 || dated
+        return importance == "high" ? (urgent ? "do" : "plan") : (urgent ? "delegate" : "drop")
     }
 
     /// The day this is dated to, as an absolute key rather than an offset

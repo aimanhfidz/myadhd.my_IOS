@@ -205,6 +205,8 @@ myadhd.my_IOS/
 │   │                       whole Today checklist
 │   ├── MonthGrid.swift     six weeks of it, off the day counts
 │   ├── DoneGraph.swift     the contribution grid, and why it is not green
+│   ├── NowActivity.swift   the Live Activity's model and its Done / Not now
+│   │                       intents; app and widget both compile it
 │   └── TimelineBand.swift  the day as one band. No WidgetKit import, so the
 │                           wallpaper can draw the same chart
 ├── MyADHDWidgets/          the widget extension
@@ -214,6 +216,11 @@ myadhd.my_IOS/
 │   │                       the checklist, and the only tile with a button
 │   ├── AgendaWidget.swift  today and tomorrow, two columns
 │   ├── MonthWidget.swift   the month, and Ink's "Month & Tasks" at large
+│   ├── MatrixWidget.swift  the four boxes, with a tick on every row
+│   ├── NowLiveActivity.swift
+│   │                       the Now card on the lock screen and the Island
+│   ├── DumpControl.swift   Control Centre / Action Button: opens
+│   │                       myadhd://listen. iOS 18 only
 │   ├── DoneGraphWidget.swift
 │   │                       the only tile that looks backwards
 │   ├── TickIntent.swift    the button. Appends to OpQueue and asks for a
@@ -240,6 +247,8 @@ myadhd.my_IOS/
     ├── GoogleSignIn.swift     ASWebAuthenticationSession, and why
     ├── Inbox.swift            text arriving from a Shortcut or a myadhd:// link,
     │                          written down so a cold launch cannot drop it
+    ├── LiveNow.swift          the switch on the Now card, and keeping the Live
+    │                          Activity on the same task as Home
     ├── DumpIntent.swift       the Siri phrases, and the AppShortcutsProvider
     │                          all three intents are registered in
     ├── TaskBridge.swift       localStorage → the keychain snapshot, riding on
@@ -358,6 +367,39 @@ disagree with this:
 - **`icons/render.py`** is a copy of the web app's script of the same name, and
   `draw_icon()`'s geometry is the shared part. The mark changing on the website
   does not change the app icon until somebody runs this one too.
+- **The Google Calendar push** (`MyADHD/Sync/CalendarSync.swift`, since
+  2026-10-31; before that the native app pushed nothing, and a task dated on
+  the phone reached Google only when a signed-in browser opened the web app).
+  It shares the account's one `my.adhd` calendar with every browser, so it
+  leans on four things over there:
+  `eventSig()`'s exact output, because `gcal.sig` travels between devices and
+  a difference would have the phone and the web rewrite each other's events
+  for ever (`Checks/calendar.sh` holds it against `app.js`);
+  `extendedProperties.private.myadhdId` on every event, which is how this app
+  finds an event a browser already made before that browser's id has synced;
+  `/api/gcal-token` answering 200 / 404 (not linked) / 409 (revoked); and
+  `/api/gcal-calendar`'s claim-if-empty.
+- **The matrix box, carried into the snapshot** (since 2026-11-01).
+  `TaskBridge` now also picks `quadrant` out of each task by name and the
+  snapshot carries it as `q`, so the Matrix widget can put a task in the box
+  the person chose. Where it has none, `SnapTask.quadrant(on:)` re-derives
+  it with `quadrantOf`'s rule from `app.js` — urgency 5 or more, or due
+  today or earlier, is urgent; `importance == "high"` is important.
+  `Checks/parity-ordering.swift` holds the copy against the web's own
+  `quadrantOf`. Rename the field or change the rule over there and the
+  widget sorts into the wrong boxes without a sound.
+- **The Live Activity, the Matrix widget and the Dump control** read only
+  the snapshot and `OpQueue`, never the web store, so nothing on the web
+  side reaches them except through `TaskBridge`. What they do lean on:
+  `firstStep` (the lock-screen card's "Start here" line) and the Now card's
+  walk, `Ordering.pickNow`, which is itself a copy of the web's.
+- **`myadhd://listen`** (`Inbox.swift`) opens the composer with the mic
+  already on. The Dump control and the Action Button use it; it is a shell
+  URL, not a web route, so nothing over there needs to know about it.
+- **Photos shared in.** The share extension reads the words in up to four
+  photos on the phone (Vision, nothing uploaded) and hands them to the
+  composer as text, one line per photo. The web app only ever sees words,
+  so `absorbDump()`'s text handling is the only promise involved.
 
 No count is given on purpose. The old "four" counted groups rather than
 values, and the selector group quietly became three when `#composer-mic` was
@@ -392,14 +434,15 @@ between sharing something and opening the app.
 
 Rough edges, this being a proof of concept:
 
-- The button says **Post**. `SLComposeServiceViewController` gives the box,
-  the Cancel and the button already looking like the system for none of the
-  code, and does not offer to rename it. First thing to replace.
+- The button says **Add**, set on the navigation item in `viewWillAppear`.
+  `SLComposeServiceViewController` does not offer to rename it, so this
+  leans on its layout, and an iOS update could put **Post** back.
 - A shared page becomes `Title — url`. The title comes from what Safari puts
   in the item's content text rather than from reading the page, so a site that
   does not supply one leaves just the address.
-- Images are not accepted, deliberately: nothing in the app can read one, so
-  offering it would be a button that captures nothing.
+- Up to four images are accepted, and only their words are kept: Vision
+  reads them on the phone (one line per photo), and a photo with no words
+  says so and leaves the box for the person to fill.
 
 ## Getting it onto the App Store
 
@@ -630,11 +673,10 @@ copy (Share → Copy iCloud Link).
 
 ## Not done yet
 
-- **Live Activities.** Not attempted. They need `NSSupportsLiveActivities` in
-  the app's `Info.plist`, and a push-updated one needs APNs, which is a paid
-  capability. Nothing declares it today and nothing should until there is a
-  reason.
-- **A Control Center control.** "Dump a thought" belongs there, and
-  `ControlWidget` is iOS 18 while this project targets 17.0. Worth doing when
-  17 is dropped rather than fencing one member of a `WidgetBundle` behind
-  `@available`.
+- **The Live Activity cannot start itself.** iOS only starts one with the
+  app in front and ends it after about eight hours, so after a night it is
+  gone until the app is next opened. Keeping it alive longer would need a
+  push-updated one, and APNs is a paid capability.
+- **The Dump control is iOS 18 only.** `ControlWidget` does not exist on
+  17.0, so it is the one member of the bundle behind `@available`. Drop
+  the fence with 17.

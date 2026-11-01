@@ -80,6 +80,7 @@ struct HomeScreen: View {
                                     passed: $passed,
                                     goToLists: goToLists)
                                 .id(now.id)
+                                .onChange(of: passed) { _, set in LiveNow.passedChanged(set) }
                                 .transition(.opacity)
                         }
                         if !todayIsRedundant {

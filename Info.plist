@@ -45,6 +45,11 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
+	<!-- The Now card on the lock screen, switched on from the card itself.
+	     See LiveNow.swift and Shared/NowActivity.swift. -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+
 	<!-- hold-to-talk, in voice.js. The shell grants the web view's request;
 	     iOS still asks the user, using this sentence.
 

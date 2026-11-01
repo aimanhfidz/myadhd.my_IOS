@@ -442,6 +442,11 @@ struct MyADHDWidgetBundle: WidgetBundle {
         AgendaWidget()
         MonthWidget()
         DoneGraphWidget()
+        MatrixWidget()
+        NowLiveActivity()
+        if #available(iOS 18.0, *) {
+            DumpControl()
+        }
     }
 }
 

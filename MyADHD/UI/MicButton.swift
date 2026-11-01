@@ -155,6 +155,18 @@ struct MicButton: View {
     /// app.js:5396.
     private static let tapThreshold: TimeInterval = 0.4
 
+    /* **Hands-free, once.** The Dump control and the Action Button open
+       the composer with the mic already on (Inbox `myadhd://listen`), and
+       nobody is holding anything — so for that one recording a tap ends
+       it instead of a release. Everything above still holds for it: the
+       130-second cap ends it, and so does the app going to the
+       background, because leaving is the one sure sign the person has
+       walked away from it (the reason a toggle was refused in the first
+       place). What was said is kept either way. The next recording is a
+       hold again. */
+    @State private var handsFree = false
+    @Environment(\.scenePhase) private var scenePhase
+
     // MARK: -
 
     var body: some View {
@@ -167,8 +179,18 @@ struct MicButton: View {
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.updatesFrequently)
         }
-        .onAppear { control.reset = { abandonHold() } }
+        .onAppear {
+            control.reset = { abandonHold() }
+            if Inbox.takeListen() { micDown(handsFree: true) }
+        }
         .onDisappear { control.reset = nil }
+        .onReceive(NotificationCenter.default.publisher(for: .myadhdListen)) { _ in
+            if Inbox.takeListen() { micDown(handsFree: true) }
+        }
+        .onChange(of: scenePhase) { _, now in
+            guard now == .background, handsFree, recorder.isLive else { return }
+            release()
+        }
     }
 
     // MARK: the circle
@@ -198,7 +220,7 @@ struct MicButton: View {
         .onChange(of: held) { _, down in
             guard !down, pressing else { return }
             pressing = false
-            micUp()
+            release()
         }
         .onChange(of: phase) { _, now in control.working = now != .rest }
         .accessibilityLabel(Copy.Composer.micSR)
@@ -328,21 +350,35 @@ struct MicButton: View {
             .onChanged { _ in
                 guard !pressing else { return }
                 pressing = true
+                /* Hands-free and live: this touch is the tap that ends
+                   it, on the way up. */
+                if handsFree && recorder.isLive { return }
                 micDown()
             }
             .onEnded { _ in
                 guard pressing else { return }
                 pressing = false
-                micUp()
+                release()
             }
+    }
+
+    /// The end of a press, or of a hands-free recording.
+    private func release() {
+        if handsFree {
+            handsFree = false
+            micUp(force: true)
+        } else {
+            micUp()
+        }
     }
 
     // MARK: - down
 
     /// `micDown` (app.js:5324-5392).
-    private func micDown() {
+    private func micDown(handsFree free: Bool = false) {
         guard VoiceRecorder.available, !recorder.isLive, !busy else { return }
 
+        handsFree = free
         heldAt = Date()
         base = JSText.trim(text)
         level = 0
@@ -360,7 +396,7 @@ struct MicButton: View {
         hooks.onLive = {
             // On every hold after the first this arrives within a few
             // milliseconds and the line above is never really read.
-            if recorder.isLive { hint = Copy.Mic.listening }
+            if recorder.isLive { hint = handsFree ? Copy.Mic.listeningHandsFree : Copy.Mic.listening }
         }
         hooks.onLevel = { value in
             level = value
@@ -371,7 +407,8 @@ struct MicButton: View {
         hooks.onCap = {
             /* Ending it here rather than throwing it away means the two
                minutes someone just said still becomes tasks. */
-            micUp()
+            handsFree = false
+            micUp(force: true)
             toast(Copy.Mic.cappedToast)
         }
         hooks.onError = { why in
@@ -385,7 +422,7 @@ struct MicButton: View {
     // MARK: - up
 
     /// `micUp` (app.js:5394-5454).
-    private func micUp() {
+    private func micUp(force: Bool = false) {
         guard recorder.isLive else {
             if !busy { rest() }
             return
@@ -394,7 +431,7 @@ struct MicButton: View {
         /* Tapped it rather than held it. Nothing was said, so nothing is
            sent — say what the button wants instead of spinning for a
            second first. */
-        if Date().timeIntervalSince(heldAt) < Self.tapThreshold {
+        if !force, Date().timeIntervalSince(heldAt) < Self.tapThreshold {
             recorder.abandon()
             rest()
             text = base
@@ -452,6 +489,7 @@ struct MicButton: View {
 
     /// `restMic` (app.js:5293-5299).
     private func rest() {
+        handsFree = false
         busy = false
         phase = .rest
         level = 0

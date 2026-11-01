@@ -28,6 +28,8 @@ extension Notification.Name {
     static let myadhdOpen = Notification.Name("myadhd.open")
     /// Asked for by myadhd://wallpaper and by the Shortcuts phrase.
     static let myadhdWallpaper = Notification.Name("myadhd.wallpaper")
+    /// myadhd://listen — the Dump control and the Action Button.
+    static let myadhdListen = Notification.Name("myadhd.listen")
 }
 
 enum Inbox {
@@ -61,6 +63,34 @@ enum Inbox {
 
     static let stepsFlag = "steps"
 
+    // MARK: - Listening, from the Dump control
+
+    private static let listenKey = "myadhd.pendingListen"
+
+    /// Opens the composer with the mic already on. Written down first, like
+    /// a dump, because the press may be what launches the app.
+    static func listen() {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: listenKey)
+        NotificationCenter.default.post(name: .myadhdListen, object: nil)
+    }
+
+    /// Whether a press is waiting, without taking it. AppShell opens the
+    /// composer on this; the mic takes it.
+    static var listenWaiting: Bool { fresh(UserDefaults.standard.double(forKey: listenKey)) }
+
+    /// Reads and clears. Ten seconds old at most: a press nobody acted on
+    /// (no mic on this phone, a sort in the way) must not switch the mic
+    /// on the next time somebody opens the composer by hand.
+    static func takeListen() -> Bool {
+        let at = UserDefaults.standard.double(forKey: listenKey)
+        UserDefaults.standard.removeObject(forKey: listenKey)
+        return fresh(at)
+    }
+
+    private static func fresh(_ at: Double) -> Bool {
+        at > 0 && Date().timeIntervalSince1970 - at < 10
+    }
+
     /// Three hosts now, and everything else is ignored rather than
     /// guessed at — `myadhd://auth` in particular belongs to
     /// ASWebAuthenticationSession's own callback and must never be
@@ -69,6 +99,7 @@ enum Inbox {
     ///   myadhd://dump?text=the%20rent%20thing
     ///   myadhd://open            — the widgets' tap target
     ///   myadhd://wallpaper       — the setup sheet
+    ///   myadhd://listen          — a new dump, mic on (the Dump control)
     static func accept(url: URL) {
         guard url.scheme?.lowercased() == AppConfig.callbackScheme else { return }
         switch url.host?.lowercased() {
@@ -78,6 +109,8 @@ enum Inbox {
             put(text)
         case "wallpaper":
             openWallpaperSetup()
+        case "listen":
+            listen()
         case "open":
             break   // the app coming to the front is the whole of it
         default:

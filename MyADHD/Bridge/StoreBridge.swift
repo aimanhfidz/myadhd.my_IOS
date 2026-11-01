@@ -191,5 +191,8 @@ final class StoreBridge {
 
         TaskBridge.write(from: json)
         Reminders.sync(json: json)
+        /* After the snapshot, so a lock-screen button pressed later reads
+           the same list this just wrote. LiveNow.swift. */
+        LiveNow.sync(tasks: store.doc.tasks)
     }
 }

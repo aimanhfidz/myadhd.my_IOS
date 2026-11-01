@@ -203,7 +203,23 @@ enum Wallpaper {
     @MainActor
     @discardableResult
     static func saveBackground(_ data: Data) -> Bool {
-        guard let image = UIImage(data: data) else { return false }
+        guard let jpeg = sized(data) else { return false }
+
+        let dir = backgroundURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard (try? jpeg.write(to: backgroundURL, options: .atomic)) != nil else { return false }
+
+        /* Their photo is already in their library; this copy can be made
+           again from there and has no business in a backup. */
+        noBackup(backgroundURL)
+        forgetDrawn()
+        return true
+    }
+
+    /// A picked photo as a JPEG at this screen's pixels, filled not fitted.
+    @MainActor
+    private static func sized(_ data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
         let target = UIScreen.main.bounds.size
         let scale = UIScreen.main.scale
 
@@ -217,20 +233,14 @@ enum Wallpaper {
                                   y: (target.height - drawn.height) / 2,
                                   width: drawn.width, height: drawn.height))
         }
-        guard let jpeg = sized.jpegData(compressionQuality: 0.88) else { return false }
+        return sized.jpegData(compressionQuality: 0.88)
+    }
 
-        let dir = backgroundURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        guard (try? jpeg.write(to: backgroundURL, options: .atomic)) != nil else { return false }
-
-        /* Their photo is already in their library; this copy can be made
-           again from there and has no business in a backup. */
-        var marked = backgroundURL
+    private static func noBackup(_ url: URL) {
+        var marked = url
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try? marked.setResourceValues(values)
-        forgetDrawn()
-        return true
     }
 
     static func clearBackground() {
@@ -238,8 +248,88 @@ enum Wallpaper {
         forgetDrawn()
     }
 
-    static func loadBackground() -> CGImage? {
-        guard let data = try? Data(contentsOf: backgroundURL) else { return nil }
+    /// The photo behind today's design: today's pick from the daily set
+    /// when that is on and has anything in it, otherwise the one photo.
+    /// Every reader goes through here — the shelf, the setup page and
+    /// the 07:00 shortcut — so they cannot disagree about which.
+    static func loadBackground(on day: String = WebDates.dayKey()) -> CGImage? {
+        let url = dailyPhotoURL(on: day) ?? backgroundURL
+        guard let data = try? Data(contentsOf: url) else { return nil }
         return UIImage(data: data)?.cgImage
+    }
+
+    // MARK: - a new photo every day
+
+    /* Ink's "New photo every day", from photos the person picks rather
+       than stock ones. They are kept beside background.jpg, sized the
+       same way, and taken in turn: day N of the calendar shows photo
+       N mod count, so the order is stable, nothing has to remember which
+       came last, and the 07:00 run needs no app to have opened first.
+
+       The board digest already has the day in it (WallpaperMode), so each
+       morning's first run draws again on its own; changing the set
+       forgets the last digest like a new single photo does. */
+
+    private static let dailyKey = "myadhd.wallpaper.dailyPhoto"
+    private static let dailySetKey = "myadhd.wallpaper.dailyPhotos"
+
+    static var dailyPhoto: Bool {
+        get { UserDefaults.standard.bool(forKey: dailyKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: dailyKey)
+            forgetDrawn()
+        }
+    }
+
+    /// File names, in the order they were picked.
+    static var dailyPhotoNames: [String] {
+        UserDefaults.standard.stringArray(forKey: dailySetKey) ?? []
+    }
+
+    private static var dailyDir: URL {
+        url.deletingLastPathComponent().appendingPathComponent("daily", isDirectory: true)
+    }
+
+    /// Which of the set a day shows, or nil when there is none to show.
+    static func dailyIndex(on day: String, count: Int) -> Int? {
+        guard count > 0, let n = DayKey.between("2026-01-01", day) else { return nil }
+        return ((n % count) + count) % count
+    }
+
+    static func dailyPhotoURL(on day: String) -> URL? {
+        guard dailyPhoto else { return nil }
+        let names = dailyPhotoNames
+        guard let i = dailyIndex(on: day, count: names.count) else { return nil }
+        return dailyDir.appendingPathComponent(names[i])
+    }
+
+    /// Replaces the whole set. Photos that will not decode are skipped;
+    /// returns how many were kept.
+    @MainActor
+    @discardableResult
+    static func saveDailyPhotos(_ picked: [Data]) -> Int {
+        let fm = FileManager.default
+        try? fm.removeItem(at: dailyDir)
+        try? fm.createDirectory(at: dailyDir, withIntermediateDirectories: true)
+        var names: [String] = []
+        for data in picked {
+            guard let jpeg = sized(data) else { continue }
+            let name = UUID().uuidString + ".jpg"
+            let file = dailyDir.appendingPathComponent(name)
+            guard (try? jpeg.write(to: file, options: .atomic)) != nil else { continue }
+            noBackup(file)
+            names.append(name)
+        }
+        UserDefaults.standard.set(names, forKey: dailySetKey)
+        forgetDrawn()
+        return names.count
+    }
+
+    /// The set as small pictures for the setup page, in order.
+    static func dailyThumbnails(limit: Int) -> [CGImage] {
+        dailyPhotoNames.prefix(limit).compactMap { name in
+            guard let data = try? Data(contentsOf: dailyDir.appendingPathComponent(name)) else { return nil }
+            return UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 120, height: 240))?.cgImage
+        }
     }
 }

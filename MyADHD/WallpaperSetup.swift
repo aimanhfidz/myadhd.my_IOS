@@ -47,6 +47,13 @@ struct WallpaperSetup: View {
     @State private var board: WallpaperBoard? = WallpaperBoard.current()
     @State private var photo: CGImage? = Wallpaper.loadBackground()
     @State private var picked: PhotosPickerItem?
+    /// A new photo every day (Wallpaper.swift): the switch, the picker's
+    /// selection, and what is in the set now.
+    @State private var daily = Wallpaper.dailyPhoto
+    @State private var pickedSet: [PhotosPickerItem] = []
+    @State private var dailyCount = Wallpaper.dailyPhotoNames.count
+    @State private var dailyThumbs = Wallpaper.dailyThumbnails(limit: 4)
+    @State private var loadingSet = false
     @State private var lastRun: Date? = Wallpaper.lastRun
     @State private var lastConfirmed: Date? = Wallpaper.lastConfirmed
     @State private var showingSetup = false
@@ -228,7 +235,29 @@ struct WallpaperSetup: View {
             }
             .pickerStyle(.segmented)
 
-            if style.ground == .photo { photoRow } else { colorRow }
+            if style.ground == .photo {
+                dailyRow
+                if !daily || dailyCount == 0 { photoRow }
+            } else {
+                colorRow
+            }
+        }
+        .onChange(of: pickedSet) { _, items in
+            guard !items.isEmpty else { return }
+            loadingSet = true
+            Task { @MainActor in
+                var datas: [Data] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self) { datas.append(data) }
+                }
+                pickedSet = []
+                if !datas.isEmpty {
+                    dailyCount = Wallpaper.saveDailyPhotos(datas)
+                    dailyThumbs = Wallpaper.dailyThumbnails(limit: 4)
+                    photo = Wallpaper.loadBackground()
+                }
+                loadingSet = false
+            }
         }
         .onChange(of: picked) { _, item in
             guard let item else { return }
@@ -288,6 +317,58 @@ struct WallpaperSetup: View {
                     .font(.system(size: 12.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Ink's "New photo every day", from photos you pick. On, the single
+    /// photo row steps aside once the set has something in it; off, the
+    /// set is kept, so switching back does not mean picking them again.
+    private var dailyRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: Binding(get: { daily }, set: { on in
+                daily = on
+                Wallpaper.dailyPhoto = on
+                photo = Wallpaper.loadBackground()
+            })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("New photo every day")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Takes the next one from the photos you pick, each morning.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if daily {
+                HStack {
+                    Text(dailyCount == 1 ? "1 photo" : "\(dailyCount) photos")
+                        .font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                    if loadingSet { ProgressView().controlSize(.small) }
+                    PhotosPicker(selection: $pickedSet, maxSelectionCount: 30,
+                                 selectionBehavior: .ordered, matching: .images) {
+                        Text(dailyCount == 0 ? "Choose photos" : "Change")
+                            .font(.system(size: 14.5, weight: .semibold))
+                    }
+                    .disabled(loadingSet)
+                }
+                if !dailyThumbs.isEmpty {
+                    let today = Wallpaper.dailyIndex(on: WebDates.dayKey(), count: dailyCount)
+                    HStack(spacing: 6) {
+                        ForEach(Array(dailyThumbs.enumerated()), id: \.offset) { i, thumb in
+                            Image(decorative: thumb, scale: 1).resizable().scaledToFill()
+                                .frame(width: 48, height: 64)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .strokeBorder(i == today ? Color.accentColor : Color.clear, lineWidth: 2.5)
+                                }
+                                .accessibilityLabel(i == today ? "Today's photo" : "Photo \(i + 1)")
+                        }
+                    }
+                }
             }
         }
     }

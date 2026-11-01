@@ -51,7 +51,12 @@
 # the switch that governs the phone's has no sentence to copy either — nor
 # the three levels, which are the user's own words (HELP ME!!, Please
 # Remind Me, It's Okay I Know), nor the nudge titles that call the person
-# by name, which they asked for in a tone to match each level.
+# by name, which they asked for in a tone to match each level. And the
+# three things only a phone has: the Now card's lock-screen switch and the
+# sentence for when iOS has Live Activities off (the website has no lock
+# screen), the mic's hint when the Dump control opened it already listening
+# (the website has no Control Centre), and the count beside each calendar to
+# read (Copy.Meetings).
 # Every fragment of both is listed below and every other literal in
 # Copy.swift is still checked exactly as strictly.
 #
@@ -172,6 +177,9 @@ Is this one urgent?
 Press and hold to answer.
 Yes, it's urgent
 It can wait
+Keep it on my lock screen
+Live Activities are off for my.adhd. Turn them on in Settings.
+listening… tap when done
 NATIVE_ONLY
 
 checked=0

@@ -71,11 +71,16 @@ there rather than trusting a summary — no count is given on purpose.
   unparseable store, a phone rebooted overnight and not yet unlocked — none of
   those means "the list is empty". Yesterday's data beats a blank tile, and a
   cold launch reads before the page has painted.
-- **Don't declare `NSSupportsLiveActivities`** until something actually needs
-  it; a push-updated Live Activity needs paid APNs anyway. Same for
-  `ControlWidget`, which is iOS 18 against a project that targets 17.0.
-- **Images are not accepted by the share extension, deliberately.** Nothing in
-  the app can read one, so offering it would be a button that captures nothing.
+- **The Live Activity is updated locally, never by push.** It is the Now card
+  pinned to the lock screen (`LiveNow.swift`, `Shared/NowActivity.swift`); the
+  app and its two intents update it. A push-updated one needs paid APNs, so
+  don't add `pushType` without deciding that first.
+- **`DumpControl` is the one widget behind `@available(iOS 18)`**, because
+  `ControlWidget` does not exist on 17.0, the deployment target. When 17 is
+  dropped, take the fence out rather than adding a second one beside it.
+- **Images reach the share extension only to be read.** Vision turns the
+  words in up to four photos into text on the phone; no image is stored or
+  sent. A photo with no words asks the person to say what it was about.
 
 ## Building it
 

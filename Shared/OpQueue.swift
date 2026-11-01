@@ -183,7 +183,7 @@ extension TaskSnapshot {
             return SnapTask(id: t.id, title: t.title, minutes: t.minutes, when: t.when,
                             at: t.at, category: t.category, energy: t.energy,
                             urgency: t.urgency, importance: t.importance,
-                            firstStep: t.firstStep, done: true)
+                            firstStep: t.firstStep, done: true, quadrant: t.quadrant)
         }
         guard flipped > 0 else { return self }
 

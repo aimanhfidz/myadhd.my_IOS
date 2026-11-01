@@ -239,7 +239,8 @@ enum TaskBridge {
                 urgency: min(5, max(1, (task["urgency"] as? Int) ?? 3)),
                 importance: task["importance"] as? String,
                 firstStep: (task["firstStep"] as? String).map { clip($0, stepMax) },
-                done: done
+                done: done,
+                quadrant: task["quadrant"] as? String
             ))
         }
 
@@ -299,7 +300,8 @@ enum TaskBridge {
             let stripped = s.tasks.map {
                 SnapTask(id: $0.id, title: $0.title, minutes: $0.minutes, when: $0.when, at: $0.at,
                          category: $0.category, energy: $0.energy, urgency: $0.urgency,
-                         importance: $0.importance, firstStep: nil, done: $0.done)
+                         importance: $0.importance, firstStep: nil, done: $0.done,
+                         quadrant: $0.quadrant)
             }
             return s.with(tasks: stripped)
         }

@@ -534,6 +534,20 @@ struct ParityOrdering {
         eq(tasks.map { Ordering.quadrantOf($0, today: today) }.joined(separator: "|"),
            call(context, "__quadrantOf"), "\(label) quadrantOf")
 
+        /* The Matrix widget sorts the keychain snapshot, not the store, with
+           its own copy of the rule (SnapTask.quadrant(on:)). Held to the
+           web's answer through the fields TaskBridge carries, clamped the
+           way TaskBridge clamps them. */
+        let widgetBoxes = tasks.map { t -> String in
+            SnapTask(id: t.id, title: t.title, minutes: t.minutes, when: t.when, at: t.at,
+                     category: "general", energy: t.energy,
+                     urgency: min(5, max(1, t.urgency)),
+                     importance: t.json.objectValue?["importance"]?.stringValue,
+                     firstStep: nil, done: t.done, quadrant: t.quadrant)
+                .quadrant(on: today)
+        }
+        eq(widgetBoxes.joined(separator: "|"), call(context, "__quadrantOf"), "\(label) widget quadrant")
+
         eq(tasks.map { Ordering.catKey($0) }.joined(separator: "|"),
            call(context, "__catKey"), "\(label) catKey")
 

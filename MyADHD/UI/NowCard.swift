@@ -38,6 +38,10 @@ struct NowCard: View {
 
     @State private var picking = false
     @State private var picked = Date()
+    /// The lock-screen switch. LiveNow.swift owns what it means. Shown off
+    /// when iOS has Live Activities turned off, whatever was asked for:
+    /// a switch that is on while nothing shows is the worse lie.
+    @State private var pinned = LiveNow.wanted && LiveNow.allowed
 
     private var late: Bool { (task.when ?? "") < today && task.when != nil }
 
@@ -98,6 +102,9 @@ struct NowCard: View {
                 }
             }
             .padding(.top, 10)
+
+            lockScreenSwitch
+                .padding(.top, 16)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 20)
@@ -160,6 +167,36 @@ struct NowCard: View {
         .background(theme.wash)
         .overlay(alignment: .leading) { theme.accent.frame(width: 3) }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// The Live Activity's one switch. iOS-only: the website has no lock
+    /// screen to put anything on, so the copy has no web original
+    /// (Checks/copy.sh lists it).
+    private var lockScreenSwitch: some View {
+        VStack(spacing: 12) {
+            Rectangle().fill(theme.line).frame(height: 1.5)
+            Toggle(isOn: Binding(
+                get: { pinned },
+                set: { on in
+                    if LiveNow.set(on, tasks: store.doc.tasks) {
+                        pinned = on
+                    } else {
+                        pinned = false
+                        toasts.show(Copy.Now.liveOff)
+                    }
+                })) {
+                HStack(spacing: 10) {
+                    Image(systemName: "iphone")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                        .accessibilityHidden(true)
+                    Text(Copy.Now.keepOnLock)
+                        .font(Font.baloo(14.5, .bold))
+                        .foregroundStyle(theme.ink)
+                }
+            }
+            .tint(theme.accent)
+        }
     }
 
     private func soft(_ label: String) -> some View {
