@@ -1027,9 +1027,12 @@ enum Copy {
             "This lives in this browser only" + emDash + "no account, no sync, nothing "
             + "leaves the device."                        // app.js:3689-3690
 
-        static let version = "v0.1.0"   // app.html:844
-        // The beta pill beside it on the web is not drawn on iOS (Guideline
-        // 2.2) — see SettingsScreen's footer.
+        /// The web's footer line (app.html:844), with this app's own number
+        /// in it rather than the website's: the App Store page and this
+        /// line must say the same version. Pass `AppConfig.version`. The
+        /// beta pill beside it on the web is not drawn on iOS (Guideline
+        /// 2.2) — see SettingsScreen's footer.
+        static func version(_ number: String) -> String { "v\(number)" }
     }
 
     // MARK: - Profile (app.html:855-887; app.js:3875-3942)

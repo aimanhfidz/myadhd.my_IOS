@@ -344,8 +344,13 @@ struct SettingsScreen: View {
     /// 2026-11-01. Guideline 2.2 keeps betas off the App Store, and a
     /// reviewer who reads the word may stop there. The website keeps its
     /// pill. Do not port it back.
+    ///
+    /// **The number is the app's, not the web's.** It is
+    /// `CFBundleShortVersionString` — `MARKETING_VERSION`, the number the
+    /// App Store page shows — so it moves when `tools/release/bump.sh`
+    /// moves it, and never says the website's v0.1.0.
     private var version: some View {
-        Text(Copy.Settings.version)
+        Text(Copy.Settings.version(AppConfig.version))
             .font(.system(size: 12).monospacedDigit())
             .foregroundStyle(theme.faint)
             .frame(maxWidth: .infinity)

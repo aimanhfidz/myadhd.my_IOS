@@ -494,8 +494,9 @@ longer be opened from this account, so this section is the record now.
 - **No beta tag** (Guideline 2.2 keeps betas off the App Store). The web's
   Settings footer carries a pill beside the version (`app.html:844`); since
   2026-11-01 this app draws the version alone, by the owner's call, and the
-  website keeps its pill. The version line still reads `v0.1.0`, the web's
-  number, while the App Store will say 1.0.
+  website keeps its pill. The version line is this app's own
+  `MARKETING_VERSION` (v1.0 today), not the website's v0.1.0, so it says
+  what the App Store page says and moves with `tools/release/bump.sh`.
 
 **Left, and it lives on the server side too, so it is not this project's to
 start without asking:**
