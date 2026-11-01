@@ -432,9 +432,22 @@ struct TodayCard: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
+        /* The glass over the page's own ground, not over a material. The
+           web's `backdrop-filter` blurs what is behind the card, and behind
+           it here is flat `surface`, so it changes nothing there and the
+           card is `--loud-glass` over that colour: white by day, #1B1B22
+           at night. `.ultraThinMaterial` has a tint of its own and drew
+           the night card at #313135.
+
+           **No cast shadow, unlike the web's `--loud-cast`.** SwiftUI's
+           `.shadow` has no spread and draws under the whole view, so it
+           came out of every side, greyed the card through its own glass,
+           and the scroll view cut it into a box; drawn the web's way it
+           still pooled onto the tiles below. The edge is enough to hold
+           the card, and the app goes without it by choice. */
         .background {
             RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(theme.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous)
                         .fill(theme.loudGlass)
@@ -444,9 +457,6 @@ struct TodayCard: View {
             RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous)
                 .strokeBorder(theme.loudEdge, lineWidth: 1.5)
         )
-        .shadow(color: theme.loudCast.color,
-                radius: theme.loudCast.radius,
-                y: theme.loudCast.y)
     }
 }
 
