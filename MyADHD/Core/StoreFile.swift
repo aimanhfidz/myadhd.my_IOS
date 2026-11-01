@@ -38,6 +38,16 @@
      no evidence at all. The stamp comes from an injected clock so a test
      can name the file it expects.
 
+   - **Rescue the backup with it.** A corrupt launch starts fresh (as the
+     web does), and the next two saves rotate that fresh document over
+     `myadhd.v1.bak.json` — which until then was the only good copy of
+     every task. Found in a simulator stress test on 2026-11-01: a
+     truncated store, two keystrokes in a new note, and 3,374 tasks were
+     gone. So the moment a document is quarantined, the backup beside it
+     is copied to `myadhd.v1.rescue-<stamp>.json`, under the same
+     never-overwritten rule. `rescuedFiles()` lists them for a recovery
+     affordance; nothing reads them on the launch path.
+
    - **Modification watch.** `changedOnDisk()` compares the document's
      modification date with the one this object last saw. Today there is
      exactly one writer and the answer is always false; the day an App
@@ -58,6 +68,7 @@ final class StoreFile {
     static let backupName = "myadhd.v1.bak.json"
     static let corruptPrefix = "myadhd.v1.corrupt-"
     static let corruptSuffix = ".json"
+    static let rescuePrefix = "myadhd.v1.rescue-"
 
     /// `Library/Application Support/myadhd`.
     static func defaultDirectory() -> URL {
@@ -180,7 +191,10 @@ final class StoreFile {
         } catch {
             guard quarantineOnFailure else { return .corrupt(quarantined: nil, error: error) }
             let moved = quarantine(url)
-            if url == documentURL { setLastSeenModified(nil) }
+            if url == documentURL {
+                setLastSeenModified(nil)
+                rescueBackup()
+            }
             return .corrupt(quarantined: moved, error: error)
         }
     }
@@ -191,21 +205,42 @@ final class StoreFile {
     /// it, and there is nothing further this can do about that.
     @discardableResult
     func quarantine(_ url: URL) -> URL? {
+        guard let target = freeName(Self.corruptPrefix) else { return nil }
+        do {
+            try fm.moveItem(at: url, to: target)
+            return target
+        } catch {
+            return nil
+        }
+    }
+
+    /// Copy the backup to a rescue file nothing will rotate over. Called
+    /// when the document has just been quarantined: the backup is now the
+    /// last good copy, and the fresh document about to be saved would
+    /// otherwise replace it within two writes. Returns the copy, or nil
+    /// when there was no backup or the copy failed.
+    @discardableResult
+    func rescueBackup() -> URL? {
+        guard fm.fileExists(atPath: backupURL.path),
+              let target = freeName(Self.rescuePrefix) else { return nil }
+        do {
+            try fm.copyItem(at: backupURL, to: target)
+            try? protect(target)
+            return target
+        } catch {
+            return nil
+        }
+    }
+
+    /// `<prefix><stamp>.json`, or the next free `-1`, `-2`… Taken means
+    /// taken: a quarantined or rescued file is evidence and is never
+    /// written over, not even by another from the same millisecond.
+    private func freeName(_ prefix: String) -> URL? {
         let stamp = Self.stamp(clock())
         for attempt in 0..<1000 {
             let suffix = attempt == 0 ? "" : "-\(attempt)"
-            let target = directory.appendingPathComponent(
-                Self.corruptPrefix + stamp + suffix + Self.corruptSuffix)
-            /* Taken means taken. A quarantined file is evidence and is
-               never written over, not even by another corrupt document
-               from the same second. */
-            if fm.fileExists(atPath: target.path) { continue }
-            do {
-                try fm.moveItem(at: url, to: target)
-                return target
-            } catch {
-                return nil
-            }
+            let target = directory.appendingPathComponent(prefix + stamp + suffix + Self.corruptSuffix)
+            if !fm.fileExists(atPath: target.path) { return target }
         }
         return nil
     }
@@ -353,6 +388,15 @@ final class StoreFile {
         let names = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
         return names
             .filter { $0.hasPrefix(Self.corruptPrefix) && $0.hasSuffix(Self.corruptSuffix) }
+            .sorted()
+            .map { directory.appendingPathComponent($0) }
+    }
+
+    /// Every rescued backup, oldest name first.
+    func rescuedFiles() -> [URL] {
+        let names = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+        return names
+            .filter { $0.hasPrefix(Self.rescuePrefix) && $0.hasSuffix(Self.corruptSuffix) }
             .sorted()
             .map { directory.appendingPathComponent($0) }
     }

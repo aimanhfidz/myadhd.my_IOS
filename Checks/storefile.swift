@@ -334,6 +334,38 @@ struct StoreFileChecks {
         r.note("`.sorted()` puts `-1` before `.json`; both are there, which is what "
                + "the caller needs")
 
+        r.open("the backup is rescued when its document is quarantined")
+        /* The 2026-11-01 stress test: a corrupt launch starts fresh, and
+           two saves of the fresh document rotated it over the only good
+           copy. The rescue is what a third, fourth, hundredth save can
+           never reach. */
+        let rescue = scratch("rescue")
+        defer { try? FileManager.default.removeItem(at: rescue) }
+        let saved = StoreFile(directory: rescue, clock: { fixedClock })
+        let good = "{\"tasks\":[{\"id\":\"a\"}]}"
+        try? Data(good.utf8).write(to: saved.backupURL)
+        try? Data("{\"tasks\": [ cut off".utf8).write(to: saved.documentURL)
+        _ = saved.read()
+        let rescued = saved.rescuedFiles()
+        r.equal("one rescue file", "\(rescued.count)", "1")
+        r.equal("named from the clock", rescued.first?.lastPathComponent ?? "(none)",
+                "myadhd.v1.rescue-20260309-173000.125.json")
+        r.equal("it holds the backup's bytes", rescued.first.flatMap(text) ?? "(missing)", good)
+        for n in 0..<3 {
+            saved.write(Data("{\"tasks\":[],\"n\":\(n)}".utf8))
+            saved.flush()
+        }
+        r.yes("three saves later the backup has rotated away",
+              text(saved.backupURL) != good)
+        r.equal("and the rescue still holds it", rescued.first.flatMap(text) ?? "(missing)", good)
+
+        let none = scratch("rescue-none")
+        defer { try? FileManager.default.removeItem(at: none) }
+        let bare = StoreFile(directory: none, clock: { fixedClock })
+        try? Data("not json".utf8).write(to: bare.documentURL)
+        _ = bare.read()
+        r.equal("no backup, no rescue file", "\(bare.rescuedFiles().count)", "0")
+
         r.open("a missing document is missing, not corrupt")
         let empty = scratch("empty")
         defer { try? FileManager.default.removeItem(at: empty) }
