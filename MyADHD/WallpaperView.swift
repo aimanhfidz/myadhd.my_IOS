@@ -335,6 +335,14 @@ struct WallpaperView: View {
         }
     }
 
+    /// The most titles a box is ever handed to lay out. The tallest band
+    /// (Pro Max, size 1) at the smallest step, one box to the row, holds
+    /// about fifty; past that a title can only be clipped. Laying them out
+    /// anyway is what made Home take 1.6 GB on a 5,000-task store: every
+    /// rung of the ladder is the whole matrix, and the shelf draws several.
+    /// The count beside the heading is still `titles.count`, the real one.
+    static let mostRows = 60
+
     private func box(_ quad: WallpaperBoard.Quad, _ s: CGFloat, _ lines: Int) -> some View {
         let hue = Self.color(light ? quad.hueLight : quad.hue)
         return VStack(alignment: .leading, spacing: 9 * s) {
@@ -345,7 +353,7 @@ struct WallpaperView: View {
                     .foregroundStyle(ink.opacity(0.45))
             } else {
                 VStack(alignment: .leading, spacing: 6 * s) {
-                    ForEach(Array(quad.titles.enumerated()), id: \.offset) { _, title in
+                    ForEach(Array(quad.titles.prefix(Self.mostRows).enumerated()), id: \.offset) { _, title in
                         item(title, hue, s, lines)
                     }
                 }

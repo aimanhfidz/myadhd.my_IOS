@@ -240,6 +240,11 @@ struct AgendaDesign: View {
 
     private static let limits = [12, 10, 8, 7, 6, 5, 4, 3, 2, 1]
 
+    /// The first try never holds more than this: type here never shrinks,
+    /// so a band holds about sixteen rows, and a try with every late task
+    /// in it was laid out in full only to be thrown away.
+    private static let most = 24
+
     var body: some View {
         let rows = board.agenda
         if rows.isEmpty {
@@ -247,7 +252,8 @@ struct AgendaDesign: View {
         } else {
             /* Every row first, then fewer. The last candidate is the one
                ViewThatFits falls back to when nothing fits. */
-            let tries = [rows.count] + Self.limits.filter { $0 < rows.count }
+            let first = min(rows.count, Self.most)
+            let tries = [first] + Self.limits.filter { $0 < first }
             ViewThatFits(in: .vertical) {
                 ForEach(tries, id: \.self) { n in
                     card(Array(rows.prefix(n)), more: max(0, rows.count - n))
