@@ -58,7 +58,8 @@ struct AppShell: View {
     init() {
         let session = Session()
         _session = State(initialValue: session)
-        _meetings = State(initialValue: MeetingReader(source: GoogleMeetings(session: session)))
+        _meetings = State(initialValue: MeetingReader(source: GoogleMeetings(session: session),
+                                                      available: AppConfig.showMeetings))
     }
     @State private var auth: AuthFlow?
     @State private var cloud: CloudSync?
@@ -225,7 +226,7 @@ struct AppShell: View {
                            accountCard: accountCard,
                            googleCard: googleCard,
                            isSignedIn: session.signedIn,
-                           meetings: meetings,
+                           meetings: AppConfig.showMeetings ? meetings : nil,
                            calendarPush: calendar,
                            connectGoogle: { await connectGoogle() })
                 /* The theme toggle lives on this screen, and a cover does

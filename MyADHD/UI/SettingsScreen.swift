@@ -291,7 +291,9 @@ struct SettingsScreen: View {
         if let calendarPush, calendarPush.connected {
             return calendarPush.phase == .stale ? SettingsCopy.needsLook : SettingsCopy.on
         }
-        guard let meetings else { return nil }
+        /* No meetings reader (AppConfig.showMeetings off): an unlinked
+           push is Off, as the web's row says (app.js:4398). */
+        guard let meetings else { return SettingsCopy.off }
         guard meetings.enabled else { return SettingsCopy.off }
         return meetings.access == .granted ? SettingsCopy.on : SettingsCopy.notConnected
     }

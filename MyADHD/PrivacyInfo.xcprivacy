@@ -14,11 +14,11 @@
 	     that talks to the server ships in here: sign-in and sync with
 	     Supabase, the dump text sent to /api/triage, a recording sent to
 	     /api/transcribe, feedback to /api/feedback. NSPrivacyCollectedDataTypes
-	     below is still empty from the web-view days and has to be filled
-	     in to match App Store Connect's privacy questionnaire, which is
-	     the one Review reads. privacy.html on the website is the third
-	     copy of the same story and has to agree with both. README.md,
-	     "Getting it onto the App Store", has the draft answers.
+	     below says what that is (filled 2026-11-01, from the code). It has
+	     to match App Store Connect's privacy questionnaire, which is the
+	     one Review reads, and privacy.html on the website is the third
+	     copy of the same story. README.md, "The privacy label, drafted
+	     from the code", is the table all three come from.
 	     ============================================================ -->
 
 	<key>NSPrivacyTracking</key>
@@ -29,7 +29,86 @@
 	<array/>
 
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<dict>
+			<!-- Signed in only: the Google account's email, kept by Supabase auth. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- Signed in only: the name on the Google account, kept by Supabase auth. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeName</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- Signed in only: the Supabase account id the synced tasks are filed under. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- The tasks, synced to Supabase when signed in (linked), and the text of a dump, sent to /api/triage to be sorted and not kept (not linked). Linked, because one of the two is. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- A voice dump, sent to /api/transcribe with no account or id, and not kept. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeAudioData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- The typed text of a feedback note, sent to /api/feedback with no account or id. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCustomerSupport</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
 
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>

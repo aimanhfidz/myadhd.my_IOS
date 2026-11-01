@@ -105,6 +105,15 @@ enum AppConfig {
        prefix and the matrix silently disappears from the app. */
     static var userAgentSuffix: String { "MyADHD-iOS/\(version)" }
 
+    /* Show my meetings, off for 1.0 (owner's call, 2026-11-01). Reading
+       the rest of the diary needs calendar.readonly, a sensitive scope
+       Google has to verify first, and the privacy notice promised the app
+       could touch only its own calendar. Off, sign-in asks for
+       calendar.app.created alone (AuthFlow.scopes), Settings has no
+       meetings card, and the reader asks Google nothing. The code stays;
+       turning this on again needs that verification and a new notice. */
+    static let showMeetings = false
+
     static var version: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
     }

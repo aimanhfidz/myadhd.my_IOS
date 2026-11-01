@@ -65,7 +65,7 @@
 # Every fragment of both is listed below and every other literal in
 # Copy.swift is still checked exactly as strictly.
 #
-# And, by the owner's call on 2026-11-01, six web sentences rewritten
+# And, by the owner's call on 2026-11-01, five web sentences rewritten
 # because they are false on an iPhone — which is the one case where an
 # original does exist and the exemption is still right. Each says where
 # it came from beside it in Copy.swift (", iOS wording"):
@@ -76,8 +76,6 @@
 #     only" where the web says "in this browser only" (the web was
 #     corrected to these sentences on 2026-11-01, and the signed-in one
 #     is now the web's own, so neither is listed in full any more);
-#   - the Google Calendar card, which promises your other calendars stay
-#     off limits, when iOS asks to read them for Show my meetings.
 # If the web is ever corrected to say the same, delete these lines and
 # let the check find the web's own sentence again.
 #
@@ -225,8 +223,6 @@ iOS did not let us open the mic — check Settings → my.adhd → Microphone.
 Right now this list lives on this phone only — delete the app and it is gone, and your phone and laptop each keep their own separate copy. Signing in gives you one list everywhere, and puts your dated tasks in Google Calendar without asking again.
 Notes stay on this device. Signing in carries your lists between devices; it does not carry these yet.
 Your lists live on this phone only
-“my.adhd” calendar and only ever writes to that one. It can also read your
-other calendars, to show your meetings beside your tasks, and never changes them.
 NATIVE_ONLY
 
 checked=0

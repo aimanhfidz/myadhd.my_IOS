@@ -498,6 +498,15 @@ longer be opened from this account, so this section is the record now.
   `MARKETING_VERSION` (v1.0 today), not the website's v0.1.0, so it says
   what the App Store page says and moves with `tools/release/bump.sh`.
 
+- **Show my meetings is off for 1.0** (`AppConfig.showMeetings`, owner's
+  call 2026-11-01). Reading the rest of the diary needs `calendar.readonly`,
+  a sensitive scope Google has to verify, and the privacy notice says the
+  app touches only its own calendar. Off, sign-in asks for
+  `calendar.app.created` alone, Settings has no meetings card, and the
+  reader asks Google nothing. Turning it back on needs that verification,
+  `privacy.html` rewritten, the calendar card's iOS wording back, and the
+  privacy label's calendar line.
+
 **Left, and it lives on the server side too, so it is not this project's to
 start without asking:**
 
@@ -510,10 +519,9 @@ start without asking:**
   and a button in `AccountCard` beside Google's.
 
 **Left, and nothing to do with code:** the paid membership; screenshots
-(6.9" iPhone); the privacy nutrition label; a demo path for the reviewer
-(below); and `NSPrivacyCollectedDataTypes` in `MyADHD/PrivacyInfo.xcprivacy`,
-which is still empty from the web-view days and should be filled in to match
-the label.
+(6.9" iPhone); the privacy nutrition label in App Store Connect, answered
+from the table below (the manifest already says the same); and a demo path
+for the reviewer (below).
 
 ### Every build, its What's New
 
@@ -548,21 +556,27 @@ script sandboxing is on — a file it does not declare, it cannot read.
 
 What the app itself sends, now that the code that sends it ships in the app.
 None of it is used for tracking or advertising; all of it is App
-Functionality. Check every line against `privacy.html` before submitting —
-the three have to tell the same story.
+Functionality. `NSPrivacyCollectedDataTypes` in `MyADHD/PrivacyInfo.xcprivacy`
+says the same, one entry per type (a type that is linked anywhere is linked
+there). Check every line against `privacy.html` before submitting — the
+three have to tell the same story.
 
 | Data type | Where it goes | Linked to the person |
 |---|---|---|
-| Email address, name | Google sign-in → Supabase (only if they sign in) | Yes |
-| Other user content: tasks and notes | Supabase `tasks`, for sync (only if signed in) | Yes |
+| Contact info: email address, name | Google sign-in → Supabase (only if they sign in) | Yes |
+| Identifiers: user ID | the Supabase account id every synced row is filed under | Yes |
+| Other user content: tasks | Supabase `tasks`, the whole task, for sync (only if signed in). Notes are not synced | Yes |
 | Other user content: the dump text | `/api/triage`, to be sorted into tasks | No — the route is unauthenticated and sends no id |
 | Audio data: a voice dump | `/api/transcribe`, turned into text | No — the same |
 | Customer support: feedback | `/api/feedback`, the typed text only | No — the same |
 
 Not collected: photos (read for their words on the phone; nothing is sent),
-the phone's calendars (read on the phone), location, contacts, identifiers,
-usage data, diagnostics. Google Calendar events go between the phone and
-Google directly, with a token minted by `/api/gcal-token`.
+calendars (Show my meetings is off for 1.0, `AppConfig.showMeetings`, so
+sign-in asks Google for `calendar.app.created` alone: the app writes its own
+calendar and reads none), location, contacts, device identifiers, usage
+data, diagnostics (the app sends no error reports). Dated tasks go from the
+phone to the person's own Google Calendar, with a token minted by
+`/api/gcal-token` from the refresh token the server keeps.
 
 ### Review notes (draft)
 

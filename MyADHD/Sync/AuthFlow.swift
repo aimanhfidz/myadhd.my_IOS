@@ -90,9 +90,11 @@ final class AuthFlow {
     /// `GoogleMeetings` read the rest of the diary. It is a sensitive
     /// scope — Google shows an unverified-app screen for it until the
     /// consent screen passes verification.
+    /// Only the first while `AppConfig.showMeetings` is off — the 1.0
+    /// app asks for exactly what the web does.
     nonisolated static let scopes =
         "https://www.googleapis.com/auth/calendar.app.created"
-        + " https://www.googleapis.com/auth/calendar.readonly"
+        + (AppConfig.showMeetings ? " https://www.googleapis.com/auth/calendar.readonly" : "")
 
     let session: Session
 

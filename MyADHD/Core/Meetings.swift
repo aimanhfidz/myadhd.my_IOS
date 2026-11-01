@@ -434,16 +434,20 @@ final class MeetingReader {
 
     /// `authorize` and `defaults` are seams for `Checks/meetings.sh`.
     /// Left out, `authorize` is whatever the source last found.
+    /// `available` false is the 1.0 fence (`AppConfig.showMeetings`):
+    /// the switch reads as off whatever an earlier build saved, so
+    /// nothing is fetched and nothing is drawn.
     init(source: MeetingSource,
          clock: @escaping () -> Date = Date.init,
          authorize: (() -> MeetingAccess)? = nil,
-         defaults: UserDefaults = .standard)
+         defaults: UserDefaults = .standard,
+         available: Bool = true)
     {
         self.source = source
         self.clock = clock
         self.authorize = authorize ?? { [source] in source.access }
         self.defaults = defaults
-        self.enabled = defaults.bool(forKey: Self.key)
+        self.enabled = available && defaults.bool(forKey: Self.key)
         self.choices = MeetingCalendars.load(defaults)
         self.access = self.authorize()
         refresh()

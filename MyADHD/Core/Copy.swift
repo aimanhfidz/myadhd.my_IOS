@@ -1243,15 +1243,14 @@ enum Copy {
         static let stale = "Needs reconnecting"
         static let paused = "Sync paused"
 
-        /// Not linked: what linking would do (app.js:3787-3790), in iOS
-        /// wording. The web's promised the calendars you already have stay
-        /// off limits; on iOS linking also asks for calendar.readonly, so
-        /// Show my meetings can read them (AuthFlow.scopes). It reads and
-        /// never writes them. Owner's call, 2026-11-01.
+        /// Not linked: what linking would do (app.js:3800-3802). True
+        /// again on iOS since Show my meetings is off for 1.0 and sign-in
+        /// asks for calendar.app.created alone (AppConfig.showMeetings).
+        /// Turn the meetings back on and this needs its iOS wording back.
         static let offNote =
             "Put your dated tasks straight into Google Calendar. The app makes its own "
-            + "“my.adhd” calendar and only ever writes to that one. It can also read your "
-            + "other calendars, to show your meetings beside your tasks, and never changes them."
+            + "“my.adhd” calendar and is only allowed to touch that one — the calendars "
+            + "you already have stay off limits."
 
         // the notes while linked (app.js:3828-3839)
         static let staleNote = "Google wants you to sign in again before the next change can go over."
