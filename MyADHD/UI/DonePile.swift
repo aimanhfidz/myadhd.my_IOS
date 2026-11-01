@@ -104,7 +104,7 @@ struct DonePile: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
-                store.undoDone(task.id)
+                TickOff.animate { store.undoDone(task.id) }
             } label: {
                 Text(Copy.DonePile.undo)
                     .font(Font.baloo(12.5, .bold))

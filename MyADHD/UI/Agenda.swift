@@ -241,6 +241,8 @@ struct CalItemRow: View {
 
     private var lifted: Bool { dayDrag?.isLifted(task.id) ?? false }
     private var pressed: Bool { dayDrag?.isPressed(task.id) ?? false }
+    /// The check has been tapped and is filled; the row leaves a beat later.
+    @State private var ticked = false
 
     var body: some View {
         /* The swipe stands down while the row is in the air: one finger
@@ -254,6 +256,7 @@ struct CalItemRow: View {
         .scaleEffect(pressed ? 0.985 : 1)
         .animation(Theme.ease(0.18), value: lifted)
         .animation(Theme.ease(0.14), value: pressed)
+        .transition(TickOff.row)
     }
 
     private var card: some View {
@@ -301,12 +304,13 @@ struct CalItemRow: View {
     }
 
     private var check: some View {
-        Button(action: markDone) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 13, weight: .heavy))
-                .foregroundStyle(Color.clear)
-                .frame(width: 24, height: 24)
-                .overlay(Circle().strokeBorder(theme.lineStrong, lineWidth: 2))
+        Button {
+            TickOff.tick($ticked) { markDone() }
+        } label: {
+            TickCircle(ticked: ticked,
+                       ring: theme.lineStrong,
+                       fill: theme.accent,
+                       ink: theme.onAccent)
         }
         .buttonStyle(.plain)
         .padding(.top, 1)
@@ -361,13 +365,13 @@ struct CalItemRow: View {
 
     private func markDone() {
         let id = task.id
-        guard store.markDone(id) else { return }
-        toasts.show(Copy.TaskRow.done) { store.undoDone(id) }
+        guard TickOff.animate({ store.markDone(id) }) else { ticked = false; return }
+        toasts.show(Copy.TaskRow.done) { TickOff.animate { store.undoDone(id) } }
     }
 
     private func remove() {
-        guard let removal = store.removeTask(task.id) else { return }
-        toasts.show(Copy.TaskRow.removed) { store.undoRemove(removal) }
+        guard let removal = TickOff.animate({ store.removeTask(task.id) }) else { return }
+        toasts.show(Copy.TaskRow.removed) { TickOff.animate { store.undoRemove(removal) } }
     }
 }
 

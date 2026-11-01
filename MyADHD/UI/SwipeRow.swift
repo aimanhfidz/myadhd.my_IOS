@@ -426,10 +426,15 @@ struct SwipeRow<Content: View>: View {
             onCommit(done ? .done : .remove)
             /* If the row survives the commit — an id that is no longer on
                the store, which `markDone` and `removeTask` both tolerate —
-               it must not be left parked off the side. */
-            leaving = false
-            armed = false
-            dx = 0
+               it must not be left parked off the side. Not straight away,
+               though: the commit is animated (TickOff), so the row is still
+               on screen folding away, and snapping the card back now would
+               flash it into view while it fades. */
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                leaving = false
+                armed = false
+                dx = 0
+            }
         }
     }
 }

@@ -59,6 +59,8 @@ struct ListTaskRow: View {
     @State private var draft = ""
     @FocusState private var focused: Bool
     @State private var breakState = BreakState.idle
+    /// The check has been tapped and is filled; the row leaves a beat later.
+    @State private var ticked = false
 
     private enum BreakState {
         case idle, working, done
@@ -72,6 +74,7 @@ struct ListTaskRow: View {
                  onCommit: commit) {
             card
         }
+        .transition(TickOff.row)
     }
 
     private var card: some View {
@@ -108,15 +111,12 @@ struct ListTaskRow: View {
 
     private var check: some View {
         Button {
-            markDone()
+            TickOff.tick($ticked) { markDone() }
         } label: {
-            Image(systemName: "checkmark")
-                .font(.system(size: 13, weight: .heavy))
-                .foregroundStyle(Color.clear)
-                .frame(width: 24, height: 24)
-                .overlay(
-                    Circle().strokeBorder(theme.lineStrong, lineWidth: 2)
-                )
+            TickCircle(ticked: ticked,
+                       ring: theme.lineStrong,
+                       fill: theme.accent,
+                       ink: theme.onAccent)
         }
         .buttonStyle(.plain)
         .padding(.top, 1)
@@ -355,16 +355,16 @@ struct ListTaskRow: View {
 
     private func markDone() {
         let id = task.id
-        guard store.markDone(id) else { return }
+        guard TickOff.animate({ store.markDone(id) }) else { ticked = false; return }
         toasts.show(Copy.TaskRow.done) {
-            store.undoDone(id)
+            TickOff.animate { store.undoDone(id) }
         }
     }
 
     private func remove() {
-        guard let removal = store.removeTask(task.id) else { return }
+        guard let removal = TickOff.animate({ store.removeTask(task.id) }) else { return }
         toasts.show(Copy.TaskRow.removed) {
-            store.undoRemove(removal)
+            TickOff.animate { store.undoRemove(removal) }
         }
     }
 

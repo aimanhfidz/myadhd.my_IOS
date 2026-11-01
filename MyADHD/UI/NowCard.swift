@@ -42,6 +42,9 @@ struct NowCard: View {
     /// when iOS has Live Activities turned off, whatever was asked for:
     /// a switch that is on while nothing shows is the worse lie.
     @State private var pinned = LiveNow.wanted && LiveNow.allowed
+    /// Done was tapped: the check is in the button, and the card gives way
+    /// to the next one a beat later (TickOff).
+    @State private var finishing = false
 
     private var late: Bool { (task.when ?? "") < today && task.when != nil }
 
@@ -73,12 +76,22 @@ struct NowCard: View {
                     .padding(.top, 16)
             }
 
-            Button(action: done) {
-                Text(Copy.Now.done)
-                    .font(Font.baloo(16.5, .bold))
-                    .foregroundStyle(Color(hex: 0xFFFFFF))
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(theme.brandGradient, in: Capsule())
+            Button {
+                TickOff.tick($finishing) { done() }
+            } label: {
+                HStack(spacing: 8) {
+                    if finishing {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 15, weight: .heavy))
+                            .transition(.scale(scale: 0.4).combined(with: .opacity))
+                    }
+                    Text(Copy.Now.done)
+                        .font(Font.baloo(16.5, .bold))
+                }
+                .foregroundStyle(Color(hex: 0xFFFFFF))
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(theme.brandGradient, in: Capsule())
+                .scaleEffect(finishing ? 0.97 : 1)
             }
             .buttonStyle(.plain)
             .padding(.top, 18)
@@ -235,9 +248,9 @@ struct NowCard: View {
     /// The lists' tick, with the lists' toast and Undo.
     private func done() {
         let id = task.id
-        guard store.markDone(id) else { return }
+        guard TickOff.animate({ store.markDone(id) }) else { finishing = false; return }
         toasts.show(Copy.TaskRow.done) {
-            store.undoDone(id)
+            TickOff.animate { store.undoDone(id) }
         }
     }
 

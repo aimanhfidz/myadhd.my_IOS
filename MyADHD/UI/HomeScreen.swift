@@ -90,7 +90,9 @@ struct HomeScreen: View {
                                 /* initial: Home is rebuilt on every tab switch with an
                                    empty set, and the lock screen must follow it. */
                                 .onChange(of: passed, initial: true) { _, set in LiveNow.passedChanged(set) }
-                                .transition(.opacity)
+                                /* Done folds the card away and the next one
+                                   rises into its place (TickOff). */
+                                .transition(TickOff.row)
                         }
                         if !todayIsRedundant {
                             TodayCard(card: card,

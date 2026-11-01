@@ -243,6 +243,8 @@ struct QuadrantTaskRow: View {
 
     private var lifted: Bool { drag.isLifted(task.id) }
     private var pressed: Bool { drag.isPressed(task.id) }
+    /// The check has been tapped and is filled; the row leaves a beat later.
+    @State private var ticked = false
 
     var body: some View {
         SwipeRow(isEnabled: !lifted,
@@ -258,6 +260,7 @@ struct QuadrantTaskRow: View {
         .scaleEffect(pressed ? 0.985 : 1)
         .animation(Theme.ease(0.18), value: lifted)
         .animation(Theme.ease(0.14), value: pressed)
+        .transition(TickOff.row)
     }
 
     private var card: some View {
@@ -285,11 +288,11 @@ struct QuadrantTaskRow: View {
 
     /// 18pt, 1.5pt, and in the quadrant's own hue.
     private var check: some View {
-        Button(action: markDone) {
-            Circle()
-                .strokeBorder(hue, lineWidth: 1.5)
-                .frame(width: 18, height: 18)
-                .contentShape(Circle())
+        Button {
+            TickOff.tick($ticked) { markDone() }
+        } label: {
+            TickCircle(ticked: ticked, size: 18, lineWidth: 1.5, glyph: 9.5,
+                       ring: hue, fill: hue, ink: .white)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Copy.TaskRow.checkAria(title: task.title))
@@ -317,12 +320,12 @@ struct QuadrantTaskRow: View {
 
     private func markDone() {
         let id = task.id
-        guard store.markDone(id) else { return }
-        toasts.show(Copy.TaskRow.done) { store.undoDone(id) }
+        guard TickOff.animate({ store.markDone(id) }) else { ticked = false; return }
+        toasts.show(Copy.TaskRow.done) { TickOff.animate { store.undoDone(id) } }
     }
 
     private func remove() {
-        guard let removal = store.removeTask(task.id) else { return }
-        toasts.show(Copy.TaskRow.removed) { store.undoRemove(removal) }
+        guard let removal = TickOff.animate({ store.removeTask(task.id) }) else { return }
+        toasts.show(Copy.TaskRow.removed) { TickOff.animate { store.undoRemove(removal) } }
     }
 }
