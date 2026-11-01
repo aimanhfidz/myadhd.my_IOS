@@ -1,66 +1,91 @@
 # my.adhd for iOS
 
-The web app, in a case that can ring, be talked to by Siri, and sit on the
-home screen as a widget.
+my.adhd as a native iPhone app: the same brain dump, triage and one next
+task as [myadhd.my](https://myadhd.my), plus what only an iPhone can do —
+ring at the right time, take a thought from Siri or the share sheet, sit on
+the home screen and the lock screen.
 
-> **The web app ships; this shell does not.** This repo is a case around the
-> deployed page — it still builds and still works, but it is not on a release
-> track, and nothing wanted here is a reason to change the website.
+> **This is a SwiftUI app, not a web view.** It was a `WKWebView` around
+> myadhd.my/app until 2026-09-20 (`b910230` "every screen, in Swift",
+> `f72814c` "the app is Swift now"). Every screen is drawn natively, the
+> lists live in a JSON file on the phone, and the app opens, triages and
+> reminds with no connection at all. If a comment in here still talks about
+> "the page" or "the shell", it is from before; believe the code.
 >
 > **The web app lives in a different repository**:
-> [aimanhfidz/my.adhd](https://github.com/aimanhfidz/my.adhd). It used to be
-> the parent directory of this one. Splitting them made the old boundary rule
-> — *no file outside `ios/` is edited to make an iOS feature work* — a fact
-> about the filesystem instead of a rule somebody had to keep: those files are
-> simply not in this checkout. `CLAUDE.md` in here is the standing rules.
+> [aimanhfidz/my.adhd](https://github.com/aimanhfidz/my.adhd), checked out
+> beside this one as `../My.adhd`. It used to be the parent directory of
+> this one. `CLAUDE.md` in here is the standing rules.
 
-**This project does not duplicate a line of the web app.** It opens
-`https://myadhd.my/app` in a full-screen `WKWebView` and adds what a page in a
-browser cannot do on an iPhone — the table below, plus the widgets and the
-wallpaper, which have a section of their own further down. No count is given
-here on purpose; the list has grown twice and a number in prose goes stale:
+## How it is put together
+
+**The web app is the specification, ported rather than reimagined.** Every
+rule that decides what a person sees — how a dump is split into tasks, the
+order the lists come out in, which task is "now", what `markDone` stamps,
+how the sync settles a conflict, what each event on Google Calendar looks
+like — is a Swift translation of the JavaScript that does it on the web,
+with the `app.js` / `cloud.js` / `gcal.js` line numbers written beside it.
+`Checks/` compiles the real sources and holds them against the web's own
+code and strings, because a rule ported slightly wrong has no compiler
+error and no crash; it just draws a different day.
+
+The shape of it:
+
+- **One document, one writer.** `Core/StoreFile.swift` keeps
+  `Library/Application Support/myadhd/myadhd.v1.json` — exactly the bytes
+  `JSON.stringify(state)` would have put in the web's `localStorage`,
+  written atomically and protected until first unlock. `Core/AppStore.swift`
+  holds it and is the only thing allowed to change it; every mutation is a
+  method there.
+- **`UI/AppShell.swift` is the spine.** It owns the store, decides which
+  screen is up, runs the boot order from the bottom of `app.js` (read,
+  migrate once, prune, stamp), and runs the one flow that crosses every
+  screen: a dump goes in, triage happens, the lists come back.
+- **Triage works on a plane.** `Triage/TriageClient.swift` asks
+  `/api/triage`; a dead network, a bad status or an empty answer all fall
+  back to `Triage/LocalTriage.swift`, the web's own offline parser ported
+  rule for rule, and the tasks it makes say so.
+- **`Bridge/StoreBridge.swift` pushes the document out to iOS** after each
+  write settles (1.5 s), on the way out and on the way back: the keychain
+  snapshot the widgets and wallpaper read (`TaskBridge`), the notification
+  schedule (`Reminders`), and the Live Activity (`LiveNow`).
+- **The account is optional.** The app works fully signed out. Signing in
+  with Google (`Sync/`) makes the lists follow you to the website and other
+  devices through Supabase, and lets dated tasks reach Google Calendar.
+- **The old shell's data comes with it.** `Bridge/LegacyImport.swift` lifts
+  the old web view's `localStorage` out on the first launch after the
+  update — read straight from WebKit's SQLite file, with a hidden web view
+  only as the fallback — and refuses to believe an empty read until it is
+  corroborated, so nobody's lists vanish in the upgrade.
+
+What an iPhone gets that a browser tab could not:
 
 | | why it needed the native side |
 |---|---|
-| **Reminders** | A task carries a day and often a clock time. iOS web push needs a server pushing it and a permission a home-screen icon rarely gets; the times are already on the device, so `Reminders.swift` reads the store the web app wrote and schedules local notifications from it. The body is the task's **first step**, not its title — the title is what you already knew. |
-| **Share sheet** | The thought that arrives already written, inside somebody else's app. Share from Safari or Mail and the text is queued without my.adhd ever coming to the front — so the home screen, and every badge on it, is never shown. A proof of concept; see below. |
+| **Reminders** | A task carries a day and often a clock time. iOS web push needs a server pushing it and a permission a home-screen icon rarely gets; the times are already on the device, so `Reminders.swift` turns every dated, open task into a local notification. The body is the task's **first step**, not its title — the title is what you already knew. Nudges at the pace you choose, and note bells, ride on the same schedule. |
+| **Widgets and the lock screen** | Seven widgets, the Now card as a Live Activity, a Control Centre / Action Button dump, and a wallpaper kept current by a Shortcut. They have a section of their own below. |
+| **Share sheet** | The thought that arrives already written, inside somebody else's app. Share from Safari or Mail and the text is queued without my.adhd ever coming to the front — so the home screen, and every badge on it, is never shown. Photos are read for their words on the phone. |
 | **Siri / Shortcuts** | *"Hey Siri, dump a thought into my.adhd."* The argument `voice.js` makes about the bus, carried one step further back: holding the mic still costs unlocking the phone and finding the icon. |
-| **Google sign-in** | Google refuses OAuth inside an embedded browser. Without the workaround in `GoogleSignIn.swift` there is no signing in at all, so no sync and no calendar. |
-
-Nothing in the web repo had to change for any of it. Everything the page
-needs to know is injected from `BridgeScript.swift` at load, so the shell
-works against whatever is deployed at myadhd.my. The one thing the page does
-know is that it is inside the shell — it reads the user agent, not anything
-injected — and the one thing it does with that is show the matrix. See the
-promises list below; that one is the largest promise in the repo now.
-
-**The shell is not pinned to a web-app version.** No cache name
-(`myadhd-vNN`), no `?v=` and no version number from the web repo appears
-here. What it depends on is structural — ids, class names, a dozen page
-globals, the store key and the task field names — and every one of those is
-in the promises list.
+| **Offline, all of it** | The lists, triage (by the local parser), reminders, widgets and wallpaper need no connection. Only voice transcription, sync and Google Calendar do. |
 
 ## The web app is not this project's to change
 
-**Everything in this directory is a wrapper or an injection.** The shell reads
-the page, hides things from it, and adds what only iOS can do — but no file
-outside `ios/` is edited to make an iOS feature work. That is not tidiness. It
-is what keeps myadhd.my deployable without a build, and keeps this shell
-working against a version of the site that has never heard of it.
+Nothing in the web repository has to change for an iOS feature, and nothing
+in it is edited from here. That keeps myadhd.my deployable without a build,
+and keeps the two repos moving at their own speeds.
 
-So when an iOS change looks like it needs the website edited — a selector
-added, a button removed, an endpoint changed — **stop and ask first.** There
-is almost always an injection that does it from this side; and when there is
-not, changing the web app is a decision about the website, not a step in an
-iOS task. The App Store items that genuinely do live on the web side are
-listed at the bottom of this file as exactly that. In-app account deletion
-was one of them and has since shipped — on the web side, by a decision about
-the website, which is the shape the rest of them should take too.
+So when an iOS change looks like it needs the website or the server changed
+— a new field in the store, a different answer from an endpoint, a sentence
+that is not in the web's copy — **stop and ask first.** Changing the web app
+is a decision about the website, not a step in an iOS task. In-app account
+deletion was one of those and shipped on the web side, by a decision about
+the website, which is the shape the rest should take too.
 
 ## Running it on your iPhone
 
-Xcode 26.6 and the iOS 26.5 SDK are already on this machine. There is no
-package manager step and no dependency to fetch; the project builds as-is.
+Xcode 27.1 is on this machine, with iOS 26.5, 27.0 and 27.1 simulator
+runtimes. There is no package manager step and no dependency to fetch; the
+project builds as-is.
 
 ```bash
 open MyADHD.xcodeproj
@@ -92,9 +117,9 @@ open MyADHD.xcodeproj
 **A free personal team signs for seven days.** After that the app refuses to
 launch until you plug in and press ⌘R again. A paid Apple Developer
 membership ($99/yr) raises that to a year and is also what TestFlight and the
-App Store need — none of which this build is waiting on.
+App Store need.
 
-**That expiry now costs more than it used to.** It hits three targets rather
+**That expiry costs more than it looks.** It hits three targets rather
 than one, and an expired widget is *removed* from the home screen rather than
 left blank — so a weekly re-sign is also a weekly re-add. Each target is also
 its own App ID against the ten a free account gets per seven days, which is
@@ -106,21 +131,15 @@ To check it compiles without opening Xcode:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MyADHD.xcodeproj -scheme MyADHD -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-There is an iOS 26.5 simulator runtime on this machine now, and most of the
-shell can be checked in it. The device is still the better test: Siri and the
-keychain handover between the app and its widgets are only real there.
+Most of the app can be checked in the simulator. The device is still the
+better test: Siri, the keychain handover between the app and its widgets, and
+the wallpaper shortcut are only real there.
 
-**There are three haptics, and for two days there were none.** They were the
-first native feature — a buzz on a tick, a knock on Clear my head, the two
-swipe moments `app.js` had asked for — and every one of them was removed on
-2026-09-18 at the owner's call, generators and `navigator.vibrate` polyfill
-and all.
-
-What came back with the Swift port is narrower, and the line dividing it
-from what was taken out is worth stating: **a gesture with a timer in it, or
-with a threshold you cannot see, has no other way of telling you it has
-happened.** So all three confirm a gesture, and none of them decorates an
-outcome:
+**The haptics confirm a gesture, and none of them decorates an outcome.**
+The web-view shell's haptics — a buzz on a tick, a knock on Clear my head —
+were all removed on 2026-09-18 at the owner's call. What came back with the
+Swift port is narrower: **a gesture with a timer in it, or with a threshold
+you cannot see, has no other way of telling you it has happened.**
 
 - the matrix lifting a task off its quadrant (`MatrixDrag.swift`)
 - a swipe crossing the point where letting go would do something
@@ -128,22 +147,33 @@ outcome:
 - the month grid taking hold of a day, so the agenda can be dragged across
   it (`MonthDrag.swift`)
 
+And one that bends the rule: a tap that picks a different wallpaper design
+on the Home shelf (`WallpaperShelf.swift`), because the preview changes
+under the finger and the lock screen does not change until later.
+
 Nothing buzzes for finishing a task, and nothing should. `git log` has the
 ones that did.
 
 ## Signing in, and what the server side has to be
 
-`auth.js` sends Google a `redirect_to` of `https://myadhd.my/app`. An https
-address cannot be handed back to an app without an Associated Domains
-entitlement, which needs the paid account — so `GoogleSignIn.swift` rewrites
-it on the way out to `myadhd://auth`, and Supabase will only redirect to
-somewhere on its allow-list.
+`Sync/AuthFlow.swift` is `auth.js`'s sign-in, native. It builds Supabase's
+`/auth/v1/authorize` URL for Google and hands it to `GoogleSignIn.swift`,
+which opens it in an `ASWebAuthenticationSession` — Safari, because Google
+refuses OAuth in an embedded browser (`disallowed_useragent`). An https
+redirect cannot be handed back to an app without an Associated Domains
+entitlement, which needs the paid account, so the redirect is
+`myadhd://auth`, and Supabase will only redirect to somewhere on its
+allow-list.
 
 **Supabase dashboard → Authentication → URL Configuration → Redirect URLs →
 `myadhd://auth`.** The owner confirmed this is in place on 2026-09-20. It
 cannot be checked from outside: `/auth/v1/authorize` answers 302 to Google
 whatever you ask it to redirect to, and the destination is carried in an
 opaque server-side `state`, so the only proof is a real sign-in on a device.
+
+The session lives in the Keychain (`Sync/Session.swift`). Google's refresh
+token, which renews the calendar link, is posted straight to
+`/api/link-google` and never written to the phone.
 
 The rest of the server side WAS checked, on 2026-09-20, and is recorded here
 so it is not guessed at again:
@@ -181,15 +211,21 @@ myadhd.my_IOS/
 │                           NSExtensionPointIdentifier = widgetkit-extension,
 │                           which is the whole of what makes it a widget
 ├── CLAUDE.md               the standing rules. AGENTS.md is a symlink to it
+├── Checks/                 swiftc scripts holding the port to the web app.
+│                           Its README says what each one proves
+├── reference/              BridgeScript.swift, the retired injection: not
+│                           built, kept as the only spec for the screens the
+│                           website never had. Its README says when it may go
+├── tools/shortcut/         build.py generates the lock-screen shortcut
 ├── icons/                  render.py draws the app icon at 1024 straight into
 │                           the asset catalogue; icon-source.svg is the
 │                           readable definition. A copy of the web app's
 │                           script — see the promises below
 ├── MyADHD.xcodeproj/       no build settings worth hiding; INFOPLIST_FILE and
 │                           synchronised file groups, so a new .swift file in
-│                           MyADHD/ or MyADHDWidgets/ is picked up with no
-│                           project edit — Shared/ is NOT one of them, and a
-│                           file there needs a build-file entry per target
+│                           MyADHD/, DumpShare/ or MyADHDWidgets/ is picked up
+│                           with no project edit — Shared/ is NOT one of them,
+│                           and a file there needs a build-file entry per target
 ├── DumpShare/              the share extension — one file
 │   └── ShareViewController.swift
 │                           SLComposeServiceViewController: the box, the
@@ -198,9 +234,10 @@ myadhd.my_IOS/
 │   ├── DumpQueue.swift     the share extension's handover, and why it is in
 │   │                       the keychain
 │   ├── TaskSnapshot.swift  the model, DayKey, and the one keychain item the
-│   │                       app leaves for anything that cannot reach the page
+│   │                       app leaves for anything that runs without it
 │   ├── OpQueue.swift       the other direction: what a widget did, waiting
-│   │                       for a page to tell. Never writes the snapshot
+│   │                       for the app. Never writes the snapshot
+│   ├── PhotoWords.swift    Vision, reading the words in a photo on the phone
 │   ├── TaskRows.swift      a task as one row, a day as one column, and the
 │   │                       whole Today checklist
 │   ├── MonthGrid.swift     six weeks of it, off the day counts
@@ -215,7 +252,7 @@ myadhd.my_IOS/
 │   ├── MyADHDWidgets.swift Next Up, Today Timeline, the bundle, SnapProvider,
 │   │                       and the gallery's fabricated day
 │   ├── TodayChecklistWidget.swift
-│   │                       the checklist, and the only tile with a button
+│   │                       the checklist, and a tile with a button in it
 │   ├── AgendaWidget.swift  today and tomorrow, two columns
 │   ├── MonthWidget.swift   the month, and Ink's "Month & Tasks" at large
 │   ├── MatrixWidget.swift  the four boxes, with a tick on every row
@@ -233,47 +270,56 @@ myadhd.my_IOS/
 │   ├── PrivacyInfo.xcprivacy
 │   │                       deliberately declares nothing — see below
 │   └── Assets.xcassets/    AccentColor and WidgetBackground, nothing else
-└── MyADHD/
-    ├── MyADHDApp.swift        the entry point, and nothing else
-    ├── RootView.swift         ground, page, and the cover that hides the white
-    │                          frame before first paint
-    ├── WebScreen.swift        the web view and every rule about where a tap may
-    │                          go — ours stays, everyone else's gets a Safari
-    │                          sheet, /auth/v1/authorize gets GoogleSignIn
-    ├── OfflineView.swift      the no-signal screen, on every cold launch with no
-    │                          connection — the page's service worker never runs
-    │                          in this web view (its header says why), so there
-    │                          is no offline install to fall back on
-    ├── BridgeScript.swift     the JavaScript pushed into the page
-    ├── Reminders.swift        localStorage → UNNotificationRequest
-    ├── GoogleSignIn.swift     ASWebAuthenticationSession, and why
-    ├── Inbox.swift            text arriving from a Shortcut or a myadhd:// link,
-    │                          written down so a cold launch cannot drop it
-    ├── LiveNow.swift          the switch on the Now card, and keeping the Live
-    │                          Activity on the same task as Home
-    ├── DumpIntent.swift       the Siri phrases, and the AppShortcutsProvider
-    │                          all three intents are registered in
-    ├── TaskBridge.swift       localStorage → the keychain snapshot, riding on
-    │                          the read Reminders.sync already does
-    ├── OpDrain.swift          the widget's ticks → the page's own markDone()
-    ├── DoneLedger.swift       what the web app forgets after seven days, kept
-    │                          natively so the Done graph has a history
-    ├── Wallpaper.swift        ImageRenderer → a PNG in Documents
-    ├── WallpaperView.swift    what that PNG shows. UIKit-free on purpose, so
-    │                          it renders off-device and previews in the sheet
-    ├── WallpaperIntent.swift  the App Intents the lock-screen shortcut calls
-    ├── WallpaperMode.swift    skip, set or redraw — what the shortcut does next
-    ├── WallpaperSetup.swift   the setup sheet, and the three states that stop
-    │                          it nagging once the automation works
-    ├── ShellState.swift       theme, painted, offline
-    ├── AppConfig.swift        every promise this project makes about the web app
-    ├── Baloo2-Variable.ttf    a copy of the web app's fonts/Baloo2-Variable.ttf,
-    │                          so the wallpaper is drawn in the app's own face.
-    │                          A second copy sits under MyADHDWidgets/ — three
-    │                          files across two repos, replaced together
-    ├── PrivacyInfo.xcprivacy  the required-reason API declaration. Without it
-    │                          an upload bounces as ITMS-91053 before a human
-    └── Assets.xcassets/       the icon, rendered by icons/render.py at 1024
+└── MyADHD/                 the app
+    ├── MyADHDApp.swift     the entry point, and nothing else
+    ├── RootView.swift      the app, and the wallpaper setup sheet over it
+    ├── AppConfig.swift     the handful of constants: the site's address,
+    │                       the auth callback, the store key, the shortcut
+    ├── Core/               the store and the rules. AppStore (the one
+    │                       writer), StoreFile (the document on disk),
+    │                       StoreDocument / TaskItem / NoteItem (its shape),
+    │                       Ordering (the lists' order and the Now pick),
+    │                       Copy (every user-facing string), WebDates and
+    │                       WebJSON (Date and JSON.stringify, byte for byte),
+    │                       Meetings, CalendarPush, Reachability
+    ├── UI/                 every screen. AppShell is the spine; the rest
+    │                       draw one thing each from the store. Theme
+    │                       mirrors BRAND.md's tokens
+    ├── Triage/             TriageClient (/api/triage) and LocalTriage, the
+    │                       offline parser it falls back to
+    ├── Voice/              the mic: the recorder, a WAV writer proved
+    │                       byte-identical to voice.js, /api/transcribe
+    ├── Sync/               the account: AuthFlow, Session, Supabase,
+    │                       CloudSync (cloud.js's pass), CalendarSync (the
+    │                       Google Calendar push), GoogleMeetings
+    ├── Bridge/             the document going out to iOS: StoreBridge,
+    │                       ReminderPlan / NudgePlan / NoteReminderPlan,
+    │                       and LegacyImport, which brings an old shell's
+    │                       data across once
+    ├── Net/                FeedbackClient
+    ├── Reminders.swift     the document → UNNotificationRequest
+    ├── NotificationRouter.swift
+    │                       a tapped notification → the right screen
+    ├── TaskBridge.swift    the document → the keychain snapshot
+    ├── OpDrain.swift       the widget's ticks → AppStore
+    ├── DoneLedger.swift    the Done graph's history, kept past pruneDone()
+    ├── LiveNow.swift       the Live Activity, kept on the same task as Home
+    ├── GoogleSignIn.swift  ASWebAuthenticationSession, and why
+    ├── Inbox.swift         text arriving from a Shortcut or a myadhd:// link,
+    │                       written down so a cold launch cannot drop it
+    ├── DumpIntent.swift    the Siri phrases, and the AppShortcutsProvider
+    │                       the intents are registered in
+    ├── ShellState.swift    the remembered theme, for the headless wallpaper
+    ├── Wallpaper*.swift    the lock-screen picture, its designs, the intents
+    │                       the shortcut calls, and its setup — see below
+    ├── Media/              the splash's morph, light and dark
+    ├── Baloo2-Variable.ttf a copy of the web app's fonts/Baloo2-Variable.ttf.
+    │                       A second copy sits under MyADHDWidgets/ — three
+    │                       files across two repos, replaced together
+    ├── PrivacyInfo.xcprivacy
+    │                       the required-reason API declaration. Without it
+    │                       an upload bounces as ITMS-91053 before a human
+    └── Assets.xcassets/    the icon, rendered by icons/render.py at 1024
 ```
 
 ### Things worth knowing before changing it
@@ -294,134 +340,82 @@ The cost is that the mark's geometry now exists in two places and can drift —
 it is in the promises list below for that reason. `icons/icon-source.svg`
 beside it stays the readable definition.
 
-**The web view is transparent and ignores the safe area, on purpose.**
-`styles.css` already pads for `env(safe-area-inset-*)` on every screen, so
-letting iOS inset the view as well pads it twice. The ground behind it is
-painted from the theme the page last reported, remembered across launches —
-which is the only reason a dark-theme launch does not flash white.
+**The copy is the web's, word for word.** Every user-facing string is in
+`Core/Copy.swift`, and `Checks/copy.sh` fails on any sentence it cannot find
+in the web app's sources or in `reference/BridgeScript.swift`, naming it. A
+screen that needs a new sentence needs it written on the web first.
 
-**`localStorage` is the database.** `configuration.websiteDataStore =
-.default()` is written out rather than left implicit for that reason. Every
-task lives there; an ephemeral store would empty the app on each launch.
+**There is no donate tin.** The website asks in two places; this app asks in
+neither, and has no Plans screen. An external payment link is the least
+settled corner of App Review, and it is not worth spending a first submission
+on (`SettingsScreen.swift` and `FeedbackScreen.swift` say where each one
+would have been).
 
-**The donation link is closed on iOS, from this side.** `app.html` carries two
-asks — the tin in the thanks card and the quiet line above it — and
-`paintFeedback()` renders neither when `MYADHD_DONATE_URL` is empty. So
-`BridgeScript.swift` defines that global as a permanently empty property
-before `config.js` runs, and the web app hides both by its own "no link, no
-ask" path. The website keeps its tin; the shell simply never shows it. Why: an
-external payment link is the least settled corner of App Review, and it is not
-worth spending a first submission on. No file outside `ios/` was touched.
+**Values here are promises about the web app**, which lives in
+[a different repository](https://github.com/aimanhfidz/my.adhd). They break
+quietly if either side moves, and a build here cannot catch it — only the
+checks can, and only for what they cover:
 
-**Values here are promises about the web app**, which since the split lives in
-[a different repository](https://github.com/aimanhfidz/my.adhd). They will
-break quietly if either side moves, and nothing in this checkout can catch it —
-there is no `app.js` here to grep, and no build that fails. That is the price
-of the split, and it is why this list is worth keeping accurate: the two grounds in `AppConfig` (`theme.css`), the
-`#dump-input` id (`app.html`), the `myadhd.v1` store key — now
-`AppConfig.storeKey`, substituted into `BridgeScript` as `__STOREKEY__` and
-read by `Reminders.swift`.
-
-More arrived with the widgets, and one with the matrix. They are promises in
-a looser sense — nothing on the web side will break, but it will silently
-disagree with this:
-
-- **The user-agent suffix, `MyADHD-iOS/<version>`** (`AppConfig.userAgentSuffix`,
-  set on the web view's configuration in `WebScreen.swift`). `app.js` tests
-  `/MyADHD-iOS\//` on `navigator.userAgent` to decide it is inside the shell
-  (`IN_SHELL`), and the matrix — the four quadrants, the toggle in the lists
-  header, and the "?" walkthrough `BridgeScript` builds on top of them —
-  exists only when that test passes. It came out of the web app on
-  2026-09-18 and came back the next day for the shell alone. Rename the
-  prefix and the matrix disappears from the app with no error anywhere.
-
-- **The task shape `TaskBridge` reads.** It picks `id`, `title`, `minutes`,
-  `when`, `at`, `category`, `energy`, `urgency`, `importance`, `firstStep`,
-  `done`, `doneAt` and `skipped` out of `myadhd.v1` by name, and the
-  top-level `doneCounts` map beside `tasks`. `importance` is decoded as
-  optional on purpose, so a store written before it existed still works;
-  nothing draws it yet. A renamed field elsewhere would leave the widget
-  drawing a blank day rather than failing, which is the worst way for this
-  to go wrong — a version number on the web store would let it refuse
-  instead, and is the one change on the site that would make this feature
-  safer.
+- **The store's shape.** `myadhd.v1` — the document's name on disk, the key
+  the web keeps it under, and `AppConfig.storeKey` — and every field in it,
+  read and written by name: the task fields, `doneCounts`,
+  `signupOfferHidden`, the notes. `CloudSync` meets the browsers through the
+  same Supabase rows, so a field the web renames is a field this app drops
+  on the floor, and a field this app invents is one the web overwrites.
+  `Checks/roundtrip.sh` holds that an unknown key survives a read and a
+  write.
+- **The ported rules.** `AppStore` (`app.js`'s mutations), `Ordering`
+  (`paintToday`, `pickNow`, `quadrantOf`), `LocalTriage` (`parseLocally`),
+  `CloudSync` (`cloud.js`'s pass), `CalendarSync` (`gcal.js`). Each cites
+  the lines it came from, and `parity-triage`, `parity-ordering`, `store`,
+  `cloud` and `calendar` in `Checks/` hold them to those lines. A rule
+  changed on the web keeps running the old way here until somebody ports it.
+- **The server.** `/api/triage`, `/api/transcribe`, `/api/feedback`,
+  `/api/link-google`, `/api/gcal-token` (200 / 404 not linked / 409
+  revoked), `/api/gcal-calendar` (claim-if-empty, and since 2026-11-01 its
+  `replaces` claim for a calendar deleted in Google) and
+  `/api/delete-account`, plus Supabase's auth and `tasks` table.
+- **The Google Calendar push** (`Sync/CalendarSync.swift`, since
+  2026-10-31). It shares the account's one `my.adhd` calendar with every
+  browser, so `eventSig()`'s exact output matters — `gcal.sig` travels
+  between devices, and a difference would have the phone and the web
+  rewrite each other's events for ever (`Checks/calendar.sh` holds it
+  against `app.js`) — and so does `extendedProperties.private.myadhdId` on
+  every event, which is how this app finds an event a browser already made
+  before that browser's id has synced.
+- **`doneAt`**, a millisecond epoch stamped by `markDone`. `TaskBridge`
+  buckets it into local days to fill the Done graph, and `DoneLedger` keeps
+  the result because `pruneDone()` deletes the task itself after seven days.
+  A rename breaks the graph silently, not loudly.
+- **The matrix box.** `TaskBridge` picks `quadrant` out of each task and
+  the snapshot carries it as `q`. Where a task has none,
+  `SnapTask.quadrant(on:)` re-derives it with `quadrantOf`'s rule — urgency 5
+  or more, or due today or earlier, is urgent; `importance == "high"` is
+  important — and `Checks/parity-ordering.swift` holds the copy.
 - **`CategoryTint` in `Shared/TimelineBand.swift`.** Eight hues for the eight
   categories, sampled between `--blue` and `--violet`. `theme.css` has no
-  per-category colour at all, so this is a shell invention; if the web app
+  per-category colour at all, so this is an iOS invention; if the web app
   ever ships its own, the two will not match.
-- **`doneAt`**, a millisecond epoch stamped by `markDone` in `app.js`.
-  `TaskBridge` buckets it into local days to fill the Done graph, and
-  `DoneLedger` keeps the result because `pruneDone()` deletes the task itself
-  after seven days. A rename breaks the graph silently, not loudly.
-- **`window.markDone(id, after)` and `window.repaintLists()`.** `OpDrain`
-  calls both by name to land a tick taken on a widget. They are reachable only
-  because `app.js` is a classic script with no module wrapper — wrap it in one,
-  or rename either, and the drain falls back to editing `localStorage` and
-  reloading, which works but throws away the screen the user was on.
 - **`MyADHD/Baloo2-Variable.ttf` and `MyADHDWidgets/Baloo2-Variable.ttf`** are
-  copies of the web app's `fonts/Baloo2-Variable.ttf`, so the wallpaper and the
-  widget tiles are drawn in the app's own face rather than in SF. Its
-  PostScript name is `Baloo2-Regular`, which is what `WallpaperView` and
-  `Font.baloo` ask for. Three files in two repos; replace one, replace all
-  three. Both copies the build needs are tracked here, so nothing breaks on a
-  fresh clone — what breaks is the day somebody changes the typeface and only
-  one repo hears about it.
+  copies of the web app's `fonts/Baloo2-Variable.ttf`. Its PostScript name is
+  `Baloo2-Regular`, which is what `Font.baloo` asks for. Three files in two
+  repos; replace one, replace all three.
 - **`icons/render.py`** is a copy of the web app's script of the same name, and
   `draw_icon()`'s geometry is the shared part. The mark changing on the website
   does not change the app icon until somebody runs this one too.
-- **The Google Calendar push** (`MyADHD/Sync/CalendarSync.swift`, since
-  2026-10-31; before that the native app pushed nothing, and a task dated on
-  the phone reached Google only when a signed-in browser opened the web app).
-  It shares the account's one `my.adhd` calendar with every browser, so it
-  leans on four things over there:
-  `eventSig()`'s exact output, because `gcal.sig` travels between devices and
-  a difference would have the phone and the web rewrite each other's events
-  for ever (`Checks/calendar.sh` holds it against `app.js`);
-  `extendedProperties.private.myadhdId` on every event, which is how this app
-  finds an event a browser already made before that browser's id has synced;
-  `/api/gcal-token` answering 200 / 404 (not linked) / 409 (revoked); and
-  `/api/gcal-calendar`'s claim-if-empty, plus its `replaces` claim
-  (2026-11-01) for a my.adhd calendar deleted in Google: a step's 404 has
-  the calendar itself checked, and if it is gone a new one is claimed over
-  the dead id and every event id is forgotten (`replaceGone`, the same in
-  `gcal.js`).
-- **The matrix box, carried into the snapshot** (since 2026-11-01).
-  `TaskBridge` now also picks `quadrant` out of each task by name and the
-  snapshot carries it as `q`, so the Matrix widget can put a task in the box
-  the person chose. Where it has none, `SnapTask.quadrant(on:)` re-derives
-  it with `quadrantOf`'s rule from `app.js` — urgency 5 or more, or due
-  today or earlier, is urgent; `importance == "high"` is important.
-  `Checks/parity-ordering.swift` holds the copy against the web's own
-  `quadrantOf`. Rename the field or change the rule over there and the
-  widget sorts into the wrong boxes without a sound.
-- **The Live Activity, the Matrix widget and the Dump control** read only
-  the snapshot and `OpQueue`, never the web store, so nothing on the web
-  side reaches them except through `TaskBridge`. What they do lean on:
-  `firstStep` (the lock-screen card's "Start here" line) and the Now card's
-  walk, `Ordering.pickNow`, which is itself a copy of the web's.
-- **`myadhd://listen`** (`Inbox.swift`) opens the composer with the mic
-  already on. The Dump control and the Action Button use it; it is a shell
-  URL, not a web route, so nothing over there needs to know about it.
-- **Photos shared in, or picked in the composer.** The share extension, and
-  the photo button on the composer's name row, read the words in up to four
-  photos on the phone (Vision, nothing uploaded; one reader for both,
-  `Shared/PhotoWords.swift`) and put them in the box as text, one line per
-  photo. The web app only ever sees words, so `absorbDump()`'s text
-  handling is the only promise involved.
+- **`UI/Theme.swift`** mirrors `BRAND.md`'s token table value for value.
 
-No count is given on purpose. The old "four" counted groups rather than
-values, and the selector group quietly became three when `#composer-mic` was
-added without the sentence above it changing. Before renaming anything on the
-web side, grep this repo for it — it is a separate checkout now, so the grep
-has to be deliberate. This list is a signpost, not a guarantee that it
-is complete.
+No count is given on purpose: a number in prose goes stale. Before renaming
+anything on the web side, grep this repo for it — it is a separate checkout,
+so the grep has to be deliberate. This list is a signpost, not a guarantee
+that it is complete.
 
 ## The share extension, and the keychain
 
 A second target, `DumpShare`, appearing in the system share sheet. It cannot
-write a task: it runs in its own sandbox and the tasks live in `localStorage`
-inside the app's web view. So it queues the text and the app drains it on the
-way back to the front.
+write a task: it runs in its own sandbox, and the tasks live in the app's own
+container. So it queues the text and the app drains it on the way back to the
+front.
 
 The usual place to queue it is an App Group container, which needs an
 entitlement a free account is not given. **This uses the keychain instead** —
@@ -440,7 +434,7 @@ It is an odd drawer for a queue and the right one for the contents: a brain
 dump is private speech, and these are short strings that exist for the seconds
 between sharing something and opening the app.
 
-Rough edges, this being a proof of concept:
+Rough edges:
 
 - The button says **Add**, set on the navigation item in `viewWillAppear`.
   `SLComposeServiceViewController` does not offer to rename it, so this
@@ -449,59 +443,138 @@ Rough edges, this being a proof of concept:
   in the item's content text rather than from reading the page, so a site that
   does not supply one leaves just the address.
 - Up to four images are accepted, and only their words are kept: Vision
-  reads them on the phone (one line per photo), and a photo with no words
-  says so and leaves the box for the person to fill.
+  reads them on the phone (`Shared/PhotoWords.swift`, one line per photo),
+  and a photo with no words says so and leaves the box for the person to
+  fill. The composer's photo button uses the same reader.
 
 ## Getting it onto the App Store
 
-Guideline 4.2 exists to reject webview wrappers, and this is one. The features
-in the table at the top are the answer to it, and the review-notes field is
-where that answer gets made — for this app it is the most important text in
-the submission, not a formality.
+**Guideline 4.2 is no longer the risk it was.** It exists to reject apps that
+are a website in a frame, and until 2026-09-20 this was one. It is now a
+native app that runs with no connection, and the review notes below make
+that case plainly rather than defending a wrapper.
 
-The full 26-step plan, in dependency order, is a checklist here:
-<https://claude.ai/code/artifact/49e4c687-f514-4d37-ae1a-15ef3ade0e3c>
+The 26-step plan written for the web-view submission was a checklist
+artifact (`claude.ai/code/artifact/49e4c687…`); on 2026-11-01 it could no
+longer be opened from this account, so this section is the record now.
 
-**Done, in this directory only:**
+**Done:**
 
-- `PrivacyInfo.xcprivacy` — required since May 2024. Without it the upload
-  bounces as `ITMS-91053` before a human sees anything. It declares
-  `UserDefaults` (`ShellState.swift`, `Inbox.swift`) with reason `CA92.1`.
-  The synchronised file group picks it up with no project edit; a Release
-  build puts it at the root of `MyADHD.app`. `DumpShare` touches no
-  required-reason API, so it needs none of its own — check that again if the
-  extension ever grows.
-- `TARGETED_DEVICE_FAMILY = 1` — iPhone only. Shipping to iPad obliges a set
-  of 13" screenshots and invites a reviewer to open a one-column web app in
-  landscape split view. The dead `UISupportedInterfaceOrientations~ipad` key
-  went with it.
-- `MARKETING_VERSION = 1.0`, in both targets — an extension must carry the
+- **`PrivacyInfo.xcprivacy`**, required since May 2024. Without it the
+  upload bounces as `ITMS-91053` before a human sees anything. It declares
+  `UserDefaults` (CA92.1) and, since 2026-11-01, file timestamps (C617.1)
+  for `StoreFile`'s check of its own document's modification date — that
+  one arrived with the native store and was missing until then. The widget
+  extension's declares nothing; `DumpShare` touches no required-reason API.
+  Run this before every upload, since a new call to one of these APIs is
+  an automatic rejection:
+
+  ```bash
+  grep -rnE 'UserDefaults|ModificationDate|CreationDate|attributesOfItem|volumeAvailableCapacity|systemUptime|mach_absolute_time|activeInputModes' MyADHD Shared DumpShare MyADHDWidgets
+  ```
+
+- **`TARGETED_DEVICE_FAMILY = 1`** — iPhone only. Shipping to iPad obliges a
+  set of 13" screenshots and a layout for landscape split view.
+- **`MARKETING_VERSION = 1.0`** in every target — an extension must carry the
   same version and build as its host or the upload is rejected.
-  `CURRENT_PROJECT_VERSION` is the build number and has to increase on every
-  upload, forever, including ones that get rejected.
-- The donation link, closed from `BridgeScript.swift` — see above.
+  `CURRENT_PROJECT_VERSION` (2 today) is the build number and has to increase
+  on every upload, forever, including ones that get rejected.
+- **In-app account deletion** (Guideline 5.1.1(v)). The three-stage delete in
+  `UI/AccountCard.swift` calls `/api/delete-account`, the same endpoint the
+  website's control uses (web `26f7d21`).
+- **No external payment link** — see "There is no donate tin" above.
+- **The `myadhd://auth` redirect** is on Supabase's allow-list — see the
+  sign-in section for what that does and does not prove.
 
-**Done since, and in the web app rather than here:**
+**Left, and it lives on the server side too, so it is not this project's to
+start without asking:**
 
-- **In-app account deletion.** Guideline 5.1.1(v): an app offering accounts
-  must let people delete them inside it, and says pointing at an email
-  address does not count. `/api/delete-account` and the control beside
-  **Sign out** landed in `26f7d21`. Nothing in `ios/` was needed for it, and
-  nothing in `ios/` was changed.
-
-**Left, and it lives in the web app too, so it is not this project's to start
-without asking:**
-
-- **Sign in with Apple.** Guideline 4.8: Google is the only provider, and a
+- **Sign in with Apple** (Guideline 4.8). Google is the only provider, and a
   third-party login setting up the primary account needs a companion that
   collects only name and email. There is a real argument the rule does not
-  apply here, since the app works fully signed out — but Sign in with Apple
-  ends the argument rather than having it.
+  apply, since the app works fully signed out — but Sign in with Apple ends
+  the argument rather than having it. It needs the paid membership (the
+  capability and a Services ID), the Apple provider switched on in Supabase,
+  and a button in `AccountCard` beside Google's.
 
-Also outstanding, and nothing to do with code: a paid membership,
-screenshots, the privacy nutrition label, and the review notes. The
-`myadhd://auth` redirect line, which used to be on this list, is in place —
-see the sign-in section above for what that does and does not prove.
+**Left, and the copy rule makes it a web decision: the "v0.1.0 Beta" line
+at the foot of Settings** (`Copy.Settings.version` / `versionTag`, from
+`app.html:844`). Guideline 2.2 keeps betas off the App Store, and a reviewer
+who sees the word may stop there; the number also disagrees with
+`MARKETING_VERSION = 1.0`. Either the web drops the tag, or this app stops
+drawing that line — ask which.
+
+**Left, and nothing to do with code:** the paid membership; screenshots
+(6.9" iPhone); the privacy nutrition label; a demo path for the reviewer
+(below); and `NSPrivacyCollectedDataTypes` in `MyADHD/PrivacyInfo.xcprivacy`,
+which is still empty from the web-view days and should be filled in to match
+the label.
+
+### The privacy label, drafted from the code
+
+What the app itself sends, now that the code that sends it ships in the app.
+None of it is used for tracking or advertising; all of it is App
+Functionality. Check every line against `privacy.html` before submitting —
+the three have to tell the same story.
+
+| Data type | Where it goes | Linked to the person |
+|---|---|---|
+| Email address, name | Google sign-in → Supabase (only if they sign in) | Yes |
+| Other user content: tasks and notes | Supabase `tasks`, for sync (only if signed in) | Yes |
+| Other user content: the dump text | `/api/triage`, to be sorted into tasks | No — the route is unauthenticated and sends no id |
+| Audio data: a voice dump | `/api/transcribe`, turned into text | No — the same |
+| Customer support: feedback | `/api/feedback`, the typed text only | No — the same |
+
+Not collected: photos (read for their words on the phone; nothing is sent),
+the phone's calendars (read on the phone), location, contacts, identifiers,
+usage data, diagnostics. Google Calendar events go between the phone and
+Google directly, with a token minted by `/api/gcal-token`.
+
+### Review notes (draft)
+
+For App Store Connect → App Review Information → Notes. Plain, short, and
+every claim checkable in the app:
+
+```
+my.adhd is a native SwiftUI app for getting thoughts out of your head and
+into one next step. Type or say everything on your mind; the app sorts it
+into tasks, each with a two-minute first step, and shows you one thing to
+do now.
+
+No account is needed. Everything works signed out and offline: the lists
+are stored on the device, tasks are sorted by an on-device parser when
+there is no connection, and reminders are local notifications. To review
+the core flow, open the app, type a few thoughts into the box (for example
+"call the bank tomorrow at 10, buy milk, finish the report by Friday") and
+tap "Clear my head".
+
+Signing in with Google is optional. It syncs the lists with the website
+(myadhd.my) and lets dated tasks appear in Google Calendar. Accounts can be
+deleted inside the app: Settings → Delete account (shown once signed in).
+
+What it does on iPhone:
+- Local reminders at a task's time, showing its first step
+- Widgets (Today, Next up, Timeline, Agenda, Month, Matrix, Done), a Live
+  Activity for the current task, and a Control Centre button that opens
+  the app listening
+- Siri and Shortcuts: "Dump a thought into my.adhd"
+- A share extension that adds shared text, links or the words in a photo
+  (read on the device with Vision)
+- An optional lock-screen wallpaper of today's tasks, kept current by a
+  Shortcut the app helps you add
+
+Network use: the text of a dump is sent to our server to be sorted, and a
+voice dump to be transcribed; neither is used for anything else. The app
+has no ads, no analytics and no tracking.
+```
+
+Before pasting it, check two things against the build: that Delete account
+sits where the line above says (it is in `AccountCard`, drawn on Settings,
+and appears once signed in), and whether a reviewer can reach every feature
+signed out. If anything they need sits
+behind sign-in, App Review will ask for a demo account, and a Google login
+cannot be handed over the way a username and password can — so the answer
+has to be that nothing is behind it.
 
 ## The widgets, and the wallpaper
 
@@ -509,32 +582,33 @@ Both of them draw the same thing — the next task and its two-minute first
 step — because that is the whole product, and a lock screen is the one place
 a person looks eighty times a day without deciding to.
 
-**Neither can reach the web view.** A widget's timeline provider runs in its
-own process on iOS's schedule; the wallpaper intent runs headless at seven in
-the morning. So the app pushes a snapshot out to somewhere both can read, and
+**Neither can reach the app.** A widget's timeline provider runs in its own
+process on iOS's schedule; the wallpaper intent runs headless from a
+Shortcut. So the app pushes a snapshot out to somewhere both can read, and
 `Shared/TaskSnapshot.swift` is that: one upserted keychain item, the same
 unspecified-access-group trick `DumpQueue` uses, because a free account gets
 no App Group. Sixty-four trimmed tasks compress to about a kilobyte.
 
-`MyADHD/TaskBridge.swift` fills it, riding on the `evaluateJavaScript` that
-`Reminders.sync` already does at all four lifecycle moments. It sits **above**
-the notification-permission gate in `Reminders.sync` deliberately: that gate
-returns early for anyone who declined notifications, and a widget has nothing
-to do with notifications. Moving it below is a silent, total failure for
-those users.
+`MyADHD/TaskBridge.swift` fills it, from the bytes `AppStore` just wrote, each
+time `StoreBridge` pushes. `StoreBridge` calls it **before** `Reminders.sync`
+and unconditionally, deliberately: `Reminders` returns early for anyone who
+declined notifications, and a widget has nothing to do with notifications.
+Putting the snapshot behind it is a silent, total failure for those users.
 
 | | families | |
 |---|---|---|
-| **Today** | `systemSmall`, `systemMedium`, `systemLarge` | The checklist, and the only one with a button in it. Rows come off `paintToday()`'s rule — anything late, then anything dated today, then whatever is open — two of them at small, three at medium, eight at large. |
+| **Today** | `systemSmall`, `systemMedium`, `systemLarge` | The checklist, with a button on every row. Rows come off `paintToday()`'s rule — anything late, then anything dated today, then whatever is open — two of them at small, three at medium, eight at large. |
 | **Next Up** | `systemSmall`, `accessoryCircular`, `accessoryInline` | One task and its two-minute step. |
 | **Today Timeline** | `systemMedium`, `systemLarge`, `accessoryRectangular` | The band. Rectangular is six hours around now rather than twenty-four — a 160×72pt tile cannot carry a day. Large is the band, then the checklist, then a tomorrow strip. |
-| **Agenda** | `systemMedium`, `systemLarge` | Today and tomorrow as two columns, with anything late folded into the top of the Today one. Hiding late in a tile that is looking at tomorrow would be the exact failure this app exists to prevent. |
+| **Agenda** | `systemSmall`, `systemMedium`, `systemLarge` | Today and tomorrow as two columns, with anything late folded into the top of the Today one. Hiding late in a tile that is looking at tomorrow would be the exact failure this app exists to prevent. |
 | **Month** | `systemMedium`, `systemLarge` | The month, a mark on every day the list has something dated to, today ringed in the accent and a past day with something still open marked in Vivid Orange. Large is the grid over the checklist. |
 | **Done** | `systemMedium`, `systemLarge` | A contribution grid of what has been finished. See the caveat below — it is the one tile whose content is thin on day one. |
+| **Matrix** | `systemMedium`, `systemLarge` | Do now, Plan, Delegate, Drop, with a tick on every row. |
 
-Six of them, against the seven Ink ships. Theirs are all read-only, because a
-wallpaper cannot have a button in it; ours is the same gallery with the one
-thing they structurally cannot answer added to it.
+Beside them in the same bundle: **the Now card as a Live Activity** on the
+lock screen and in the Dynamic Island (`NowLiveActivity.swift`, with Done and
+Not now buttons), and **the Dump control** for Control Centre and the Action
+Button (`DumpControl.swift`, iOS 18).
 
 **The counts the Month and Done tiles draw are swept from the whole store,
 before the task list is trimmed** — so they stay true when `dropped > 0`. A
@@ -553,85 +627,63 @@ timestamps (C617.1) and free disk space (E174.1) are. Keep it that way.
 
 ### Ticking one off from a tile, and what it costs
 
-The Today checklist, the large timeline and the large Month tile all carry a
-`Button(intent: TickIntent(...))`. Ink has nothing like it; a wallpaper cannot
-have a button in it, which is the whole argument for a widget over a picture.
+The Today checklist, the Matrix, the large timeline and the large Month tile
+carry a `Button(intent: TickIntent(...))`. A wallpaper cannot have a button
+in it, which is the whole argument for a widget over a picture.
 
-The path is not direct, and cannot be. The widget's process has no web view,
-so:
+The widget's process cannot reach the app's memory, so:
 
 1. `TickIntent` appends a `done` op to `Shared/OpQueue.swift` — its own
    keychain service, one item per op, `SecItemAdd` only.
 2. `SnapProvider.current()` lays the pending ops over the snapshot it reads,
    so the row strikes through in the time WidgetKit takes to reload.
-3. The next time the app is in front of somebody, `OpDrain` calls the page's
-   own `window.markDone(id, function () {})` for each queued id and drops only
-   the ones the page confirmed.
+3. The next time the app comes to the front, `OpDrain` hands each queued id
+   to `AppStore.landTick`, **before** `StoreBridge` pushes the snapshot —
+   the other order writes the un-ticked row back over the tile.
 
-**Through `markDone`, not through `localStorage`.** `markDone` stamps `doneAt`,
-calls `save()` — which is `cloud.stamp()`, `persistOnly()`, `syncSoon()` and
-`cloud.soon()` — and offers the same Undo the app offers. Editing the store
-directly would get four of those five wrong and the live page would overwrite
-the fifth on its next save. The empty `after` is load-bearing: the default is
-`goToNext`, which would yank the user to another screen for something they did
-an hour ago on the home screen.
+`landTick` is `markDone` with the tap's own time: it stamps `doneAt` with the
+moment the tile was tapped, not the moment the app opened, and calls
+`save()`, so the cloud stamp, the file, the calendar and the sync all follow
+exactly as for a tick in the app. A task already done elsewhere is dropped
+without being stamped again.
 
 What that costs, plainly:
 
-- **The tile ticks in well under a second. The web store catches up whenever
-  the app is next opened** — which could be days. This is inherent to a widget
-  process that cannot reach a web view, not to this design.
-- **An "Undo" toast appears for something done an hour ago**, once per drained
-  op, because `markDone` always toasts. Three ticks on the widget are three
-  toasts on next open. Accepted: it is an undo affordance, and suppressing it
-  means shimming another internal.
-- **The tick carries a `cloud.stamp()` from drain time, not tap time.** On a
-  two-device conflict it wins as though it happened when you opened the app. A
+- **The tile ticks in well under a second. The store catches up whenever the
+  app is next opened** — which could be days. This is inherent to a widget
+  process that cannot write the document, not to this design.
+- **One "Done" toast appears on that next open**, however many ticks landed.
+- **The sync stamp is from drain time, not tap time.** On a two-device
+  conflict the tick wins as though it happened when you opened the app. A
   small lie about *when*, never about *what*.
 - **An op that lands nowhere is swept after 48 hours and the tile un-ticks.**
   That is the honest outcome — better a row that comes back than one that
   pretends.
-- **The drain runs at `pageReady()`, at `returning()`, and on the page's
-  `refresh` message** — a pull on a tab screen, which is the one gesture
-  meant to bring every surface up to date at once. Nowhere else: not on the
-  1.5s store debounce, which `markDone`'s own `save()` triggers —
-  that is re-entrancy for no gain. Not on `leaving()`, where the background
-  window is already tight and nobody would see the repaint. And not on a
-  `returning()` that has queued share text, because `dump()` reloads the page
-  and `pageReady()` will catch it after the load.
 
-### The Done graph reads the page's own ledger
+### The Done graph reads the store's own ledger
 
-`pruneDone()` in `app.js` deletes any finished task older than `DONE_TTL` —
-seven days — so the store's `tasks` can never hand over more than a week.
-Since 2026-09-18 it counts before it deletes: `state.doneCounts[dayKey]`
-goes up by one for each task it prunes, bounded at 400 days, and it syncs
-through `cloud.js` like the rest of the store. `TaskBridge` reads that map
-out of `myadhd.v1` beside `tasks`, and `MyADHD/DoneLedger.swift` merges it
-with the week of stamped tasks still in the store (and keeps its own copy
-bounded at the same 400, so a phone that has not opened the app in a while
-still has a history).
+`pruneDone()` deletes any finished task older than `DONE_TTL` — seven days —
+so the store's `tasks` can never hand over more than a week. Since 2026-09-18
+it counts before it deletes: `doneCounts[dayKey]` goes up by one for each task
+it prunes, bounded at 400 days, and it syncs like the rest of the store, on
+the web and here alike. `TaskBridge` reads that map beside `tasks`, and
+`MyADHD/DoneLedger.swift` merges it with the week of stamped tasks still in
+the store (and keeps its own copy bounded at the same 400, so a phone that has
+not opened the app in a while still has a history).
 
-What it cannot do is reach back before the counting started. A phone whose
-store predates 2026-09-18 has a graph that begins there, and the header says
+What it cannot do is reach back before the counting started. A store that
+predates 2026-09-18 has a graph that begins there, and the header says
 **"Since Fri 18 Sep."** rather than drawing half a year of empty squares and
 letting them read as half a year of doing nothing.
 
-### The one thing still to prove
+### Proven on a device
 
-`WallpaperIntent` returns the PNG as an `IntentFile`, on the assumption that
-Shortcuts' **Set Wallpaper Photo** will accept it as its image input. That is
-likely and unconfirmed — it needs a device and the Shortcuts app, and nothing
-on a Mac can answer it.
-
-If it is refused, the fallback is the photo library: `Find Photos → Recently
-Added → Limit 1 → Set Wallpaper Photo`, which needs
-`NSPhotoLibraryAddUsageDescription` and add-only authorization. Note that
-add-only cannot create or fetch a named album, so the camera roll gains one
-image per run — a reason to keep the automation daily. A named album needs
-full read-write Photos access, which changes the App Store privacy
-questionnaire **and `privacy.html`, which is outside `ios/`**. That is the
-strongest argument for making the `IntentFile` path work.
+`WallpaperIntent` returns the PNG as an `IntentFile`, and Shortcuts' **Set
+Wallpaper Photo** takes it — from a locked phone too, since `2e574d5`, as
+long as the picture goes over as bytes and never as a file URL (see the
+shortcut's notes below). The photo-library fallback that used to be written
+here is not needed, and would have meant a Photos permission and a change to
+`privacy.html`.
 
 **The most likely support question:** Set Wallpaper Photo silently does
 nothing when the current lock screen is **Photo Shuffle** rather than
@@ -698,6 +750,20 @@ copy (Share → Copy iCloud Link).
 
 ## Not done yet
 
+- **Sign in with Apple**, before the App Store — see above.
+- **A corrupt store is set aside, not restored.** Since `d2feee1` a document
+  that will not parse is moved aside and its last good `.bak` is copied to
+  `rescue-<stamp>.json`, so nothing is lost; but the app starts fresh and
+  nothing offers to bring the rescue back. That is a decision for the owner,
+  not a fix.
+- **Comments from the web-view days.** The headers of `TaskBridge`,
+  `OpDrain`, `Reminders`, `GoogleSignIn`, `ShellState`, `AppConfig` and
+  `WallpaperIntent` still describe a page, `localStorage` and
+  `evaluateJavaScript`; `OpDrain`'s promises a "web route" that is gone.
+  `AppConfig` still carries web-view constants nothing reads
+  (`inAppPaths`, `ownHosts`, `dumpBoxID`, `userAgentSuffix`), and
+  `ShellState` its `painted` / `offline` flags. Several files cite a
+  `design.md` that is in neither repo.
 - **The Live Activity cannot start itself.** iOS only starts one with the
   app in front and ends it after about eight hours, so after a night it is
   gone until the app is next opened. Keeping it alive longer would need a

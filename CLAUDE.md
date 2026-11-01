@@ -1,41 +1,47 @@
 # my.adhd — iOS
 
-The `WKWebView` shell around [myadhd.my](https://myadhd.my). Read **`README.md`**
-first — it has the full picture: what the native features are and why each
-needed the native side, how to build and sign on a device, the keychain
-handover, the widgets and the wallpaper, and where the App Store submission
-stands. This file is standing rules for working in here.
+The native SwiftUI app for [myadhd.my](https://myadhd.my). Read **`README.md`**
+first — it has the full picture: how the app is put together, how to build and
+sign on a device, the keychain handover, the widgets and the wallpaper, and
+where the App Store submission stands. This file is standing rules for working
+in here.
+
+**It is not a web view.** It was one until 2026-09-20 (`f72814c`, "the app is
+Swift now"); every screen is SwiftUI under `MyADHD/UI/`, the store is a JSON
+file on the phone, and nothing loads a page. The one `import WebKit` left is
+`Bridge/LegacyImport.swift`, a fallback for reading an old shell's
+`localStorage` on a first launch. If a comment or a doc in here still talks
+about "the page", "the shell" or `evaluateJavaScript`, it is out of date —
+believe the code.
 
 ## The other repo
 
 The web app is **[aimanhfidz/my.adhd](https://github.com/aimanhfidz/my.adhd)**,
 and it is not in this checkout. It used to be: this directory was `ios/` inside
-it until the two were split.
+it until the two were split. Its files are not here to edit, so *"no web-app
+file is edited to make an iOS feature work"* is a fact about the filesystem.
 
-That split is why the oldest rule in this project no longer needs enforcing.
-It used to read *"no file outside `ios/` is edited to make an iOS feature
-work"*, and it was the thing most likely to get quietly broken when an iOS task
-was blocked. Now the web app's files are not here to edit. The rule is the
-filesystem.
+The two are one product, and they meet in three places:
 
-What has not changed is how this shell reaches the page, and there are still
-only two routes:
+- **The store's shape.** `myadhd.v1.json` holds exactly the bytes
+  `JSON.stringify(state)` would have put in the web's `localStorage`, and
+  `CloudSync` meets the browsers through the same Supabase rows. A field
+  renamed over there is a field this app silently stops understanding.
+- **The rules, ported line for line.** `AppStore`, `Ordering`, `LocalTriage`,
+  `CloudSync`, `CalendarSync` and the copy cite the `app.js` / `cloud.js` /
+  `gcal.js` lines they came from, and `Checks/` holds them to the web's own
+  sources. A rule changed on the web is a rule this app still runs the old way
+  until somebody ports it.
+- **The server.** `/api/triage`, `/api/transcribe`, `/api/feedback`,
+  `/api/link-google`, `/api/gcal-token`, `/api/gcal-calendar` and
+  `/api/delete-account` on myadhd.my, and Supabase's auth and `tasks` table.
 
-- **Injection.** `MyADHD/BridgeScript.swift` pushes JavaScript into the page at
-  load, so the shell works against whatever is deployed — including a version
-  that has never heard of it. That property is the point, and it is what lets
-  these two repos move at different speeds.
-- **The snapshot.** Anything running headless — a widget's timeline provider,
-  the wallpaper intent — has no web view to ask, so the app writes a keychain
-  snapshot (`Shared/TaskSnapshot.swift`) for them to read. That is a second
-  coupling to the web app's store, by field name.
+**If an iOS change looks like it needs the website or the server changed, stop
+and ask.** Say what the change would be and why it cannot be done from here.
+It is a pull request against a different repository, which is exactly the
+amount of friction that decision deserves.
 
-**If an iOS change looks like it needs the website changed, stop and ask.** Say
-what the web change would be and why neither route above will do it. It is now
-a pull request against a different repository, which is exactly the amount of
-friction that decision deserves.
-
-`README.md` lists what this shell is quietly depending on over there. Read them
+`README.md` lists what this app is quietly depending on over there. Read them
 there rather than trusting a summary — no count is given on purpose.
 
 ## Brand
@@ -78,19 +84,27 @@ The ten rules it never bends:
   all: `SecItem*` is not a required-reason API, but `UserDefaults` (CA92.1),
   file timestamps (C617.1) and free disk space (E174.1) are. State belongs in
   the app target.
-- **`TaskBridge.write` sits above the notification-permission gate in
-  `Reminders.sync`.** That gate returns early for anyone who declined
-  notifications. Below it, the widget is silently and permanently empty for
-  those users — the worst kind of bug, because it looks like nothing.
+- **`StoreBridge.push` calls `TaskBridge.write` before `Reminders.sync`, and
+  unconditionally.** `Reminders` returns early for anyone who declined
+  notifications. Put the snapshot behind it and the widget is silently and
+  permanently empty for those users — the worst kind of bug, because it looks
+  like nothing.
+- **`AppStore` is the only writer of the document.** Every mutation is a
+  method on it, ported from `app.js` with the line number beside it; screens,
+  `OpDrain`, `CloudSync` and `StoreBridge` call those methods or read
+  `doc`, never assign it.
+- **User-facing copy is the web's, verbatim.** Every string lives in
+  `Core/Copy.swift`, and `Checks/copy.sh` fails on any sentence it cannot
+  find in the web app's sources or in `reference/BridgeScript.swift`. Find
+  the real sentence; never write a new one here.
 - **The app is the only writer of the task snapshot.** It is one upserted
   keychain item, so a widget that read it, patched it and wrote it back would
   drop whatever the app wrote in between — and `TaskBridge`'s change stamp
   would then agree with its own last write and never repair it. Widgets append
   to `Shared/OpQueue.swift` and the provider lays those ops over what it reads.
-- **Never clear the snapshot or the wallpaper on a failed read.** No page, an
+- **Never clear the snapshot or the wallpaper on a failed read.** An
   unparseable store, a phone rebooted overnight and not yet unlocked — none of
-  those means "the list is empty". Yesterday's data beats a blank tile, and a
-  cold launch reads before the page has painted.
+  those means "the list is empty". Yesterday's data beats a blank tile.
 - **The Live Activity is updated locally, never by push.** It is the Now card
   pinned to the lock screen (`LiveNow.swift`, `Shared/NowActivity.swift`); the
   app and its two intents update it. A push-updated one needs paid APNs, so
@@ -147,11 +161,19 @@ day to day, and why renaming a target is not free.
 `Shared/` needs a `PBXFileReference` plus one `PBXBuildFile` per consuming
 target, added to that target's Sources phase by hand.
 
-**The shell's promises about the web app are listed in `README.md`.** Read them
-there. They have grown — the grounds and ids and selectors, the task field
-names `TaskBridge` reads, the page functions `OpDrain` calls, the invented
-category palette, and the bundled copies of the web app's font and icon
-geometry. No count is given on purpose.
+**The app's promises about the web app are listed in `README.md`.** Read them
+there. They have grown — the store's field names, the ported rules and the
+checks that hold them, the server endpoints, the invented category palette,
+and the bundled copies of the web app's font and icon geometry. No count is
+given on purpose.
+
+## Run the checks
+
+There is no Xcode test target. `Checks/` compiles the real sources with
+`swiftc` and holds them against the web app's JavaScript, its strings, and
+the bytes the old shell wrote; `Checks/README.md` says what each one proves
+and has the loop that runs them all. Several of them read
+`../My.adhd`, so the web checkout has to sit beside this one.
 
 ## Git
 
