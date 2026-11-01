@@ -216,7 +216,11 @@ myadhd.my_IOS/
 ├── reference/              BridgeScript.swift, the retired injection: not
 │                           built, kept as the only spec for the screens the
 │                           website never had. Its README says when it may go
+├── WHATSNEW.md             What's New for every build, newest first — see
+│                           "Every build, its What's New"
 ├── tools/shortcut/         build.py generates the lock-screen shortcut
+├── tools/release/          bump.sh (the next build number, in every target)
+│                           and whatsnew.sh (the build phase's check)
 ├── icons/                  render.py draws the app icon at 1024 straight into
 │                           the asset catalogue; icon-source.svg is the
 │                           readable definition. A copy of the web app's
@@ -479,6 +483,8 @@ longer be opened from this account, so this section is the record now.
   same version and build as its host or the upload is rejected.
   `CURRENT_PROJECT_VERSION` (2 today) is the build number and has to increase
   on every upload, forever, including ones that get rejected.
+- **What's New on every build** (Guideline 2.3.12: an update must describe
+  what changed). See "Every build, its What's New" below.
 - **In-app account deletion** (Guideline 5.1.1(v)). The three-stage delete in
   `UI/AccountCard.swift` calls `/api/delete-account`, the same endpoint the
   website's control uses (web `26f7d21`).
@@ -509,6 +515,35 @@ drawing that line — ask which.
 (below); and `NSPrivacyCollectedDataTypes` in `MyADHD/PrivacyInfo.xcprivacy`,
 which is still empty from the web-view days and should be filled in to match
 the label.
+
+### Every build, its What's New
+
+`WHATSNEW.md` is the text App Store Connect shows under **What's New in This
+Version**, one entry per build — `## <version> (<build>)`, an `Uploaded:`
+line, then exactly what gets pasted. The routine:
+
+1. **`sh tools/release/bump.sh`** (or `bump.sh 1.1` for a new version). It
+   moves the build number — and the version, when given — in all six build
+   configurations at once, opens an empty entry, and prints the commits
+   since `WHATSNEW.md` last moved to write it from.
+2. **Write the entry.** What a person can now do, what works better, what
+   was broken and is not. English, like the app; no clinical claims.
+3. **Archive and upload.** Then change `Uploaded: no` to the date and
+   commit it.
+
+Held two ways. The MyADHD target's first build phase, **What's New**, runs
+`tools/release/whatsnew.sh` with the target's own version and build: on an
+ordinary build a problem is a warning and the build goes on; on an archive
+it is an error and the archive stops, before anything can be uploaded.
+`Checks/release.sh` checks that every target agrees, that the phase is
+still there, and that the script still refuses what it should. What it
+refuses: no entry for this build, an empty one, a placeholder, "bug fixes
+and performance improvements" with nothing else, over 4,000 characters, a
+build already uploaded or below one that was, and one build number on two
+versions.
+
+The phase declares `WHATSNEW.md` and the script as its inputs because user
+script sandboxing is on — a file it does not declare, it cannot read.
 
 ### The privacy label, drafted from the code
 

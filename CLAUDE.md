@@ -78,7 +78,18 @@ The ten rules it never bends:
   useful.
 - **An extension must carry the same `MARKETING_VERSION` and
   `CURRENT_PROJECT_VERSION` as the app**, and the build number has to increase
-  on every upload, for ever, including ones that get rejected.
+  on every upload, for ever, including ones that get rejected. **Never edit
+  either by hand: run `sh tools/release/bump.sh`** (or `bump.sh 1.1`), which
+  moves every target at once and opens the build's entry in `WHATSNEW.md`.
+- **Every build has its What's New, written before it is archived.**
+  Guideline 2.3.12: an update must say what actually changed. The MyADHD
+  target's first build phase runs `tools/release/whatsnew.sh` — a warning on
+  ⌘R, an error that stops an archive — and `Checks/release.sh` holds the
+  rest. Write it for a person, not as a commit log; never "bug fixes and
+  performance improvements" alone. After an upload, set that entry's
+  `Uploaded:` to the date and commit it: the build number is spent.
+- **Scripts in this checkout run as `sh <file>` / `bash <file>`**, never
+  executed directly. A freshly written one was SIGKILLed (137) on exec.
 - **`MyADHDWidgets` touches neither `UserDefaults` nor the filesystem.** That is
   what keeps `MyADHDWidgets/PrivacyInfo.xcprivacy` declaring no accessed APIs at
   all: `SecItem*` is not a required-reason API, but `UserDefaults` (CA92.1),

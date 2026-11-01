@@ -1,6 +1,6 @@
 # Checks
 
-Ten scripts. None of them is a unit test in the usual sense — there is no
+Shell scripts, one per thing proved. None of them is a unit test in the usual sense — there is no
 Xcode test target and no package here. Each one compiles the **real**
 `MyADHD/` and `Shared/` sources with `swiftc`, the same files the app target
 compiles, and then holds their answers against something outside the port:
@@ -16,8 +16,8 @@ Run them all:
 
 ```sh
 cd "/Users/User/Desktop/Claude Code/myadhd.my_IOS"
-for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration wav cloud wallpaper-mode calendar; do
-  ./Checks/$c.sh || echo "FAILED: $c"
+for c in roundtrip copy parity-triage parity-ordering bridge store storefile migration wav cloud wallpaper-mode calendar release; do
+  bash Checks/$c.sh || echo "FAILED: $c"
 done
 ```
 
@@ -513,6 +513,37 @@ Mutation-tested once: reading `firstStep` with `join`'s rule instead of
 `|| ''` fails it on the `0` case.
 
 **Last run:** all 3 zones clean — 16 cases each and the plan, 0 failed.
+
+---
+
+## `release.sh` — the version, the build and What's New agree
+
+```sh
+bash Checks/release.sh
+```
+
+**Proves:** every target carries the same `MARKETING_VERSION` and
+`CURRENT_PROJECT_VERSION` (an extension that differs from its app is
+rejected on upload); `WHATSNEW.md` has a ready entry for exactly that
+version and build (Guideline 2.3.12, via `tools/release/whatsnew.sh
+--strict`); and the MyADHD target still runs that script as its first
+build phase. Not the web app's business at all — App Store Connect's.
+
+Then it holds the script to what it claims, on scratch files: it must
+refuse no entry, an empty entry, a missing `Uploaded:` line, "bug fixes
+and performance improvements" on its own, a TODO, a build already
+uploaded, a build below an uploaded one, one build number on two
+versions, a malformed heading and text over 4,000 characters — and pass
+a good entry, one above an uploaded build, and "bug fixes" followed by
+what they were.
+
+Everything is run as `sh <file>` or `bash <file>`, never executed
+directly: a script freshly written into this checkout was SIGKILLed (137)
+when exec'd, and the Xcode build phase calls it the same way.
+
+**Last run:** 20 passed, 0 failed, for 1.0 (2). In Xcode on 2026-11-01:
+a Debug build with no entry for its build number warned and succeeded; an
+archive with none failed (exit 65) on the same message.
 
 ---
 
