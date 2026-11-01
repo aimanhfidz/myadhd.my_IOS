@@ -380,7 +380,11 @@ disagree with this:
   `extendedProperties.private.myadhdId` on every event, which is how this app
   finds an event a browser already made before that browser's id has synced;
   `/api/gcal-token` answering 200 / 404 (not linked) / 409 (revoked); and
-  `/api/gcal-calendar`'s claim-if-empty.
+  `/api/gcal-calendar`'s claim-if-empty, plus its `replaces` claim
+  (2026-11-01) for a my.adhd calendar deleted in Google: a step's 404 has
+  the calendar itself checked, and if it is gone a new one is claimed over
+  the dead id and every event id is forgotten (`replaceGone`, the same in
+  `gcal.js`).
 - **The matrix box, carried into the snapshot** (since 2026-11-01).
   `TaskBridge` now also picks `quadrant` out of each task by name and the
   snapshot carries it as `q`, so the Matrix widget can put a task in the box
@@ -679,12 +683,6 @@ copy (Share → Copy iCloud Link).
   app in front and ends it after about eight hours, so after a night it is
   gone until the app is next opened. Keeping it alive longer would need a
   push-updated one, and APNs is a paid capability.
-- **A my.adhd calendar deleted in Google stops the push.** The phone
-  forgets nothing it can fix: `/api/gcal-calendar` keeps answering with
-  the dead calendar's id (claim-if-empty), so every pass fails and retries.
-  The web app has the same gap. The fix is on the server (let a client
-  replace a claimed id that Google answers 404 for), which makes it a
-  decision about the website.
 - **The Dump control is iOS 18 only.** `ControlWidget` does not exist on
   17.0, so it is the one member of the bundle behind `@available`. Drop
   the fence with 17.

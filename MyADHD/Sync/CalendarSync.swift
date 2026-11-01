@@ -224,6 +224,7 @@ final class CalendarSync {
         let batch = plan.prefix(Self.batchSize)
         var dirty = false
         var failure: Error?
+        var replaced = false
 
         do {
             /* The calendar first, which also proves there is a live token,
@@ -239,6 +240,19 @@ final class CalendarSync {
                        the next pass plans from scratch, so nothing is
                        skipped. */
                     failure = err
+                    break steps
+                } catch let err as GoogleError
+                            where err.kind == .google && (err.status == 404 || err.status == 410) {
+                    /* An add or an edit's rebuild asking a calendar that
+                       is not there. If Google says the calendar itself has
+                       gone (deleted in Google), a new one replaces it and
+                       every event id held here is forgotten, as the web
+                       does after reconcile(): they lived in the old one.
+                       The next pass refills the new calendar. */
+                    guard try await replaceGone(calendar) else { throw err }
+                    store.forgetAllCalendarRefs()
+                    dirty = true
+                    replaced = true
                     break steps
                 }
             }
@@ -256,7 +270,7 @@ final class CalendarSync {
 
         /* What did not fit in this batch, and anything written while it
            was in the air. */
-        if plan.count > batch.count || again {
+        if plan.count > batch.count || again || replaced {
             again = false
             debounceTask?.cancel()
             debounceTask = Task { @MainActor [weak self] in
@@ -434,18 +448,19 @@ final class CalendarSync {
         return try await task.value
     }
 
+    /// Keeps an answer only if the account is the one that asked.
+    private func settle(_ id: String, asked at: Int) throws -> String {
+        guard at == epoch else { throw GoogleError.offline }
+        calendarID = id
+        return id
+    }
+
     private func findOrMakeCalendar() async throws -> String {
         if let calendarID { return calendarID }
         let at = epoch
-        /// Keeps the answer only if the account is the one that asked.
-        func settle(_ id: String) throws -> String {
-            guard at == epoch else { throw GoogleError.offline }
-            calendarID = id
-            return id
-        }
 
         if let settled = await claim("") {
-            return try settle(settled)
+            return try settle(settled, asked: at)
         }
 
         /* Under this scope the list only ever holds calendars this app
@@ -457,9 +472,16 @@ final class CalendarSync {
                .first(where: { $0["summary"]?.stringValue == Copy.GoogleCalendar.calendarName }),
            let id = hit["id"]?.stringValue
         {
-            return try settle(await claim(id) ?? id)
+            return try settle(await claim(id) ?? id, asked: at)
         }
 
+        return try await makeAndClaim(replacing: nil, asked: at)
+    }
+
+    /// Make a calendar and claim it, over nothing or over `dead`. If
+    /// another device got there first, ours is seconds old and empty and
+    /// goes; theirs is the answer.
+    private func makeAndClaim(replacing dead: String?, asked at: Int) async throws -> String {
         let made = try await send("POST", "calendars", body: .object(JSONObject([
             ("summary", .string(Copy.GoogleCalendar.calendarName)),
             ("description", .string(Copy.GoogleCalendar.calendarDescription)),
@@ -469,13 +491,13 @@ final class CalendarSync {
             throw GoogleError(status: 0, message: Copy.GoogleCalendar.unreachable)
         }
 
-        if let winner = await claim(madeID), winner != madeID {
+        if let winner = await claim(madeID, replacing: dead), winner != madeID, winner != dead {
             /* Another device got there first. Ours is seconds old and
                empty; a leftover would be untidy, not harmful. */
             _ = try? await send("DELETE", "calendars/" + Self.pathEncode(madeID))
-            return try settle(winner)
+            return try settle(winner, asked: at)
         }
-        _ = try settle(madeID)
+        _ = try settle(madeID, asked: at)
 
         /* Cosmetic: its own colour, so it reads as its own layer. */
         _ = try? await send("PUT", "users/me/calendarList/" + Self.pathEncode(madeID),
@@ -485,10 +507,29 @@ final class CalendarSync {
         return madeID
     }
 
+    /// Our calendar answered 404 somewhere. True when Google says the
+    /// calendar itself is gone and a new one has replaced it; false when it
+    /// is there after all (whatever 404'd was not the calendar). The web's
+    /// `replaceGone` (gcal.js), keyed the same way so the two agree.
+    private func replaceGone(_ dead: String) async throws -> Bool {
+        do {
+            _ = try await send("GET", "calendars/" + Self.pathEncode(dead))
+            return false
+        } catch let err as GoogleError where err.kind == .google && (err.status == 404 || err.status == 410) {
+            // gone: carry on
+        }
+        let at = epoch
+        guard calendarID == dead || calendarID == nil else { return false }
+        calendarID = nil
+        _ = try await makeAndClaim(replacing: dead, asked: at)
+        return true
+    }
+
     /// `/api/gcal-calendar` — a claim that only takes while the account's
-    /// answer is still empty. Returns the account's answer, or nil. Never
-    /// throws: no answer is "no tiebreaker", not a failure.
-    private func claim(_ id: String) async -> String? {
+    /// answer is still empty, or, with `replacing`, still the dead id.
+    /// Returns the account's answer, or nil. Never throws: no answer is
+    /// "no tiebreaker", not a failure.
+    private func claim(_ id: String, replacing dead: String? = nil) async -> String? {
         guard let jwt = try? await session.freshToken(),
               let url = URL(string: "/api/gcal-calendar", relativeTo: AppConfig.home)?.absoluteURL
         else { return nil }
@@ -496,7 +537,9 @@ final class CalendarSync {
         request.httpMethod = "POST"
         request.setValue("Bearer " + jwt, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(WebJSON.encode(.object(JSONObject([("calendarId", .string(id))]))).utf8)
+        var fields: [(String, JSONValue)] = [("calendarId", .string(id))]
+        if let dead { fields.append(("replaces", .string(dead))) }
+        request.httpBody = Data(WebJSON.encode(.object(JSONObject(fields))).utf8)
 
         guard let answered = try? await load(request), answered.1.statusCode == 200,
               let answer = (try? JSONValue.parse(answered.0))?.objectValue?["calendarId"]?.stringValue,

@@ -733,6 +733,17 @@ final class AppStore {
         doc.gcalOrphans.append(eventID)
     }
 
+    /// The calendar was replaced: every event id lived in the old one.
+    /// Forgets them all, and the orphans with them, so the next pass puts
+    /// every dated task into the new calendar (app.js syncNow does the
+    /// same). No write; the pass ends with one.
+    func forgetAllCalendarRefs() {
+        for i in doc.tasks.indices where doc.tasks[i].gcal != nil {
+            doc.tasks[i].gcal = nil
+        }
+        doc.gcalOrphans.removeAll()
+    }
+
     /// One orphan, gone from Google. No write; the pass ends with one.
     func forgetOrphanID(_ eventID: String) {
         doc.gcalOrphans.removeAll { $0 == eventID }
