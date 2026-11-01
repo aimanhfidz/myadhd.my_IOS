@@ -233,9 +233,12 @@ enum Copy {
         static let nothingHeard = "didn't catch anything that time"   // app.js:5441
 
         static let cappedToast = "That was the limit — got what you said so far."   // app.js:5382
-        static let deniedToast = "no mic access — allow it in your browser settings"   // app.js:5388
+        /// iOS wording: the web's two point at browser and site settings,
+        /// and the switch on a phone is in Settings (owner's call,
+        /// 2026-11-01). Listed in Checks/copy.sh as iPhone-only.
+        static let deniedToast = "no mic access — allow it in Settings → my.adhd → Microphone"   // app.js:5388, iOS wording
         static let failedToast = "couldn't start the mic, try again"   // app.js:5389
-        static let noPermissionToast = "Your browser did not let us open the mic — check its site permissions."   // app.js:5439
+        static let noPermissionToast = "iOS did not let us open the mic — check Settings → my.adhd → Microphone."   // app.js:5439, iOS wording
         static let roughToast = "Couldn't reach the transcriber — that's the rough version."   // app.js:5452
     }
 
@@ -336,7 +339,10 @@ enum Copy {
     enum Signup {
         static let dismissAria = "No thanks"                            // app.html:350
         static let title = "Keep these on your other devices?"          // app.html:351
-        static let body = "Right now this list lives in this browser only — clear your history and it is gone, and your phone and laptop each keep their own separate copy. Signing in gives you one list everywhere, and puts your dated tasks in Google Calendar without asking again."   // app.html:352-355
+        /// iOS wording of app.html:352-355: the list lives in the app, and
+        /// what loses it is deleting the app, not clearing a browser's
+        /// history (owner's call, 2026-11-01).
+        static let body = "Right now this list lives on this phone only — delete the app and it is gone, and your phone and laptop each keep their own separate copy. Signing in gives you one list everywhere, and puts your dated tasks in Google Calendar without asking again."   // app.html:352-355, iOS wording
         static let button = "Sign in with Google"                       // app.html:356
     }
 
@@ -790,7 +796,9 @@ enum Copy {
         /// the shell drew.
         static let emptyGo = "Write a note"            // BridgeScript.swift:617
 
-        static let hint = "Notes stay on this device. Signing in carries your lists between browsers; it does not carry these yet."   // app.html:503-504
+        /// Devices, not browsers, on iOS (owner's call, 2026-11-01).
+        /// CloudSync carries tasks and not notes, so the rest stays true.
+        static let hint = "Notes stay on this device. Signing in carries your lists between devices; it does not carry these yet."   // app.html:503-504, iOS wording
 
         /// The card's fallback. The editor heading uses a different word
         /// for the same absence — see Note.heading.
@@ -1003,29 +1011,26 @@ enum Copy {
         static let privacyRow = "Privacy policy"                  // app.html:821
         static let termsRow = "Terms"                             // app.html:830
 
-        /* paintLocalNote (app.js:3677-3693). Three readings of the same
-           question — where does this actually live — and which one is
-           true depends on the account and the calendar, so the note is
-           re-drawn whenever either of them moves. Each is written the way
-           app.js writes it, one Swift literal per JS literal, so every
-           fragment greps. */
+        /* paintLocalNote (app.js:3677-3693): where does this actually
+           live. Two readings here, in iOS wording, where the web has
+           three (owner's call, 2026-11-01). The web's said the calendar
+           link stays on the device, when its refresh token is posted to
+           /api/link-google and kept on the server; and that a signed-out
+           list has no server, when every dump is sorted by /api/triage
+           and every voice dump turned into text by /api/transcribe. Both
+           are listed in Checks/copy.sh as iPhone-only. */
 
         /// Signed in.
         static let localSignedIn =
             "Your lists are on this device and in your account, which is how they "
-            + "reach your other devices. Your name, your face and the calendar link "
-            + "stay on this device only."                 // app.js:3683-3685
+            + "reach your other devices. Your name and your face stay on this device "
+            + "only. The calendar link is kept on our server, which is how it renews itself."   // app.js:3683-3685, iOS wording
 
-        /// Signed out, with the calendar on offer.
-        static let localCalendar =
-            "Your tasks live in this browser only" + emDash + "no account, no server. The "
-            + "calendar link is the one exception, and only while it is "
-            + "switched on."                              // app.js:3686-3688
-
-        /// Signed out, and no calendar either.
-        static let localAlone =
-            "This lives in this browser only" + emDash + "no account, no sync, nothing "
-            + "leaves the device."                        // app.js:3689-3690
+        /// Signed out.
+        static let localSignedOut =
+            "Your lists live on this phone only" + emDash + "no account, no sync. "
+            + "What you dump, typed or said, goes to our server to be sorted, and "
+            + "comes back as tasks."                      // app.js:3686-3690, iOS wording
 
         /// The web's footer line (app.html:844), with this app's own number
         /// in it rather than the website's: the App Store page and this
@@ -1238,11 +1243,15 @@ enum Copy {
         static let stale = "Needs reconnecting"
         static let paused = "Sync paused"
 
-        /// Not linked: what linking would do (app.js:3787-3790).
+        /// Not linked: what linking would do (app.js:3787-3790), in iOS
+        /// wording. The web's promised the calendars you already have stay
+        /// off limits; on iOS linking also asks for calendar.readonly, so
+        /// Show my meetings can read them (AuthFlow.scopes). It reads and
+        /// never writes them. Owner's call, 2026-11-01.
         static let offNote =
             "Put your dated tasks straight into Google Calendar. The app makes its own "
-            + "“my.adhd” calendar and is only allowed to touch that one — the calendars "
-            + "you already have stay off limits."
+            + "“my.adhd” calendar and only ever writes to that one. It can also read your "
+            + "other calendars, to show your meetings beside your tasks, and never changes them."
 
         // the notes while linked (app.js:3828-3839)
         static let staleNote = "Google wants you to sign in again before the next change can go over."

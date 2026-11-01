@@ -63,7 +63,7 @@
 	     voice.js was written for on an iPhone: the level ring while you
 	     hold, and the real transcript when you let go. -->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hold the mic button to say what is in your head instead of typing it. The recording is transcribed and then thrown away.</string>
+	<string>Say what is in your head instead of typing it. The recording goes to our server to be turned into text, then it is thrown away.</string>
 
 	<!-- A static screen cannot know which theme was chosen, so it follows
 	     the system and the shell paints the remembered ground a frame later. -->

@@ -238,7 +238,10 @@ struct TodayTimelineWidget: Widget {
                 .containerBackground(.background, for: .widget)
                 .widgetURL(URL(string: "myadhd://open"))
         }
-        .configurationDisplayName("Today")
+        /* Timeline, not Today: the checklist is Today, and two tiles
+           with one name in the gallery could not be told apart. The kind
+           stays myadhd.timeline, so a tile already placed keeps working. */
+        .configurationDisplayName("Timeline")
         .description("Your day as one band, with a line where you are in it.")
         .supportedFamilies([.systemMedium, .systemLarge, .accessoryRectangular])
     }

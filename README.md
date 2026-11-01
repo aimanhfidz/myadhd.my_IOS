@@ -253,7 +253,7 @@ myadhd.my_IOS/
 │   └── TimelineBand.swift  the day as one band. No WidgetKit import, so the
 │                           wallpaper can draw the same chart
 ├── MyADHDWidgets/          the widget extension
-│   ├── MyADHDWidgets.swift Next Up, Today Timeline, the bundle, SnapProvider,
+│   ├── MyADHDWidgets.swift Next Up, Timeline, the bundle, SnapProvider,
 │   │                       and the gallery's fabricated day
 │   ├── TodayChecklistWidget.swift
 │   │                       the checklist, and a tile with a button in it
@@ -633,7 +633,7 @@ Putting the snapshot behind it is a silent, total failure for those users.
 |---|---|---|
 | **Today** | `systemSmall`, `systemMedium`, `systemLarge` | The checklist, with a button on every row. Rows come off `paintToday()`'s rule — anything late, then anything dated today, then whatever is open — two of them at small, three at medium, eight at large. |
 | **Next Up** | `systemSmall`, `accessoryCircular`, `accessoryInline` | One task and its two-minute step. |
-| **Today Timeline** | `systemMedium`, `systemLarge`, `accessoryRectangular` | The band. Rectangular is six hours around now rather than twenty-four — a 160×72pt tile cannot carry a day. Large is the band, then the checklist, then a tomorrow strip. |
+| **Timeline** | `systemMedium`, `systemLarge`, `accessoryRectangular` | The band. Rectangular is six hours around now rather than twenty-four — a 160×72pt tile cannot carry a day. Large is the band, then the checklist, then a tomorrow strip. |
 | **Agenda** | `systemSmall`, `systemMedium`, `systemLarge` | Today and tomorrow as two columns, with anything late folded into the top of the Today one. Hiding late in a tile that is looking at tomorrow would be the exact failure this app exists to prevent. |
 | **Month** | `systemMedium`, `systemLarge` | The month, a mark on every day the list has something dated to, today ringed in the accent and a past day with something still open marked in Vivid Orange. Large is the grid over the checklist. |
 | **Done** | `systemMedium`, `systemLarge` | A contribution grid of what has been finished. See the caveat below — it is the one tile whose content is thin on day one. |

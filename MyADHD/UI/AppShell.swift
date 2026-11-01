@@ -225,7 +225,6 @@ struct AppShell: View {
                            accountCard: accountCard,
                            googleCard: googleCard,
                            isSignedIn: session.signedIn,
-                           isCalendarConfigured: session.configured,
                            meetings: meetings,
                            calendarPush: calendar,
                            connectGoogle: { await connectGoogle() })

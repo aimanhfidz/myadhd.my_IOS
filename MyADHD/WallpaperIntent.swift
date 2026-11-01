@@ -48,7 +48,7 @@ import UniformTypeIdentifiers
 struct WallpaperIntent: AppIntent {
     static var title: LocalizedStringResource = "Update my.adhd wallpaper"
     static var description = IntentDescription(
-        "Draws your matrix as a picture and hands it back, for Set Wallpaper Photo to put on the lock screen."
+        "Draws your tasks in the design you picked and hands the picture back, for Set Wallpaper Photo to put on the lock screen."
     )
 
     /// The reason this exists at all. See the note at the top.
@@ -117,7 +117,7 @@ struct WallpaperModeIntent: AppIntent {
 struct WallpaperHomeIntent: AppIntent {
     static var title: LocalizedStringResource = "my.adhd home screen"
     static var description = IntentDescription(
-        "Your wallpaper's photo without the matrix, for the Home Screen, so the matrix stays on the lock screen only."
+        "Your wallpaper's photo without your tasks, for the Home Screen, so they stay on the lock screen only."
     )
     static var openAppWhenRun: Bool = false
 

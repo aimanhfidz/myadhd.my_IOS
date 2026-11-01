@@ -89,13 +89,9 @@ struct SettingsScreen: View {
        (app.js:3962) and is that card's business, not this one's. */
     var googleCard: (() -> AnyView)?
 
-    /// `auth.configured() && auth.signedIn()` — the first half of
-    /// `paintLocalNote`'s question.
+    /// `auth.configured() && auth.signedIn()` — the whole of what the
+    /// footer note asks on iOS (see `localNoteText`).
     var isSignedIn: Bool = false
-
-    /// `gcal.configured()` — the second half. Configured, note, not
-    /// linked: the web asks whether the card is on the screen at all.
-    var isCalendarConfigured: Bool = false
 
     /// The meetings on your Google Calendar, and the switch that turns
     /// them on. The Google card above it decides where your tasks go;
@@ -327,13 +323,15 @@ struct SettingsScreen: View {
 
     // MARK: - the footer
 
-    /// `paintLocalNote` (app.js:3677-3693). Three readings of where the
-    /// lists actually live, and the true one depends on the two flags
-    /// above. It sits under the Account card now, beside what it is about.
+    /// `paintLocalNote` (app.js:3677-3693), with two readings where the
+    /// web has three. The web's signed-out pair says the lists live in a
+    /// browser with no server, and its third reading is for a calendar
+    /// linked while signed out. On iOS neither holds: a dump is sorted on
+    /// the server, and linking the calendar is signing in. So it is
+    /// signed in, or not (owner's call, 2026-11-01). It sits under the
+    /// Account card, beside what it is about.
     private var localNoteText: String {
-        if isSignedIn { return Copy.Settings.localSignedIn }
-        if isCalendarConfigured { return Copy.Settings.localCalendar }
-        return Copy.Settings.localAlone
+        isSignedIn ? Copy.Settings.localSignedIn : Copy.Settings.localSignedOut
     }
 
     /// `.version` — the last line on the last screen. Stone, never
