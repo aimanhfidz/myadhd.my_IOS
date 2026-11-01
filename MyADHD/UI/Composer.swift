@@ -52,6 +52,7 @@
    sheet throws a live hold away.
    ============================================================ */
 
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -202,6 +203,11 @@ struct Composer: View {
     /// Where the mic is, so a touch that lands on it is not a drag on the
     /// sheet. The web gets this from `e.target.closest('button')`.
     @State private var micFrame: CGRect = .zero
+
+    /// The photo button's picks, and whether their words are still being
+    /// read. While they are, Sort it waits, as it does for the mic.
+    @State private var photoPicks: [PhotosPickerItem] = []
+    @State private var readingPhoto = false
 
     private enum Phase { case entering, home, leaving }
 
@@ -380,7 +386,7 @@ struct Composer: View {
 
     /// `el.compPost.disabled = value.trim().length === 0` (app.js:1894).
     /// Something to send, and no words still on their way from the mic.
-    private var canSend: Bool { !JSText.trim(text).isEmpty && !mic.working }
+    private var canSend: Bool { !JSText.trim(text).isEmpty && !mic.working && !readingPhoto }
 
     // MARK: the mic
 
@@ -436,11 +442,15 @@ struct Composer: View {
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(store.doc.profile.name.isEmpty
-                         ? Copy.Composer.youFallback : store.doc.profile.name)
-                        .font(Font.baloo(14.5, .bold))
-                        .foregroundStyle(theme.ink)
-                        .padding(.bottom, 2)
+                    HStack(alignment: .center, spacing: 8) {
+                        Text(store.doc.profile.name.isEmpty
+                             ? Copy.Composer.youFallback : store.doc.profile.name)
+                            .font(Font.baloo(14.5, .bold))
+                            .foregroundStyle(theme.ink)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        photoButton
+                    }
+                    .padding(.bottom, 2)
 
                     ComposerTextView(text: $text,
                                      height: $textHeight,
@@ -476,6 +486,68 @@ struct Composer: View {
         .onTapGesture { input.focusAtEnd() }
     }
 
+
+    // MARK: the photo
+
+    /* A poster, a screenshot of a chat, a letter: the share sheet's photo
+       reading (DumpShare), from inside the app, for the photo that is
+       already in the library rather than on screen in another app. Same
+       reader (Shared/PhotoWords.swift), same rule: the words land in the
+       box to be checked before Sort it, one line per photo, and nothing
+       leaves the phone. PhotosPicker runs outside the app, so it needs no
+       Photos permission and sees only what is picked. Not on the web,
+       which has no on-device reader; its copy is Copy.Photo. */
+    private var photoButton: some View {
+        PhotosPicker(selection: $photoPicks, maxSelectionCount: PhotoWords.most,
+                     matching: .any(of: [.images, .screenshots])) {
+            ZStack {
+                Circle().fill(theme.wash2)
+                if readingPhoto {
+                    ProgressView().controlSize(.small).tint(theme.accent)
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                }
+            }
+            .frame(width: 34, height: 34)
+            .frame(width: 44, height: 44)        // the touch, not the circle
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(readingPhoto)
+        .accessibilityLabel(readingPhoto ? Copy.Photo.reading : Copy.Photo.button)
+        .padding(.vertical, -9)                  // keep the name row its height
+        .onChange(of: photoPicks) { _, picks in
+            guard !picks.isEmpty else { return }
+            photoPicks = []
+            readPhotos(picks)
+        }
+    }
+
+    private func readPhotos(_ picks: [PhotosPickerItem]) {
+        readingPhoto = true
+        Task {
+            var found: [String] = []
+            for pick in picks {
+                guard let data = try? await pick.loadTransferable(type: Data.self) else { continue }
+                /* One at a time and off the main thread: Vision on a
+                   2400px photo takes a second, and the sheet must not
+                   freeze for it. */
+                let words = await Task.detached(priority: .userInitiated) {
+                    PhotoWords.read(data)
+                }.value
+                if !words.isEmpty { found.append(words) }
+            }
+            readingPhoto = false
+            if found.isEmpty {
+                toasts.show(Copy.Photo.noWords)
+            } else {
+                text = PhotoWords.append(found.joined(separator: "\n"), to: text)
+                input.focusAtEnd()
+            }
+        }
+    }
 
     // MARK: - opening and closing
 

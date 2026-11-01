@@ -26,14 +26,13 @@
    before they go. Nothing leaves the device for this, and the photo is
    not kept. Each photo is ONE thought — its lines are joined with commas
    — because the sorter reads a line as a thought, and a poster read as
-   five lines would come back as five tasks.
+   five lines would come back as five tasks. The reading itself is
+   Shared/PhotoWords.swift, which the app's composer uses too.
    ============================================================ */
 
-import ImageIO
 import Social
 import UIKit
 import UniformTypeIdentifiers
-import Vision
 
 final class ShareViewController: SLComposeServiceViewController {
 
@@ -98,7 +97,7 @@ final class ShareViewController: SLComposeServiceViewController {
                 && ($0.hasItemConformingToTypeIdentifier(url) || $0.hasItemConformingToTypeIdentifier(text))
         }
         if !photos.isEmpty, !carriesWords {
-            read(Array(photos.prefix(4)))
+            read(Array(photos.prefix(PhotoWords.most)))
             return
         }
 
@@ -191,10 +190,7 @@ final class ShareViewController: SLComposeServiceViewController {
                    to it is only promised for as long as it runs. */
                 Self.oneAtATime.lock()
                 defer { Self.oneAtATime.unlock() }
-                let words = autoreleasepool { () -> String in
-                    guard let image = Self.image(from: value) else { return "" }
-                    return Self.words(in: image)
-                }
+                let words = PhotoWords.read(value)
                 lock.lock(); found[i] = words; lock.unlock()
             }
         }
@@ -205,44 +201,9 @@ final class ShareViewController: SLComposeServiceViewController {
                 self.placeholder = "No words in that photo. Say what it was about."
                 return
             }
-            let typed = (self.textView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            self.textView.text = typed.isEmpty ? text : typed + "\n" + text
+            self.textView.text = PhotoWords.append(text, to: self.textView.text ?? "")
             self.validateContent()
         }
-    }
-
-    /// The shared image, shrunk on the way in: a 48MP photo decoded whole
-    /// would not survive a share extension's memory limit, and 2400
-    /// pixels on the long side is plenty to read a poster.
-    private static func image(from value: Any?) -> CGImage? {
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 2400,
-        ]
-        let source: CGImageSource?
-        switch value {
-        case let url as URL:   source = CGImageSourceCreateWithURL(url as CFURL, nil)
-        case let data as Data: source = CGImageSourceCreateWithData(data as CFData, nil)
-        case let image as UIImage: return image.cgImage
-        default: return nil
-        }
-        guard let source else { return nil }
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-    }
-
-    /// The words, top to bottom, as one line. Language correction is off:
-    /// it "fixes" Malay into English, and a kenduri is not a kendo.
-    private static func words(in image: CGImage) -> String {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-        request.automaticallyDetectsLanguage = true
-        try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        let lines = (request.results ?? []).compactMap {
-            $0.topCandidates(1).first?.string.trimmingCharacters(in: .whitespaces)
-        }
-        return lines.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     /// Text that arrives on its own fills an EMPTY box and never replaces

@@ -402,10 +402,12 @@ disagree with this:
 - **`myadhd://listen`** (`Inbox.swift`) opens the composer with the mic
   already on. The Dump control and the Action Button use it; it is a shell
   URL, not a web route, so nothing over there needs to know about it.
-- **Photos shared in.** The share extension reads the words in up to four
-  photos on the phone (Vision, nothing uploaded) and hands them to the
-  composer as text, one line per photo. The web app only ever sees words,
-  so `absorbDump()`'s text handling is the only promise involved.
+- **Photos shared in, or picked in the composer.** The share extension, and
+  the photo button on the composer's name row, read the words in up to four
+  photos on the phone (Vision, nothing uploaded; one reader for both,
+  `Shared/PhotoWords.swift`) and put them in the box as text, one line per
+  photo. The web app only ever sees words, so `absorbDump()`'s text
+  handling is the only promise involved.
 
 No count is given on purpose. The old "four" counted groups rather than
 values, and the selector group quietly became three when `#composer-mic` was

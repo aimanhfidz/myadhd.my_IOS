@@ -186,6 +186,18 @@ enum Copy {
         static func moreChips(_ n: Int) -> String { "+\(n) more" }   // app.js:5054
     }
 
+    // MARK: - The photo button (iOS only)
+
+    /// The composer's photo button (Composer.swift `photoButton`). **No web
+    /// original:** the website has no on-device reader to offer. The two
+    /// sentences are the share sheet's own (DumpShare), so a photo reads the
+    /// same whichever way it came in. `Checks/copy.sh` lists them by name.
+    enum Photo {
+        static let button = "Read a photo"
+        static let reading = "Reading your photo…"
+        static let noWords = "No words in that photo. Say what it was about."
+    }
+
     // MARK: - The faces (iOS only)
 
     /// What VoiceOver calls each of the sixteen drawn faces, in the order

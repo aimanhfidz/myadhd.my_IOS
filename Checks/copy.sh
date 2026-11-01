@@ -54,8 +54,11 @@
 # by name, which they asked for in a tone to match each level. And the
 # names VoiceOver reads for the sixteen drawn profile faces
 # (Copy.Avatars): the web still has emoji, which name themselves, and the
-# drawings exist only on the iPhone. And the three things only a phone
-# has: the Now card's lock-screen switch and the sentence for when iOS has
+# drawings exist only on the iPhone. And the composer's photo button
+# (Copy.Photo): the website has no on-device reader, and its two
+# sentences are the share sheet's, which this check does not read. And
+# the three things only a phone has: the Now card's lock-screen switch
+# and the sentence for when iOS has
 # Live Activities off (the website has no lock screen), the mic's hint when
 # the Dump control opened it already listening (the website has no Control
 # Centre), and the count beside each calendar to read (Copy.Meetings).
@@ -195,6 +198,9 @@ the laugh
 the striped helmet
 the space helmet
 the purple helmet
+Read a photo
+Reading your photo…
+No words in that photo. Say what it was about.
 Keep it on my lock screen
 Live Activities are off for my.adhd. Turn them on in Settings.
 listening… tap when done
