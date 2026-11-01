@@ -284,7 +284,7 @@ enum Check {
     }
 
     let voicePath = option("--voice-js")
-        ?? "/Users/User/Desktop/Claude Code/My.adhd/voice.js"
+        ?? "/Users/User/Desktop/Claude Code/My.adhd/js/voice.js"
     let recorderPath = option("--recorder") ?? "MyADHD/Voice/VoiceRecorder.swift"
 
     var report = Report()

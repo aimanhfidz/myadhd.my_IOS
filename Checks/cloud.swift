@@ -801,7 +801,7 @@ struct CloudChecks {
             args.removeSubrange(i...(i + 1))
             return v
         }
-        let cloudJS = take("--cloud-js") ?? "/Users/User/Desktop/Claude Code/My.adhd/cloud.js"
+        let cloudJS = take("--cloud-js") ?? "/Users/User/Desktop/Claude Code/My.adhd/js/cloud.js"
 
         /* A zone is set even though nothing in the sync formats a local
            date: `toISOString` and `Date.parse` both read the process

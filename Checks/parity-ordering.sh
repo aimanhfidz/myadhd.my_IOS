@@ -28,7 +28,7 @@ WEB_ROOT="${1:-$(dirname "$ROOT")/My.adhd}"
 BUILD="${PARITY_BUILD:-${TMPDIR:-/tmp}/myadhd-checks}"
 mkdir -p "$BUILD"
 
-if [ ! -f "$WEB_ROOT/app.js" ]; then
+if [ ! -f "$WEB_ROOT/js/app.js" ]; then
   echo "parity-ordering.sh: no app.js under $WEB_ROOT" >&2
   echo "parity-ordering.sh: pass the My.adhd checkout as the first argument" >&2
   exit 2

@@ -26,7 +26,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-CLOUDJS="${1:-/Users/User/Desktop/Claude Code/My.adhd/cloud.js}"
+CLOUDJS="${1:-/Users/User/Desktop/Claude Code/My.adhd/js/cloud.js}"
 
 # Built outside the repo on purpose. This checkout lives on an iCloud-synced
 # Desktop, and the file provider keeps re-applying com.apple.quarantine to the

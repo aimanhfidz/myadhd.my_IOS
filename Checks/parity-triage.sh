@@ -26,7 +26,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-APPJS="${1:-/Users/User/Desktop/Claude Code/My.adhd/app.js}"
+APPJS="${1:-/Users/User/Desktop/Claude Code/My.adhd/js/app.js}"
 # Built outside the repo: on this machine a binary executed from the
 # Desktop tree is killed before main() runs, and a scratch directory is
 # the one place both a person and an agent can run it from.

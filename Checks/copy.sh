@@ -8,18 +8,18 @@
 # gets named.
 #
 # Haystack:
-#   My.adhd/app.js
+#   My.adhd/js/app.js
 #   My.adhd/app.html          (HTML entities decoded first: &#39; is an
 #                              apostrophe on screen, not four characters)
 #   myadhd.my_IOS/MyADHD/BridgeScript.swift
 #                             (the native titles the shell already draws)
-#   My.adhd/theme.js          (the one pair of strings app.html cannot
+#   My.adhd/js/theme.js          (the one pair of strings app.html cannot
 #                              carry: the theme toggle relabels itself)
-#   My.adhd/cloud.js          (the sync phases and their error sentences)
-#   My.adhd/auth.js           (signing in, and what it says when it cannot)
-#   My.adhd/gcal.js           (the calendar link's own errors)
-#   My.adhd/voice.js          (the mic's hints)
-#   My.adhd/config.js
+#   My.adhd/js/cloud.js          (the sync phases and their error sentences)
+#   My.adhd/js/auth.js           (signing in, and what it says when it cannot)
+#   My.adhd/js/gcal.js           (the calendar link's own errors)
+#   My.adhd/js/voice.js          (the mic's hints)
+#   My.adhd/js/config.js
 #
 # The last five arrived with the port itself: the app used to be app.js and
 # a page, so app.js was the whole of the copy. Now that the account card,
@@ -74,14 +74,14 @@ COPY="$IOS_ROOT/MyADHD/Core/Copy.swift"
 # Retired from the build at the cutover, kept as the spec for the screens
 # that came out of it — see reference/README.md.
 BRIDGE="$IOS_ROOT/reference/BridgeScript.swift"
-APP_JS="$WEB_ROOT/app.js"
+APP_JS="$WEB_ROOT/js/app.js"
 APP_HTML="$WEB_ROOT/app.html"
-THEME_JS="$WEB_ROOT/theme.js"
-CLOUD_JS="$WEB_ROOT/cloud.js"
-AUTH_JS="$WEB_ROOT/auth.js"
-GCAL_JS="$WEB_ROOT/gcal.js"
-VOICE_JS="$WEB_ROOT/voice.js"
-CONFIG_JS="$WEB_ROOT/config.js"
+THEME_JS="$WEB_ROOT/js/theme.js"
+CLOUD_JS="$WEB_ROOT/js/cloud.js"
+AUTH_JS="$WEB_ROOT/js/auth.js"
+GCAL_JS="$WEB_ROOT/js/gcal.js"
+VOICE_JS="$WEB_ROOT/js/voice.js"
+CONFIG_JS="$WEB_ROOT/js/config.js"
 
 for f in "$COPY" "$BRIDGE" "$APP_JS" "$APP_HTML" "$THEME_JS" \
          "$CLOUD_JS" "$AUTH_JS" "$GCAL_JS" "$VOICE_JS" "$CONFIG_JS"; do

@@ -277,7 +277,7 @@ struct ParityOrdering {
         let webRoot = args.count > 1
             ? args[1]
             : (URL(fileURLWithPath: args[0]).deletingLastPathComponent().path + "/../../My.adhd")
-        let appJS = webRoot + "/app.js"
+        let appJS = webRoot + "/js/app.js"
 
         print("parity-ordering")
         print("  app.js   \(appJS)")

@@ -635,7 +635,7 @@ struct StoreChecks {
         }
         let tz = take("--tz") ?? "UTC"
         let nowMS = Double(take("--now") ?? "") ?? 0
-        let appJS = take("--app-js") ?? "/Users/User/Desktop/Claude Code/My.adhd/app.js"
+        let appJS = take("--app-js") ?? "/Users/User/Desktop/Claude Code/My.adhd/js/app.js"
 
         /* Before anything reads a date: `DayKey.calendar` captures
            `.current` the first time it is touched and keeps it, and
