@@ -62,6 +62,11 @@ struct HomeScreen: View {
 
     var today: String = WebDates.dayKey()
 
+    /// The wallpaper shelf's first-run spotlight (WallpaperShelf.swift).
+    /// While it is up the rest of Home is dimmed and cannot be pressed.
+    @State private var spotlight = WallpaperSpotlight.due
+    @Environment(\.accessibilityReduceMotion) private var stillMotion
+
     var body: some View {
         VStack(spacing: 0) {
             HomeHeader(themeStore: themeStore, openSettings: openSettings)
@@ -69,8 +74,10 @@ struct HomeScreen: View {
             if coldStart {
                 ColdStart(openComposer: openComposer)
             } else {
+                ScrollViewReader { scroller in
                 ScrollView {
                     VStack(spacing: 14) {
+                        Group {
                         if let now = nowTask {
                             NowCard(store: store,
                                     toasts: toasts,
@@ -95,9 +102,28 @@ struct HomeScreen: View {
                         /* Above the numbers, not below: they are reference,
                            this is the one thing on Home to act on, and under
                            the fold it would never be seen. Gone once the
-                           lock screen works. */
-                        LockScreenNudge()
+                           lock screen works — and while the spotlight is
+                           saying the same thing louder. */
+                        if !spotlight { LockScreenNudge() }
+                        }
+                        .opacity(spotlight ? 0.3 : 1)
+                        .allowsHitTesting(!spotlight)
+                        .accessibilityHidden(spotlight)
+                        .overlay { dismissSpotlightArea }
+
+                        /* The library of lock screen designs, Ink's
+                           Discover row. Above the numbers for the same
+                           reason as the nudge: it is something to do. */
+                        WallpaperShelf(tasks: store.doc.tasks, today: today,
+                                       spotlight: spotlight,
+                                       spotlightDone: endSpotlight)
+                            .padding(.bottom, 8)
+                            .id("shelf")
                         StatRow(stats: stats)
+                            .opacity(spotlight ? 0.3 : 1)
+                            .allowsHitTesting(!spotlight)
+                            .accessibilityHidden(spotlight)
+                            .overlay { dismissSpotlightArea }
                     }
                     .padding(.top, 26)
                     .frame(maxWidth: Theme.measure)
@@ -106,11 +132,38 @@ struct HomeScreen: View {
                 .scrollIndicators(.hidden)
                 .refreshable { await onRefresh?() }
                 .animation(Theme.ease(0.25), value: nowTask?.id)
+                .task {
+                    /* Once, on the visit that shows it: bring the shelf up
+                       to where it can be seen. */
+                    guard spotlight else { return }
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                    withAnimation(stillMotion ? nil : .easeOut(duration: 0.35)) {
+                        scroller.scrollTo("shelf", anchor: .center)
+                    }
+                }
+                }
             }
         }
         .padding(.horizontal, Theme.gutter(UIScreen.main.bounds.width))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(theme.surface.ignoresSafeArea())
+    }
+
+    /// Over what the spotlight dims: a tap there ends it, the way a coach
+    /// mark goes, so the Now card is never more than one tap away.
+    @ViewBuilder
+    private var dismissSpotlightArea: some View {
+        if spotlight {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { endSpotlight() }
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func endSpotlight() {
+        WallpaperSpotlight.done()
+        withAnimation(stillMotion ? nil : .easeOut(duration: 0.25)) { spotlight = false }
     }
 
     /// app.js:4156-4158. Notes count too: somebody who has written a note

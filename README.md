@@ -653,7 +653,24 @@ taken apart on 2026-10-26:
   the board's digest matches the last *confirmed* picture, and the day is
   in the digest, so one run a day always really sets.
 - **Redraw is Ink's repaint**: set, set again on the wallpaper that came
-  back, switch to it. Opt-in, from **Force a redraw** on the setup page.
+  back. Opt-in, from **Force a redraw** on the setup page.
+- **v3 (2026-11-01) is Ink's V2 as re-cut since**, decoded from the link
+  the user shared that day. After `set`/`redraw` the answer names the
+  screens: `same` (one picture on Lock and Home Screen) or `pair` (Lock
+  Screen, then the plain ground on the Home Screen of that wallpaper),
+  plus `blur` for Legibility Blur on the Home Screen half. Every run ends
+  by switching to the wallpaper it set, not only a redraw. The answer
+  still says `home` beside `pair`, so a phone still on v2 keeps working.
+  `Checks/wallpaper-mode.sh` holds the words, including that none hides
+  inside another (the shortcut tests with "contains").
+- **The design is a library.** `WallpaperStyle.design` picks what the band
+  draws: the matrix, One Thing (the Now card's task), Today, Month or the
+  Done Graph (`MyADHD/WallpaperDesigns.swift`, which says how to add one).
+  They are chosen on Home from `MyADHD/UI/WallpaperShelf.swift`, Ink's
+  Discover row: your own tasks and photo in every preview, **Set as
+  current**, and **Update** on the current one, which runs the shortcut
+  by `AppConfig.wallpaperShortcutName`. `build.py` refuses to build a
+  version that constant does not name.
 - **The automations ride inside it** (`WFWorkflowTriggers`: sunrise,
   my.adhd closed, a notification from my.adhd) **but iOS does not install
   them.** Seen on iOS 27.0.1 on 2026-10-26: the shortcut imported, the

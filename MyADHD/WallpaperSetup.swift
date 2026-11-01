@@ -13,7 +13,14 @@
    over it, because "where does the matrix start" only means something
    next to the things it has to clear.
 
-   **Saved as it changes.** There is no Save button to forget. Every
+   **Opened from a design, it is a draft.** A tile in the library on Home
+   opens this page with `preset` set, Ink's design page: the design is
+   tried on in the preview, every control works, and nothing is saved
+   until the one button at the foot — Set as current, Save, or Update —
+   which also runs the shortcut, so the choice lands now. Only the photo
+   is saved at once; it is every design's, not this one's.
+
+   **Otherwise, saved as it changes.** There is no Save button to forget. Every
    change is written to `Wallpaper.style` at once, and the lock screen
    picks it up the next time the Shortcut runs — the app cannot repaint a
    lock screen itself, and the page says so rather than implying it can.
@@ -24,10 +31,15 @@
    the pair. The steps themselves are one tap deeper, in
    `ShortcutSetupPage`.
 
+   **The design is chosen on Home**, from the library there
+   (UI/WallpaperShelf.swift); this page repeats the choice at the top of
+   "What to show" and is where any design is fine-tuned. The box toggles
+   and the scope are the matrix's and only show for it.
+
    **What the competitor's page has that this one leaves out**, on
-   purpose: a choice of matrix (there is one), a calendar mode, a task
-   sort (the matrix's own order is the order), information above the
-   matrix, and a manual wallpaper size (it is the screen's, always).
+   purpose: a task sort (each design's own order is the order),
+   information above the band, and a manual wallpaper size (it is the
+   screen's, always).
    ============================================================ */
 
 import PhotosUI
@@ -63,6 +75,24 @@ struct WallpaperSetup: View {
     var startOnSteps = false
     @State private var startedOnSteps = false
 
+    /// Set when a library tile opened the page: a draft of that design.
+    var preset: WallpaperPreset? = nil
+    /// What is saved, for telling a draft from it.
+    @State private var saved = Wallpaper.style
+
+    init(startOnSteps: Bool = false, preset: WallpaperPreset? = nil) {
+        self.startOnSteps = startOnSteps
+        self.preset = preset
+        let saved = Wallpaper.style
+        /* The current design opens as it is saved, not re-applied: the
+           matrix preset would pin the cards and turn Auto off. */
+        if let preset, !preset.isCurrent(saved, background: Wallpaper.loadBackground()) {
+            _style = State(initialValue: preset.applied(to: saved))
+        } else {
+            _style = State(initialValue: saved)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -80,22 +110,35 @@ struct WallpaperSetup: View {
                 }
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle(LockScreenCopy.row)
+            .safeAreaInset(edge: .bottom) {
+                if preset != nil { commitBar }
+            }
+            .navigationTitle(preset?.name ?? LockScreenCopy.row)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }.fontWeight(.semibold)
+                if preset != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close")
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { dismiss() }.fontWeight(.semibold)
+                    }
                 }
             }
             .navigationDestination(isPresented: $showingSetup) {
                 ShortcutSetupPage(health: SetupHealth(drawn: lastRun, confirmed: lastConfirmed))
             }
         }
-        .onChange(of: style) { _, next in Wallpaper.style = next }
+        .onChange(of: style) { _, next in
+            if preset == nil { Wallpaper.style = next }
+        }
         /* Only these two change which tasks are on the board; a slider
            drag must not re-read the store sixty times a second. */
         .onChange(of: style.scope) { _, _ in reloadBoard() }
         .onChange(of: style.hidden) { _, _ in reloadBoard() }
+        .onChange(of: style.design) { _, _ in reloadBoard() }
         .onAppear {
             lastRun = Wallpaper.lastRun
             lastConfirmed = Wallpaper.lastConfirmed
@@ -123,9 +166,9 @@ struct WallpaperSetup: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                slider("Matrix position", $style.position, 0...1,
+                slider("Position", $style.position, 0...1,
                        shown: percent(style.position), low: "arrow.up", high: "arrow.down")
-                slider("Matrix size", $style.size, 0.4...1,
+                slider("Size", $style.size, 0.4...1,
                        shown: percent(style.size), low: "minus", high: "plus")
                 slider("Text size", $style.textScale, 0.8...1.3,
                        shown: percent(style.textScale), low: "textformat.size.smaller", high: "textformat.size.larger")
@@ -320,8 +363,8 @@ struct WallpaperSetup: View {
                     .foregroundStyle(.red)
                 }
                 Text(photo == nil
-                     ? "Until you choose one, the matrix sits on my.adhd's dark background."
-                     : "Pick the same photo your lock screen uses now, and nothing behind the matrix changes.")
+                     ? "Until you choose one, your design sits on my.adhd's dark background."
+                     : "Pick the same photo your lock screen uses now, and nothing behind your design changes.")
                     .font(.system(size: 12.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -440,6 +483,29 @@ struct WallpaperSetup: View {
 
     private var contentSection: some View {
         section("What to show", symbol: "square.grid.2x2") {
+            HStack {
+                Text("Design").font(.system(size: 14.5))
+                Spacer()
+                Picker("Design", selection: $style.design) {
+                    ForEach(WallpaperStyle.Design.allCases, id: \.self) { d in
+                        Text(Self.designName(d)).tag(d)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            if style.design == .matrix {
+                matrixContent
+            }
+        }
+    }
+
+    /// The library's name for a design, without the card colour.
+    private static func designName(_ d: WallpaperStyle.Design) -> String {
+        WallpaperPreset.library.first { $0.design == d }?.name ?? d.rawValue
+    }
+
+    @ViewBuilder
+    private var matrixContent: some View {
             VStack(alignment: .leading, spacing: 6) {
                 Picker("Tasks", selection: $style.scope) {
                     Text("All tasks").tag(WallpaperStyle.Scope.all)
@@ -471,7 +537,6 @@ struct WallpaperSetup: View {
             Text("A box on its own takes the whole row. At least one stays on.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(.secondary)
-        }
     }
 
     private func shown(_ key: String) -> Binding<Bool> {
@@ -497,16 +562,42 @@ struct WallpaperSetup: View {
                 Text("Cards").font(.system(size: 14.5))
                 Spacer()
                 Picker("Cards", selection: $style.cards) {
+                    Text("Auto").tag(WallpaperStyle.Cards.auto)
                     Text("Dark").tag(WallpaperStyle.Cards.dark)
                     Text("Light").tag(WallpaperStyle.Cards.light)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 170)
+                .frame(width: 210)
             }
-            Toggle(isOn: $style.lockOnly) {
+            if style.cards == .auto {
+                Text("Matches your photo, so the text stays readable.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+            }
+            /* Ink's "same" and "pair", by what they do to the Home Screen.
+               The shortcut reads both off WallpaperModeIntent's answer. */
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Home Screen").font(.system(size: 14.5))
+                    Spacer()
+                    Picker("Home Screen", selection: $style.lockOnly) {
+                        Text("Photo only").tag(true)
+                        Text("Same picture").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
+                }
+                Text(style.lockOnly
+                     ? "Your Home Screen keeps the photo, without the design behind your apps."
+                     : "The same picture on your Lock Screen and Home Screen.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Toggle(isOn: $style.homeBlur) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Lock Screen only").font(.system(size: 14.5))
-                    Text("Your Home Screen keeps the photo, without the matrix behind your apps.")
+                    Text("Blur Home Screen").font(.system(size: 14.5))
+                    Text("Softens the picture behind your apps. Needs the v3 shortcut.")
                         .font(.system(size: 12.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -517,17 +608,65 @@ struct WallpaperSetup: View {
 
     private var footer: some View {
         VStack(spacing: 10) {
-            Text("Changes are saved as you make them, and reach your lock screen the next time the shortcut runs.")
+            Text(preset == nil
+                 ? "Changes are saved as you make them, and reach your lock screen the next time the shortcut runs."
+                 : "Nothing changes until you tap the button below. Your photo is saved straight away, for every design.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Reset to default") { style = WallpaperStyle() }
+            Button("Reset to default") { style = resetStyle }
                 .font(.system(size: 14, weight: .semibold))
-                .disabled(style == WallpaperStyle())
+                .disabled(style == resetStyle)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 4)
         .padding(.bottom, 12)
+    }
+
+    /// The defaults, keeping the design this page is about.
+    private var resetStyle: WallpaperStyle {
+        preset?.applied(to: WallpaperStyle()) ?? WallpaperStyle()
+    }
+
+    // MARK: - the draft's one button
+
+    private var commitBar: some View {
+        Button(action: commit) {
+            Text(commitLabel)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(Color.accentColor, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+        .background(.bar)
+    }
+
+    private var health: SetupHealth { SetupHealth(drawn: lastRun, confirmed: lastConfirmed) }
+
+    private var commitLabel: String {
+        guard style == saved else {
+            return preset?.isCurrent(saved, background: photo) == true ? "Save" : "Set as current"
+        }
+        return health.state == .never ? "Set up" : "Update"
+    }
+
+    /// Save, then put it on the lock screen now. With no shortcut yet,
+    /// the steps instead — one tap deeper, in this same page.
+    private func commit() {
+        if style != saved {
+            Wallpaper.style = style
+            saved = style
+        }
+        guard health.state != .never else {
+            showingSetup = true
+            return
+        }
+        WallpaperShelf.runShortcut()
+        dismiss()
     }
 
     // MARK: - furniture
@@ -551,7 +690,7 @@ struct WallpaperSetup: View {
 /// A faint stand-in for what iOS draws over the wallpaper, so the preview
 /// shows the matrix against the things it has to clear. Only ever drawn
 /// in the preview — never baked into the picture.
-private struct LockGhost: View {
+struct LockGhost: View {
     let height: CGFloat
 
     var body: some View {

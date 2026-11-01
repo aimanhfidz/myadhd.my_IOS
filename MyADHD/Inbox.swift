@@ -98,7 +98,7 @@ enum Inbox {
     ///
     ///   myadhd://dump?text=the%20rent%20thing
     ///   myadhd://open            — the widgets' tap target
-    ///   myadhd://wallpaper       — the setup sheet
+    ///   myadhd://wallpaper       — the setup sheet (?steps: at the steps)
     ///   myadhd://listen          — a new dump, mic on (the Dump control)
     static func accept(url: URL) {
         guard url.scheme?.lowercased() == AppConfig.callbackScheme else { return }
@@ -108,7 +108,12 @@ enum Inbox {
                 .queryItems?.first { $0.name == "text" }?.value ?? ""
             put(text)
         case "wallpaper":
-            openWallpaperSetup()
+            /* `?steps` is where a failed run of the shortcut lands
+               (WallpaperShelf.runShortcut): most often a phone still on
+               an older version, which needs the steps to get this one. */
+            let steps = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.contains { $0.name == Self.stepsFlag } ?? false
+            openWallpaperSetup(steps: steps)
         case "listen":
             listen()
         case "open":

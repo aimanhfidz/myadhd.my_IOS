@@ -7,9 +7,11 @@
 
        skip     nothing on the board moved since the last picture that
                 reached the lock screen — stop before Set Wallpaper Photo
-       set      draw, set, confirm
+       set      draw, set, switch to it, confirm
        redraw   set, set again on the wallpaper that came back, and switch
                 to it — for a lock screen that keeps showing the old picture
+
+   and, after set or redraw, which screens: `answer` below.
 
    Skip is what makes the frequent triggers affordable. "my.adhd is
    closed" and "a notification from my.adhd" fire many times a day, and
@@ -26,6 +28,13 @@
    ============================================================ */
 
 import Foundation
+
+private struct Extras: Encodable {
+    let focus: WallpaperBoard.Focus?
+    let agenda: [WallpaperBoard.Row]
+    let month: WallpaperBoard.Month?
+    let done: WallpaperBoard.Done?
+}
 
 enum WallpaperMode: String {
     case skip, set, redraw
@@ -51,12 +60,24 @@ enum WallpaperMode: String {
         return forceRedraw ? .redraw : .set
     }
 
-    /// What WallpaperModeIntent hands the shortcut. " home" rides on a
-    /// set or a redraw when the Home Screen gets the plain ground; the
-    /// shortcut tests each word with "contains", so they combine. Never
-    /// on a skip — a skip sets nothing.
-    static func answer(_ mode: WallpaperMode, lockOnly: Bool) -> String {
-        mode != .skip && lockOnly ? mode.rawValue + " home" : mode.rawValue
+    /// What WallpaperModeIntent hands the shortcut: words, each tested
+    /// with "contains", so they combine. Never more than the mode on a
+    /// skip — a skip sets nothing.
+    ///
+    ///     same    one picture on the Lock Screen and the Home Screen
+    ///     pair    the Lock Screen, then the plain ground on the Home
+    ///             Screen of the same wallpaper (Lock Screen only)
+    ///     blur    that Home Screen blurred (Legibility Blur)
+    ///     home    pair's old name, still said for shortcut v2, which
+    ///             tests "home" and knows neither of the others
+    ///
+    /// The shape is Ink's "Refresh Lock Screen V2" as re-cut by 2026-11:
+    /// same / pair / blur / redraw, and a switch to the wallpaper it set.
+    static func answer(_ mode: WallpaperMode, lockOnly: Bool, homeBlur: Bool = false) -> String {
+        guard mode != .skip else { return mode.rawValue }
+        var words = [mode.rawValue, lockOnly ? "pair home" : "same"]
+        if homeBlur { words.append("blur") }
+        return words.joined(separator: " ")
     }
 
     /// What the picture would show, as a stable string: every box's key
@@ -80,6 +101,15 @@ enum WallpaperMode: String {
         }
         bytes.append(0x1D)
         bytes.append(styled)
+
+        /* The other designs' data. Only the asked-for design is ever
+           filled in (WallpaperBoard.current), so a matrix wallpaper's
+           digest does not move because the done graph would have. */
+        if let extra = try? coder.encode(Extras(focus: board.focus, agenda: board.agenda,
+                                                month: board.month, done: board.done)) {
+            bytes.append(0x1D)
+            bytes.append(extra)
+        }
 
         // FNV-1a, as TaskBridge stamps the widget snapshot.
         var h: UInt64 = 0xcbf2_9ce4_8422_2325

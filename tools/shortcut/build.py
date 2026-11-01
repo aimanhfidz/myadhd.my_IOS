@@ -13,8 +13,9 @@ it into AppConfig.wallpaperShortcutURL.
 
 What it does, and why each step is there, is in the header of
 MyADHD/WallpaperIntent.swift. The shape follows Ink's "Refresh Lock Screen
-V2": the app decides the mode, the shortcut only branches on it, and the
-automations ship inside the shortcut instead of being built by hand.
+V2" (re-decoded 2026-11-01 from the link the user shared): the app decides
+the mode, the shortcut only branches on it. The automations ride inside
+the shortcut too, but iOS does not install them; see README.
 
 The team id is read from Local.xcconfig, which is git-ignored, and goes
 only into build/, which is git-ignored too. Nothing tracked writes it down.
@@ -35,7 +36,9 @@ OUT = ROOT / "build"
 # automations have to be pointed at the new one by hand.
 #   v1  2026-10-26  mode, set, redraw, confirm
 #   v2  2026-10-26  Lock Screen only: the Home Screen gets the plain ground
-VERSION = 2
+#   v3  2026-11-01  re-cut from Ink's V2 as it stood that day: same / pair /
+#                   blur / redraw, and always switch to the wallpaper set
+VERSION = 3
 NAME = f"my.adhd Lock Screen v{VERSION}"
 BUNDLE = "my.adhd.ios"
 APP_NAME = "my.adhd"
@@ -97,6 +100,17 @@ def if_contains(group, label, name, text):
     }
 
 
+def otherwise(group):
+    return {
+        "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+        "WFWorkflowActionParameters": {
+            "GroupingIdentifier": uid(group),
+            "WFControlFlowMode": 1,
+            "UUID": uid(group + ".else"),
+        },
+    }
+
+
 def end_if(group):
     return {
         "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
@@ -108,20 +122,25 @@ def end_if(group):
     }
 
 
-def set_wallpaper(label, poster=None, screen="Lock Screen",
+LOCK = ["Lock Screen"]
+HOME = ["Home Screen"]
+BOTH = ["Lock Screen", "Home Screen"]
+
+
+def set_wallpaper(label, poster=None, screens=LOCK, blur=False,
                   picture=("picture", "Update my.adhd wallpaper")):
-    """Set Wallpaper Photo, one screen at a time. No preview: an automation
-    that stops to ask is not an automation. No smart crop: the picture is
-    drawn to this phone's own size and a crop would cut the matrix's edges.
-    No legibility blur: the cards carry their own contrast, and the Home
-    Screen is the person's own photo, which they chose to look like that."""
+    """Set Wallpaper Photo. No preview: an automation that stops to ask is
+    not an automation. No smart crop: the picture is drawn to this phone's
+    own size and a crop would cut the design's edges. Legibility blur only
+    where the page asked for it ("blur"), and Ink only ever blurs a set
+    that includes the Home Screen."""
     params = {
         "UUID": uid(label),
         "WFInput": attachment(*picture),
-        "WFWallpaperLocation": [screen],
+        "WFWallpaperLocation": list(screens),
         "WFWallpaperShowPreview": False,
         "WFWallpaperSmartCrop": False,
-        "WFWallpaperLegibilityBlur": False,
+        "WFWallpaperLegibilityBlur": blur,
     }
     if poster:
         params["WFSelectedPoster"] = attachment(poster, "Wallpaper")
@@ -129,46 +148,76 @@ def set_wallpaper(label, poster=None, screen="Lock Screen",
             "WFWorkflowActionParameters": params}
 
 
+def switch_to(label):
+    """Switch Between Wallpapers, to the one just set. Ink does it on every
+    run now, not only on a redraw: Set Wallpaper Photo may write to a
+    wallpaper that is not the one showing, and this makes it the one."""
+    return {"WFWorkflowActionIdentifier": "is.workflow.actions.posters.switch",
+            "WFWorkflowActionParameters": {"UUID": uid(label + ".switch"),
+                                           "WFPoster": attachment(label, "Wallpaper")}}
+
+
+def set_maybe_twice(mode, group, label, poster=None, **kw):
+    """Set, and on "redraw" set again on the wallpaper that came back —
+    Ink's repaint, for a lock screen that keeps showing the old picture.
+    A Home Screen set already names the lock screen's wallpaper, and its
+    second pass names the same one, as Ink's does."""
+    return [
+        set_wallpaper(label, poster=poster, **kw),
+        if_contains(group, *mode, "redraw"),
+        set_wallpaper(label + ".again", poster=poster or label, **kw),
+        end_if(group),
+    ]
+
+
 def actions(team):
     mode = ("mode", "my.adhd wallpaper mode")
+    home = ("home.picture", "my.adhd home screen")
     return [
-        # 1. Ask the app. It answers skip, set or redraw (WallpaperMode.swift).
+        # 1. Ask the app. It answers "skip", or "set"/"redraw" followed by
+        #    which screens: "same", or "pair" (WallpaperMode.answer). Ink's
+        #    shortcut has no skip; ours keeps it, because its triggers fire
+        #    many times a day and an identical wallpaper should not flash.
         app_intent(team, "WallpaperModeIntent", "mode"),
-
-        # 2. Nothing moved since the last confirmed picture: stop, so the
-        #    frequent triggers never flash an identical wallpaper.
         if_contains("if.skip", *mode, "skip"),
         {"WFWorkflowActionIdentifier": "is.workflow.actions.exit",
          "WFWorkflowActionParameters": {}},
         end_if("if.skip"),
 
-        # 3. Draw it. Throws on an unreadable store, which stops the run and
+        # 2. Draw it. Throws on an unreadable store, which stops the run and
         #    leaves yesterday's picture where it is.
         app_intent(team, "WallpaperIntent", "picture"),
 
-        # 4. Put it on the lock screen.
-        set_wallpaper("set"),
+        # 3a. "same": one picture on both screens, blurred or not.
+        if_contains("if.same", *mode, "same"),
+          if_contains("if.same.blur", *mode, "blur"),
+            *set_maybe_twice(mode, "if.same.blur.redraw", "same.blur", screens=BOTH, blur=True),
+            switch_to("same.blur"),
+          otherwise("if.same.blur"),
+            *set_maybe_twice(mode, "if.same.redraw", "same", screens=BOTH),
+            switch_to("same"),
+          end_if("if.same.blur"),
 
-        # 5. Ink's repaint: set again on the wallpaper that came back, and
-        #    switch to it. Only when the page's Force a redraw is on.
-        if_contains("if.redraw", *mode, "redraw"),
-        set_wallpaper("set.again", poster="set"),
-        {"WFWorkflowActionIdentifier": "is.workflow.actions.posters.switch",
-         "WFWorkflowActionParameters": {"UUID": uid("switch"),
-                                        "WFPoster": attachment("set", "Wallpaper")}},
-        end_if("if.redraw"),
+        # 3b. Otherwise the Lock Screen alone, and with "pair" the plain
+        #     ground on the Home Screen of that same wallpaper, so the
+        #     design never sits behind the app icons.
+        otherwise("if.same"),
+          *set_maybe_twice(mode, "if.lock.redraw", "lock"),
+          if_contains("if.pair", *mode, "pair"),
+            app_intent(team, "WallpaperHomeIntent", "home.picture"),
+            if_contains("if.pair.blur", *mode, "blur"),
+              *set_maybe_twice(mode, "if.pair.blur.redraw", "home.blur", poster="lock",
+                               screens=HOME, blur=True, picture=home),
+            otherwise("if.pair.blur"),
+              *set_maybe_twice(mode, "if.pair.redraw", "home", poster="lock",
+                               screens=HOME, picture=home),
+            end_if("if.pair.blur"),
+          end_if("if.pair"),
+          switch_to("lock"),
+        end_if("if.same"),
 
-        # 6. Lock Screen only: the Home Screen of the same wallpaper gets the
-        #    ground with no boxes. Without it, a pair on "Original" copies the
-        #    matrix behind the app icons. Ink's "pair" mode, the same way.
-        if_contains("if.home", *mode, "home"),
-        app_intent(team, "WallpaperHomeIntent", "home.picture"),
-        set_wallpaper("set.home", poster="set", screen="Home Screen",
-                      picture=("home.picture", "my.adhd home screen")),
-        end_if("if.home"),
-
-        # 7. Only reached if Set Wallpaper Photo succeeded, which is what
-        #    lets the app say "working" and mean it (WallpaperHealth.swift).
+        # 4. Only reached if every Set Wallpaper Photo succeeded, which is
+        #    what lets the app say "working" and mean it (WallpaperHealth).
         app_intent(team, "WallpaperConfirmIntent", "confirm"),
     ]
 
@@ -189,11 +238,24 @@ def triggers(team):
          "WFTriggerUUID": uid("trigger.closed"),
          "WFTriggerSerializedParameters": {"WFAppState": "closed",
                                            "WFSelectedApps": app}},
-        # iOS 27: every reminder and nudge my.adhd already sends becomes a
-        # refresh. Skip makes the ones that change nothing free.
+        # WallpaperPing's quiet notification, as Ink filters its own: by
+        # what the body says. Change that body and this stops matching.
         {"WFTriggerIdentifier": "WFNotificationTrigger",
          "WFTriggerUUID": uid("trigger.notification"),
-         "WFTriggerSerializedParameters": {"SelectedApps": [app]}},
+         "WFTriggerSerializedParameters": {
+             "SelectedApps": [app],
+             "Conditions": {
+                 "Value": {
+                     "WFActionParameterFilterPrefix": 1,
+                     "WFContentPredicateBoundedDate": False,
+                     "WFActionParameterFilterTemplates": [
+                         {"Operator": 0, "Values": {"Body": "lock screen"},
+                          "Removable": True, "Property": "Body"},
+                     ],
+                 },
+                 "WFSerializationType": "WFContentPredicateTableTemplate",
+             },
+         }},
     ]
 
 
@@ -219,7 +281,16 @@ def shortcut(team):
     }
 
 
+def check_app_name():
+    """The Home library's Update button runs the shortcut by name
+    (AppConfig.wallpaperShortcutName). Refuse to build one it cannot find."""
+    conf = (ROOT / "MyADHD" / "AppConfig.swift").read_text()
+    if f'"{NAME}"' not in conf:
+        sys.exit(f'AppConfig.wallpaperShortcutName is not "{NAME}". Change both together.')
+
+
 def main():
+    check_app_name()
     team = team_id()
     OUT.mkdir(exist_ok=True)
     raw = OUT / "my.adhd-lock-screen.shortcut"

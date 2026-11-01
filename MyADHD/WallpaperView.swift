@@ -11,6 +11,13 @@
        ~0.30 – 0.875 the matrix — where exactly is the person's to move
        0.875 – 1.00  torch, notifications, camera, the home indicator
 
+   **The matrix is one design of several.** `WallpaperStyle.design` picks
+   which one the band draws; the others — one task, today, the month, the
+   done graph — are in WallpaperDesigns.swift, and the library on Home
+   (UI/WallpaperShelf.swift) is how somebody chooses between them. The
+   ground, the veil and the band are shared, so every design sits where
+   the matrix did and clears the same clock.
+
    `WallpaperStyle` is everything the Lock Screen Display page can change:
    where the band starts, how much of the room under it the matrix may
    take, the type size, the ground (photo, blurred or not, darker or
@@ -55,6 +62,52 @@ struct WallpaperBoard: Equatable {
     }
 
     let quads: [Quad]
+
+    /* What the other designs draw. Each is filled only when somebody
+       asked for that design (`WallpaperBoard.current(designs:)`), so the
+       digest of a matrix wallpaper does not move because the done graph
+       would have. Codable for that digest, nothing else. */
+
+    /// The one task: `Ordering.pickNow`, the Now card's answer.
+    struct Focus: Codable, Equatable {
+        let title: String
+        let step: String?        // its first step, when it has one
+        let meta: String         // "25 min · Today", built by the caller
+        let late: Bool
+        let hue: UInt32
+        let hueLight: UInt32
+        let more: Int            // the rest of today and late, behind it
+    }
+
+    /// A row of the Today design, or of the month's "next" list.
+    struct Row: Codable, Equatable {
+        let title: String
+        let meta: String         // "09:30", "Late", "Tue 4", "25 min"
+        let late: Bool
+        let hue: UInt32
+        let hueLight: UInt32
+    }
+
+    struct Month: Codable, Equatable {
+        let title: String        // "November"
+        let symbols: [String]    // seven, starting on the calendar's first weekday
+        let lead: Int            // blank cells before the 1st
+        let counts: [Int]        // open dated tasks, one per day of the month
+        let today: Int?          // 1-based, when today is in this month
+        let next: [Row]          // the next few dated tasks
+    }
+
+    struct Done: Codable, Equatable {
+        let counts: [Int]        // completed per day, oldest first, ending today
+        let lead: Int            // cells before the first count, so columns are weeks
+        let today: Int
+        let week: Int            // the last seven days, today included
+    }
+
+    var focus: Focus? = nil
+    var agenda: [Row] = []
+    var month: Month? = nil
+    var done: Done? = nil
 }
 
 /// What the Lock Screen Display page sets. Plain values, so it can be
@@ -62,8 +115,15 @@ struct WallpaperBoard: Equatable {
 struct WallpaperStyle: Codable, Equatable {
 
     enum Ground: String, Codable { case photo, color }
-    enum Cards: String, Codable { case dark, light }
+    /// `auto` is Ink's "Match colors to photo": light cards on a bright
+    /// ground, dark on a dark one, decided at drawing time by
+    /// `WallpaperView.resolvedCards`, so a new photo needs no new choice.
+    enum Cards: String, Codable { case dark, light, auto }
     enum Scope: String, Codable { case all, today }
+    /// Which picture the band draws. Raw values are stored; never rename one.
+    enum Design: String, Codable, CaseIterable { case matrix, focus, agenda, month, done }
+
+    var design: Design = .matrix
 
     /// 0…1 — where the matrix starts, from just under the widget row (0)
     /// down to the middle of the screen (1).
@@ -89,6 +149,9 @@ struct WallpaperStyle: Codable, Equatable {
     /// lock screen gets — so on, the shortcut also sets the Home Screen of
     /// the same pair to the ground alone, with no boxes behind the icons.
     var lockOnly: Bool = true
+    /// The Home Screen half blurred — Set Wallpaper Photo's Legibility
+    /// Blur, on the screen behind the icons. Shortcut v3 and later.
+    var homeBlur: Bool = false
 
     /// The fractions the view lays out with.
     var bandTop: Double { 0.22 + position * 0.2 }
@@ -118,6 +181,8 @@ struct WallpaperStyle: Codable, Equatable {
         scope = (try? c.decode(Scope.self, forKey: .scope)) ?? d.scope
         hidden = (try? c.decode([String].self, forKey: .hidden)) ?? d.hidden
         lockOnly = (try? c.decode(Bool.self, forKey: .lockOnly)) ?? d.lockOnly
+        homeBlur = (try? c.decode(Bool.self, forKey: .homeBlur)) ?? d.homeBlur
+        design = (try? c.decode(Design.self, forKey: .design)) ?? d.design
     }
 }
 
@@ -126,6 +191,10 @@ struct WallpaperView: View {
     /// The person's chosen photo. nil, or a colour ground, draws no photo.
     var background: CGImage? = nil
     var style = WallpaperStyle()
+    /// False for the Home Screen half of the pair: the ground alone. Every
+    /// design but the matrix draws an empty state when it has nothing, and
+    /// "Nothing due today" behind the app icons would be a false message.
+    var showsBand = true
 
     private let gutter: CGFloat = 12
     private let gap: CGFloat = 10
@@ -142,7 +211,18 @@ struct WallpaperView: View {
         return Self.steps.filter { $0.scale <= top }
     }
 
-    private var light: Bool { style.cards == .light }
+    private var light: Bool { cards == .light }
+
+    /// `style.cards` with `auto` decided against this ground.
+    private var cards: WallpaperStyle.Cards { Self.resolvedCards(style, background: background) }
+
+    /// The style the designs are handed: the same, with `auto` decided,
+    /// so none of them has to know it exists.
+    private var drawn: WallpaperStyle {
+        var s = style
+        s.cards = cards
+        return s
+    }
     private var ink: Color { light ? Self.color(0x101018) : .white }
 
     var body: some View {
@@ -153,11 +233,13 @@ struct WallpaperView: View {
             ZStack(alignment: .topLeading) {
                 ground(w, h)
 
-                matrix
-                    .frame(width: w - gutter * 2, height: h * (style.bandBottom - style.bandTop),
-                           alignment: .top)
-                    .clipped()
-                    .offset(x: gutter, y: h * style.bandTop)
+                if showsBand {
+                    band
+                        .frame(width: w - gutter * 2, height: h * (style.bandBottom - style.bandTop),
+                               alignment: .top)
+                        .clipped()
+                        .offset(x: gutter, y: h * style.bandTop)
+                }
             }
             .frame(width: w, height: h, alignment: .topLeading)
             .clipped()
@@ -194,6 +276,34 @@ struct WallpaperView: View {
             }
         }
         .frame(width: w, height: h)
+    }
+
+    // MARK: - the band
+
+    @ViewBuilder
+    private var band: some View {
+        switch style.design {
+        case .matrix: matrix
+        case .focus:  fitted { FocusDesign(board: board, style: $0) }
+        case .agenda: AgendaDesign(board: board, style: drawn)   // drops rows itself
+        case .month:  fitted { MonthDesign(board: board, style: $0) }
+        case .done:   fitted { DoneDesign(board: board, style: $0) }
+        }
+    }
+
+    /// The matrix's rule for the designs that cannot drop rows: the
+    /// person's own text size first, then a step smaller until the whole
+    /// design fits the band. Every size in a design is a multiple of
+    /// `textScale`, so this shrinks it evenly, never cuts its foot off.
+    private func fitted<D: View>(@ViewBuilder _ make: @escaping (WallpaperStyle) -> D) -> some View {
+        let top = style.textScale + 0.001
+        let sizes = [1.3, 1.2, 1.1, 1.0, 0.92, 0.84, 0.76, 0.68, 0.6, 0.52, 0.45]
+            .filter { $0 <= top }
+        return ViewThatFits(in: .vertical) {
+            ForEach(sizes, id: \.self) { k in
+                make({ var s = drawn; s.textScale = k; return s }())
+            }
+        }
     }
 
     // MARK: - the matrix
@@ -300,12 +410,82 @@ struct WallpaperView: View {
     }
 
     private func card(_ hue: Color) -> some View {
+        Self.veil(hue, light: light)
+    }
+
+    /// The card every design sits on. See "A veil on any photo" above.
+    static func veil(_ hue: Color, light: Bool) -> some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
             .fill(light ? Color.white.opacity(0.78) : Color.black.opacity(0.48))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(hue.opacity(light ? 0.35 : 0.28), lineWidth: 1)
             )
+    }
+
+    // MARK: - matching the cards to the ground
+
+    /// Dark or light, never auto. A bright ground takes light cards: a
+    /// dark veil over a pale photo comes out mid-grey under white text,
+    /// while a light one stays near white under dark text. Brightness is
+    /// the photo with the page's own brightness slider applied — that
+    /// slider is what somebody reaches for to make text readable, and the
+    /// cards should follow it rather than fight it.
+    static func resolvedCards(_ style: WallpaperStyle, background: CGImage?) -> WallpaperStyle.Cards {
+        guard style.cards == .auto else { return style.cards }
+        let base: Double
+        if style.ground == .color {
+            base = luma(style.color)
+        } else if style.ground == .photo, let background {
+            base = averageLuma(background)
+        } else {
+            base = 0.08                       // the dark gradient
+        }
+        let shifted = style.brightness < 0
+            ? base * (1 + style.brightness)
+            : base + (1 - base) * style.brightness
+        return shifted > 0.62 ? .light : .dark
+    }
+
+    static func luma(_ hex: UInt32) -> Double {
+        let r = Double((hex >> 16) & 0xFF), g = Double((hex >> 8) & 0xFF), b = Double(hex & 0xFF)
+        return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    }
+
+    /* The band, not the whole photo: the cards sit between the clock and
+       the torch, and a bright sky above a dark street is a dark ground as
+       far as they are concerned. Drawn down to 8x16 and averaged. The
+       last answer is kept with the image itself, held, so its address
+       cannot be handed to the next photo — the shelf on Home asks six
+       times a frame, always about the same one. */
+    nonisolated(unsafe) private static var lastLuma: (image: CGImage, luma: Double)?
+
+    static func averageLuma(_ image: CGImage) -> Double {
+        if let last = lastLuma, last.image === image { return last.luma }
+        let w = 8, h = 16
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let space = CGColorSpaceCreateDeviceRGB()
+        let result: Double = px.withUnsafeMutableBytes { buf -> Double in
+            guard let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8,
+                                      bytesPerRow: w * 4, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return 0.5 }
+            ctx.interpolationQuality = .medium
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            var sum = 0.0, n = 0.0
+            /* Row 0 of the buffer is the top of the picture: skip the top
+               fifth (clock) and the bottom eighth (torch and camera). */
+            for y in 3..<(h - 2) {
+                for x in 0..<w {
+                    let i = (y * w + x) * 4
+                    sum += 0.299 * Double(buf[i]) + 0.587 * Double(buf[i + 1]) + 0.114 * Double(buf[i + 2])
+                    n += 1
+                }
+            }
+            return n > 0 ? sum / n / 255 : 0.5
+        }
+        lastLuma = (image, result)
+        return result
     }
 
     static func color(_ hex: UInt32) -> Color {

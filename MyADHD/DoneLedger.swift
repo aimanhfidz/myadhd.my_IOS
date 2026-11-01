@@ -44,6 +44,12 @@ enum DoneLedger {
     /// undo on Tuesday should not quietly lower Tuesday's square days
     /// later, but an undo this morning should still count. This is a
     /// morale object, not an audit log, and that is the right trade.
+    /// What the ledger holds, read and nothing else. For the wallpaper,
+    /// whose board is read-only (WallpaperBoard.swift).
+    static func peek() -> [String: Int] {
+        (UserDefaults.standard.dictionary(forKey: key) as? [String: Int]) ?? [:]
+    }
+
     static func merge(_ fresh: [String: Int], today: String) -> (from: String, values: [Int]) {
         var stored = (UserDefaults.standard.dictionary(forKey: key) as? [String: Int]) ?? [:]
 

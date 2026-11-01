@@ -9,12 +9,17 @@
          -> my.adhd wallpaper mode       (WallpaperModeIntent, below)
               "skip" -> stop here; nothing moved since the last one
          -> Update my.adhd wallpaper     (this intent, returns a PNG)
-         -> Set Wallpaper Photo          (Apple's, Lock Screen, no preview)
-              "redraw" -> set again on the wallpaper that came back,
-                          and switch to it
-              "home"   -> my.adhd home screen (WallpaperHomeIntent), set on
+         "same" -> Set Wallpaper Photo   (Lock Screen + Home Screen, one picture)
+         else   -> Set Wallpaper Photo   (Lock Screen)
+              "pair"   -> my.adhd home screen (WallpaperHomeIntent), set on
                           the Home Screen of that same wallpaper
+           each set: "blur"   -> Legibility Blur on, for the Home Screen
+                     "redraw" -> set again on the wallpaper that came back
+         -> Switch to that wallpaper     (Apple's Switch Between Wallpapers)
          -> Confirm my.adhd wallpaper    (WallpaperConfirmIntent, below)
+
+   v3, 2026-11-01, re-cut from Ink's "Refresh Lock Screen V2" as it stood
+   that day. v2 tested "home"; the answer still says it beside "pair".
 
    The last step is what lets the app say "working" and mean it. The
    first one only proves a picture was drawn; Shortcuts stops at the first
@@ -100,7 +105,9 @@ struct WallpaperModeIntent: AppIntent {
             lastRun: Wallpaper.lastRun,
             lastConfirmed: Wallpaper.lastConfirmed,
             forceRedraw: Wallpaper.forceRedraw)
-        return .result(value: WallpaperMode.answer(mode, lockOnly: Wallpaper.style.lockOnly))
+        let style = Wallpaper.style
+        return .result(value: WallpaperMode.answer(mode, lockOnly: style.lockOnly,
+                                                   homeBlur: style.homeBlur))
     }
 }
 

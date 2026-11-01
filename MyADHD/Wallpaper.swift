@@ -150,15 +150,15 @@ enum Wallpaper {
 
     @MainActor
     static func renderHome() throws -> URL {
-        try draw(WallpaperBoard(quads: []), to: homeURL)
+        try draw(WallpaperBoard(quads: []), to: homeURL, band: false)
     }
 
     @MainActor
-    private static func draw(_ board: WallpaperBoard, to url: URL) throws -> URL {
+    private static func draw(_ board: WallpaperBoard, to url: URL, band: Bool = true) throws -> URL {
         let size = UIScreen.main.bounds.size          // points
         let scale = UIScreen.main.scale
 
-        let view = WallpaperView(board: board, background: loadBackground(), style: style)
+        let view = WallpaperView(board: board, background: loadBackground(), style: style, showsBand: band)
             .frame(width: size.width, height: size.height)
 
         let renderer = ImageRenderer(content: view)

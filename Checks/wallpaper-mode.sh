@@ -21,6 +21,7 @@ xcrun swiftc -O -wmo -parse-as-library -o "$BUILD/wallpaper-mode" \
   Checks/wallpaper-mode.swift \
   MyADHD/WallpaperMode.swift \
   MyADHD/WallpaperView.swift \
+  MyADHD/WallpaperDesigns.swift \
   MyADHD/WallpaperHealth.swift
 
 "$BUILD/wallpaper-mode"
