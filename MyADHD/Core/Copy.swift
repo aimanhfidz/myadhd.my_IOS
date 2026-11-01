@@ -186,19 +186,23 @@ enum Copy {
         static func moreChips(_ n: Int) -> String { "+\(n) more" }   // app.js:5054
     }
 
-    // MARK: - The faces (app.js:3881-3882)
+    // MARK: - The faces (iOS only)
 
-    /// `AVATARS`, in its order. The first is the default, and it is what an
-    /// unrecognised stored face is drawn as — `avatarFace` never writes the
-    /// substitution back, so somebody's own choice survives a build that
-    /// cannot draw it.
+    /// What VoiceOver calls each of the sixteen drawn faces, in the order
+    /// of `Avatars.faces` — a picture has no name of its own, where an
+    /// emoji did. They go into `Profile.useFace`, so each reads as
+    /// `Use the goggles as your face`.
     ///
-    /// They are user-facing strings like any other, and one drifting out of
-    /// this list would change the face on somebody's composer without
-    /// anything being written to their profile.
+    /// **No web original.** The web still offers its twelve emoji; these
+    /// faces are the iPhone's, and the profile never leaves the device, so
+    /// the two lists never meet. `Checks/copy.sh` lists them by name.
     enum Avatars {
-        static let faces = ["🧔🏻", "🧔🏻‍♂️", "👨🏻", "👱🏻‍♂️", "👨🏻‍🦲", "👨🏼‍🦱",
-                            "👩🏻", "🧑🏻", "👩🏻‍🦱", "👱🏻‍♀️", "👩🏻‍🦳", "🧑🏻‍🦰"]
+        static let names = [
+            "the grin", "the messy hair", "the wide eyes", "the curls",
+            "the green helmet", "the red helmet", "the flying cap", "the goggles",
+            "the red box helmet", "the mint box helmet", "the yellow-rimmed helmet", "the glass helmet",
+            "the laugh", "the striped helmet", "the space helmet", "the purple helmet",
+        ]
     }
 
     // MARK: - Hold-to-talk (app.js:5280-5481)

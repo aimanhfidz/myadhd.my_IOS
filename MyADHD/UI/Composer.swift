@@ -431,11 +431,9 @@ struct Composer: View {
     private func body(for value: String) -> some View {
         ScrollView {
             HStack(alignment: .top, spacing: 12) {
-                Text(Avatars.face(store.doc.profile.avatar))
-                    .font(.system(size: 21))
+                AvatarImage(face: store.doc.profile.avatar)
                     .frame(width: 38, height: 38)
-                    .background(theme.wash2, in: Circle())
-                    .accessibilityHidden(true)
+                    .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text(store.doc.profile.name.isEmpty
@@ -624,14 +622,45 @@ struct Composer: View {
 
 // MARK: - the avatars
 
-/// `AVATARS` / `avatarFace` (app.js:3881-3906). A profile is written once
-/// and read by every version of the app that comes after it, so a face this
-/// build does not recognise is drawn as the default and never written back.
+/// The sixteen drawn faces, by their names in `Assets.xcassets/Avatars`.
+/// iOS's own: the web still offers its twelve emoji (`AVATARS`,
+/// app.js:3881), and the profile never leaves the device, so neither app
+/// ever reads a face the other wrote.
+///
+/// **What is stored is not touched.** `avatarFace`'s rule (app.js:3906)
+/// still holds: a face this build does not draw is drawn as the first one
+/// and never written back. That now covers every emoji an earlier build
+/// saved, `Profile.defaultAvatar` included — so a new profile, and an old
+/// one, both show `avatar-01` until somebody picks, and the store keeps the
+/// shape the web and the checks expect.
 enum Avatars {
-    static let faces = Copy.Avatars.faces
+    static let faces = (1...16).map { String(format: "avatar-%02d", $0) }
 
     static func face(_ stored: String) -> String {
         faces.contains(stored) ? stored : faces[0]
+    }
+
+    /// What VoiceOver calls it.
+    static func name(_ face: String) -> String {
+        guard let i = faces.firstIndex(of: face), i < Copy.Avatars.names.count else {
+            return Copy.Avatars.names[0]
+        }
+        return Copy.Avatars.names[i]
+    }
+}
+
+/// One of the drawn faces, filling whatever frame it is put in. The cream
+/// ground is part of the drawing, so the caller clips it to a shape and
+/// nothing shows behind it.
+struct AvatarImage: View {
+    let face: String
+
+    var body: some View {
+        Image(Avatars.face(face))
+            .resizable()
+            .interpolation(.high)
+            .scaledToFill()
+            .accessibilityHidden(true)
     }
 }
 

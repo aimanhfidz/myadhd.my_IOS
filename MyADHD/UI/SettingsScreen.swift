@@ -511,9 +511,9 @@ struct SettingsRow: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 if let face {
-                    Text(face)
-                        .font(.system(size: 22))
+                    AvatarImage(face: face)
                         .frame(width: 34, height: 34)
+                        .clipShape(Circle())
                 }
 
                 Text(title)

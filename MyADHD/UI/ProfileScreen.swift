@@ -15,10 +15,15 @@
    name and a face are per device, which is what the hint at the bottom
    says out loud and what `paintLocalNote` repeats one screen up.
 
+   **The faces are drawings, and iOS's own** — sixteen of them in
+   `Assets.xcassets/Avatars`, where the web still has twelve emoji. See
+   `Avatars` for why the two never meet.
+
    **An unknown face is drawn as the default and never written back.**
    That is `avatarFace` (app.js:3906) and it is the whole reason this
    screen draws through `Avatars.face(_:)` rather than off the stored
-   string. A store outlives the list that filled it: somebody who picked
+   string. Since the faces became drawings, "unknown" is every emoji an
+   earlier build saved: shown as the first face, left as it is on disk. A store outlives the list that filled it: somebody who picked
    a face from a longer list on another build still has that choice
    saved, and correcting it here — which would be the tidier-looking fix
    — would overwrite a decision they made, on the say-so of a device that
@@ -98,12 +103,10 @@ struct ProfileScreen: View {
     /// `.profile-card`: the face, the greeting, the name, the picker.
     private var card: some View {
         VStack(spacing: 0) {
-            Text(face)
-                .font(.system(size: 42))
+            AvatarImage(face: face)
                 .frame(width: 78, height: 78)
-                .background(theme.surface, in: Circle())
+                .clipShape(Circle())
                 .overlay(Circle().strokeBorder(theme.lineStrong, lineWidth: 1.5))
-                .accessibilityHidden(true)
 
             Text(greeting)
                 .font(Font.baloo(22, .heavy))
@@ -183,7 +186,7 @@ struct ProfileScreen: View {
         if typed != saved { typed = saved }
     }
 
-    /// `#avatar-picker`. Twelve buttons, one group, and the ring on
+    /// `#avatar-picker`. Sixteen buttons, one group, and the ring on
     /// whichever one matches the face being drawn.
     private var picker: some View {
         AvatarPicker(face: face) { store.setProfileAvatar($0) }
@@ -202,16 +205,21 @@ struct ProfileScreen: View {
     }
 }
 
-// MARK: - the twelve faces
+// MARK: - the sixteen faces
 
-/// `buildAvatarPicker` (app.js:3930-3942). A wrapping row of 44pt tiles,
-/// each labelled `Use <face> as your face`, with `aria-pressed` on the one
-/// that is on.
+/// `buildAvatarPicker` (app.js:3930-3942), with drawn faces in place of the
+/// web's emoji. Each tile is labelled `Use <face> as your face` with the
+/// face's name, and carries the selected trait on the one that is on.
+///
+/// **Four across, not a wrapping row.** The faces came off a four-by-four
+/// sheet, and sixteen 44pt tiles wrap five, five, five and one on a phone
+/// — a lone face on the last line. Four columns share the width, so the
+/// tiles grow with the screen and a drawing gets room to be read.
 ///
 /// `face` is the DRAWN face, never the stored one — see the note at the
-/// top of this file. Somebody carrying an emoji this build has never heard
-/// of sees the default ringed, and the moment they pick one, that pick is
-/// what gets written.
+/// top of this file. Somebody carrying an emoji from an earlier build sees
+/// the first face ringed, and the moment they pick one, that pick is what
+/// gets written.
 struct AvatarPicker: View {
 
     @Environment(\.theme) private var theme
@@ -219,29 +227,30 @@ struct AvatarPicker: View {
     let face: String
     var onPick: (String) -> Void
 
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
+
     var body: some View {
-        WrapRow(spacing: 8, lineSpacing: 8) {
+        LazyVGrid(columns: columns, spacing: 10) {
             ForEach(Avatars.faces, id: \.self) { option in
                 let on = option == face
                 Button { onPick(option) } label: {
-                    Text(option)
-                        .font(.system(size: 22))
-                        .frame(width: 44, height: 44)
-                        .background(theme.surface,
-                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    AvatarImage(face: option)
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .strokeBorder(on ? theme.accent : theme.lineStrong,
-                                              lineWidth: 1.5)
+                                              lineWidth: on ? 2.5 : 1.5)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .strokeBorder(theme.focus, lineWidth: on ? 3 : 0)
-                                .padding(-1.5)
+                                .padding(-3)
                         )
+                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Copy.Profile.useFace(option))
+                .accessibilityLabel(Copy.Profile.useFace(Avatars.name(option)))
                 .accessibilityAddTraits(on ? [.isSelected] : [])
             }
         }
