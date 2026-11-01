@@ -38,6 +38,26 @@ friction that decision deserves.
 `README.md` lists what this shell is quietly depending on over there. Read them
 there rather than trusting a summary — no count is given on purpose.
 
+## Brand
+
+**The canonical brand guideline is `BRAND.md` in the web repo**
+(`../My.adhd/BRAND.md`). Read it before any visual or copy change here.
+`MyADHD/UI/Theme.swift` mirrors its token table value-for-value. Where this
+app departs from it, that is listed in its §15 as drift, not as precedent.
+The ten rules it never bends:
+
+1. ".adhd" is violet #7B3FE4 in both themes, everywhere. Never re-tint it.
+2. The mark and the Focus submark are locked: #F75C03 arms, #7B3FE4 capsule /
+   case / crown, #2A2D33 tile. `icons/render.py` must stay identical to the web's.
+3. Orange = the mark, or press / late / urgent (named list in BRAND.md §3.3).
+4. `theme.danger` is for destructive actions only.
+5. Use `Theme` colours, never a new `Color(hex:)`. `python3 ../My.adhd/tools/brand-check.py` scans this repo too.
+6. Baloo 2 is the app's face; no fourth face.
+7. Check light and dark. The app follows its own toggle, not the OS.
+8. No clinical claims (diagnose / treat / cure / fix).
+9. Copy is the web's, verbatim (`Checks/copy.sh`). Malay is in `awak`; never `anda`, `aku`, `kau`.
+10. No photos, no characters; every visual carries information; honour Reduce Motion.
+
 ## Hard rules
 
 - **The team id lives only in `Local.xcconfig`**, which is git-ignored.
