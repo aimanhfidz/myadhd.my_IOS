@@ -981,7 +981,7 @@ enum Copy {
        many places the web writes it out. */
 
     /// `—`, with the spaces the web puts either side of it.
-    static let emDash = " — "      // app.js:3686, 2721
+    static let emDash = " — "      // app.js:3984, 2721
 
     /// `&hellip;` in app.html, a real ellipsis everywhere in app.js.
     static let ellipsis = "…"      // app.js:1666
@@ -1011,26 +1011,26 @@ enum Copy {
         static let privacyRow = "Privacy policy"                  // app.html:821
         static let termsRow = "Terms"                             // app.html:830
 
-        /* paintLocalNote (app.js:3677-3693): where does this actually
-           live. Two readings here, in iOS wording, where the web has
-           three (owner's call, 2026-11-01). The web's said the calendar
-           link stays on the device, when its refresh token is posted to
-           /api/link-google and kept on the server; and that a signed-out
-           list has no server, when every dump is sorted by /api/triage
-           and every voice dump turned into text by /api/transcribe. Both
-           are listed in Checks/copy.sh as iPhone-only. */
+        /* paintLocalNote (app.js:3964-3990): where does this actually
+           live. Written here first (owner's call, 2026-11-01), because
+           the web's old note said the calendar link stayed on the device
+           and that a signed-out list had no server; the web was corrected
+           to these same sentences the same day. Only its opening, on this phone
+           only, is iPhone wording (Checks/copy.sh). The web adds a third line
+           for a calendar linked while signed out, which this app cannot
+           do: it links the calendar at sign-in. */
 
         /// Signed in.
         static let localSignedIn =
             "Your lists are on this device and in your account, which is how they "
             + "reach your other devices. Your name and your face stay on this device "
-            + "only. The calendar link is kept on our server, which is how it renews itself."   // app.js:3683-3685, iOS wording
+            + "only. The calendar link is kept on our server, which is how it renews itself."   // app.js:3981-3983
 
         /// Signed out.
         static let localSignedOut =
             "Your lists live on this phone only" + emDash + "no account, no sync. "
             + "What you dump, typed or said, goes to our server to be sorted, and "
-            + "comes back as tasks."                      // app.js:3686-3690, iOS wording
+            + "comes back as tasks."                      // app.js:3984-3986, iOS wording
 
         /// The web's footer line (app.html:844), with this app's own number
         /// in it rather than the website's: the App Store page and this

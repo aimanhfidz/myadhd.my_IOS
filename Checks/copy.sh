@@ -65,17 +65,17 @@
 # Every fragment of both is listed below and every other literal in
 # Copy.swift is still checked exactly as strictly.
 #
-# And, by the owner's call on 2026-11-01, seven web sentences rewritten
+# And, by the owner's call on 2026-11-01, six web sentences rewritten
 # because they are false on an iPhone — which is the one case where an
 # original does exist and the exemption is still right. Each says where
 # it came from beside it in Copy.swift (", iOS wording"):
 #   - the two mic toasts, which point at browser and site settings;
 #   - the signup offer, which says clearing your history loses the list;
 #   - the Notes hint, which says browsers where it means devices;
-#   - Settings' local note, signed in: the web says the calendar link
-#     stays on the device, and it lives on the server (/api/link-google);
-#   - Settings' local note, signed out: the web says browser and no
-#     server, and every dump goes to /api/triage or /api/transcribe;
+#   - Settings' local note, signed out: only its opening, "on this phone
+#     only" where the web says "in this browser only" (the web was
+#     corrected to these sentences on 2026-11-01, and the signed-in one
+#     is now the web's own, so neither is listed in full any more);
 #   - the Google Calendar card, which promises your other calendars stay
 #     off limits, when iOS asks to read them for Show my meetings.
 # If the web is ever corrected to say the same, delete these lines and
@@ -224,12 +224,7 @@ no mic access — allow it in Settings → my.adhd → Microphone
 iOS did not let us open the mic — check Settings → my.adhd → Microphone.
 Right now this list lives on this phone only — delete the app and it is gone, and your phone and laptop each keep their own separate copy. Signing in gives you one list everywhere, and puts your dated tasks in Google Calendar without asking again.
 Notes stay on this device. Signing in carries your lists between devices; it does not carry these yet.
-reach your other devices. Your name and your face stay on this device
-only. The calendar link is kept on our server, which is how it renews itself.
 Your lists live on this phone only
-no account, no sync.
-What you dump, typed or said, goes to our server to be sorted, and
-comes back as tasks.
 “my.adhd” calendar and only ever writes to that one. It can also read your
 other calendars, to show your meetings beside your tasks, and never changes them.
 NATIVE_ONLY
