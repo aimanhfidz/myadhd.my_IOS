@@ -45,6 +45,13 @@ struct NowActivityAttributes: ActivityAttributes {
         /// dropped the moment the app takes over again — the same shrug
         /// the Now card keeps for a visit and never saves.
         var passed: [String]
+        /// The phone's own Light/Dark setting when the app last wrote
+        /// this. The lock screen hands a Live Activity its own appearance
+        /// (dark, whatever the phone is set to), so the card cannot find
+        /// the setting out for itself; the app reads it and says. Nil from
+        /// a build before this field, and the card then falls back to what
+        /// the lock screen gives it. See NowLiveActivity.swift.
+        var dark: Bool? = nil
     }
 }
 
@@ -55,7 +62,10 @@ enum NowNext {
     /// The next open task from the widgets' snapshot, minus anything
     /// ticked off and not yet drained, minus `passed`. Pass over all of
     /// them and the first comes round again, as on the Now card.
-    static func state(passed: [String], now: Date = Date()) -> NowActivityAttributes.ContentState? {
+    /// `dark` is carried over from the card being replaced: a button runs
+    /// with no app to ask the phone's setting, and the card should not
+    /// change colour because a task was ticked.
+    static func state(passed: [String], dark: Bool?, now: Date = Date()) -> NowActivityAttributes.ContentState? {
         guard let snap = TaskStore.read() else { return nil }
         let ticked = Set(OpQueue.peek().map { $0.op.id })
         let order = snap.ordered(now: now).filter { !ticked.contains($0.id) }
@@ -66,7 +76,8 @@ enum NowNext {
             title: pick.title,
             firstStep: pick.firstStep ?? "",
             late: pick.isOverdue(on: today),
-            passed: passed.filter { id in order.contains { $0.id == id } }
+            passed: passed.filter { id in order.contains { $0.id == id } },
+            dark: dark
         )
     }
 
@@ -100,8 +111,9 @@ struct NowDoneIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         OpQueue.push(.done(id))
         WidgetCenter.shared.reloadAllTimelines()
-        let passed = Activity<NowActivityAttributes>.activities.first?.content.state.passed ?? []
-        await NowNext.apply(NowNext.state(passed: passed.filter { $0 != id }))
+        let current = Activity<NowActivityAttributes>.activities.first?.content.state
+        let passed = current?.passed ?? []
+        await NowNext.apply(NowNext.state(passed: passed.filter { $0 != id }, dark: current?.dark))
         return .result()
     }
 }
@@ -118,12 +130,13 @@ struct NowSkipIntent: LiveActivityIntent {
     init(id: String) { self.id = id }
 
     func perform() async throws -> some IntentResult {
-        var passed = Activity<NowActivityAttributes>.activities.first?.content.state.passed ?? []
+        let current = Activity<NowActivityAttributes>.activities.first?.content.state
+        var passed = current?.passed ?? []
         /* Already passed over once means the list went all the way round
            and came back to it: start the round again from this one, as
            the Now card does (NowCard.swift), or it would stay up for good. */
         if passed.contains(id) { passed = [id] } else { passed.append(id) }
-        await NowNext.apply(NowNext.state(passed: passed))
+        await NowNext.apply(NowNext.state(passed: passed, dark: current?.dark))
         return .result()
     }
 }

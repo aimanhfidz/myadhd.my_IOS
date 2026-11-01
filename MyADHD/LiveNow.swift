@@ -20,6 +20,16 @@
 
    **Off means off.** The switch off ends every activity at once; an
    empty list ends it too, and the next task starts it again.
+
+   **Light or dark is the phone's, not the app's.** The lock screen gives
+   a Live Activity a dark appearance whatever the phone is set to, so the
+   card cannot see the setting; every push sends it (`deviceIsDark`). It
+   is read off the screen, because the app's own toggle is applied to its
+   windows with `.preferredColorScheme` and must not leak onto the lock
+   screen. The cost: the card changes when the app next pushes — coming
+   back to the front after the switch, or the next write — not at the
+   moment the phone flips while the app is closed. (Owner's call,
+   2026-11-01.)
    ============================================================ */
 
 import ActivityKit
@@ -110,7 +120,19 @@ enum LiveNow {
             title: task.title,
             firstStep: JSText.trim(task.firstStep),
             late: !when.isEmpty && when < today,
-            passed: []
+            passed: [],
+            dark: deviceIsDark
         )
+    }
+
+    /// The phone's Light/Dark setting. The screen's traits, not a
+    /// window's: the windows carry the app's own theme toggle.
+    static var deviceIsDark: Bool {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+        let style = scene?.screen.traitCollection.userInterfaceStyle
+            ?? UIScreen.main.traitCollection.userInterfaceStyle
+        return style == .dark
     }
 }

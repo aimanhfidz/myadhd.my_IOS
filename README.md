@@ -644,6 +644,20 @@ lock screen and in the Dynamic Island (`NowLiveActivity.swift`, with Done and
 Not now buttons), and **the Dump control** for Control Centre and the Action
 Button (`DumpControl.swift`, iOS 18).
 
+**The Live Activity is light or dark by the phone's setting**, not the app's
+toggle. The lock screen hands a Live Activity a dark appearance whatever the
+phone is set to — in the simulator on 2026-11-01 it drew dark with the phone
+on Light — so the card cannot find the setting out for itself. `LiveNow`
+reads it off the screen's traits (the app's windows carry its own toggle)
+and sends it as `ContentState.dark` on every push; the card's ground,
+system controls and colours all come from that one value, and the two
+lock-screen buttons carry it forward. Checked in the simulator with the app
+set to Light: phone Light drew a light card, phone Dark a dark one, and
+back to Light flipped the running card. **What it costs:** the card changes
+when the app next pushes — coming back to the front after the switch, or
+the next write — so an automatic sunset switch while the app is closed waits
+for the next open. The Dynamic Island is black either way.
+
 **The counts the Month and Done tiles draw are swept from the whole store,
 before the task list is trimmed** — so they stay true when `dropped > 0`. A
 month grid derived from `tasks` would under-count every day past tomorrow and

@@ -59,7 +59,9 @@ The ten rules it never bends:
 4. `theme.danger` is for destructive actions only.
 5. Use `Theme` colours, never a new `Color(hex:)`. `python3 ../My.adhd/tools/brand-check.py` scans this repo too.
 6. Baloo 2 is the app's face; no fourth face.
-7. Check light and dark. The app follows its own toggle, not the OS.
+7. Check light and dark. The app follows its own toggle, not the OS — except
+   the Live Activity, which follows the phone's setting (the app sends it as
+   `ContentState.dark`; the lock screen alone would always draw it dark).
 8. No clinical claims (diagnose / treat / cure / fix).
 9. Copy is the web's, verbatim (`Checks/copy.sh`). Malay is in `awak`; never `anda`, `aku`, `kau`.
 10. No photos, no characters; every visual carries information; honour Reduce Motion.

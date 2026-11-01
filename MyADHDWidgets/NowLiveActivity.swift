@@ -18,10 +18,7 @@ import WidgetKit
 struct NowLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NowActivityAttributes.self) { context in
-            NowLockCard(state: context.state)
-                .activityBackgroundTint(Color("WidgetBackground"))
-                .activitySystemActionForegroundColor(.primary)
-                .widgetURL(URL(string: "myadhd://open"))
+            NowLockScreen(state: context.state)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -74,6 +71,32 @@ struct NowLiveActivity: Widget {
 }
 
 // MARK: - the lock screen card
+
+/// Light or dark by the phone's setting, which the app sends as
+/// `state.dark` — the lock screen itself always hands this view a dark
+/// appearance, so `colorScheme` alone would draw a dark card on a phone
+/// set to Light (seen in the simulator, 2026-11-01). The ground, the
+/// system's own controls and every colour inside come from the one
+/// `scheme`, so they cannot disagree. A card from a build before `dark`
+/// existed falls back to what the lock screen says. The Dynamic Island
+/// is black whatever the setting, and keeps its night colours.
+private struct NowLockScreen: View {
+    @Environment(\.colorScheme) private var lockScreen
+    let state: NowActivityAttributes.ContentState
+
+    private var scheme: ColorScheme {
+        guard let dark = state.dark else { return lockScreen }
+        return dark ? .dark : .light
+    }
+
+    var body: some View {
+        NowLockCard(state: state)
+            .environment(\.colorScheme, scheme)
+            .activityBackgroundTint(scheme == .dark ? NowInk.surfaceNight : NowInk.surfaceDay)
+            .activitySystemActionForegroundColor(scheme == .dark ? NowInk.inkNight : NowInk.inkDay)
+            .widgetURL(URL(string: "myadhd://open"))
+    }
+}
 
 private struct NowLockCard: View {
     @Environment(\.colorScheme) private var scheme
@@ -172,4 +195,13 @@ private enum NowInk {
     static let accentNight = Color(red: 139 / 255, green: 125 / 255, blue: 255 / 255)
     /// `onAccent` at night: the ink on that accent.
     static let onAccentNight = Color(red: 16 / 255, green: 16 / 255, blue: 24 / 255)
+    /// `--surface`, day and night (Theme.surface; the same pair as the
+    /// WidgetBackground colour set). Named here rather than read from the
+    /// asset because the lock screen resolves an asset colour in its own
+    /// dark appearance, not the phone's.
+    static let surfaceDay = Color(red: 1, green: 1, blue: 1)
+    static let surfaceNight = Color(red: 16 / 255, green: 16 / 255, blue: 24 / 255)
+    /// `--ink`, day and night (Theme.ink).
+    static let inkDay = Color(red: 16 / 255, green: 16 / 255, blue: 24 / 255)
+    static let inkNight = Color(red: 243 / 255, green: 242 / 255, blue: 251 / 255)
 }
